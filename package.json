@@ -1,0 +1,16 @@
+{
+  "name": "pi-preset",
+  "version": "0.1.0",
+  "description": "Personal pi environment preset: ramp status bar footer, extension set, and font bootstrap",
+  "keywords": ["pi-package"],
+  "license": "MIT",
+  "type": "module",
+  "pi": {
+    "extensions": ["./extensions"]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  }
+}
