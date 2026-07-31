@@ -72,10 +72,6 @@ function splitGitRef(url: string): { repo: string; ref?: string } {
 	return { repo: `${host}/${repoPath}`, ref };
 }
 
-function isLocalPathSource(source: string): boolean {
-	return source.startsWith(".") || isAbsolute(source) || source.startsWith("~");
-}
-
 /** Stable identity for a settings.json packages[] entry. */
 export function packageIdentity(source: string, baseDir: string): string {
 	const trimmed = source.trim();
@@ -84,11 +80,11 @@ export function packageIdentity(source: string, baseDir: string): string {
 		return `npm:${parseNpmName(trimmed.slice("npm:".length).trim())}`;
 	}
 
-	const hasGitPrefix = trimmed.startsWith("git:");
-	const url = hasGitPrefix ? trimmed.slice("git:".length).trim() : trimmed;
-	const looksLikeUrl = /^(https?|ssh|git):\/\//i.test(url) || /^git@[^:]+:/.test(url);
+	const gitPrefix = /^(git|github):/.exec(trimmed);
+	const url = gitPrefix ? trimmed.slice(gitPrefix[0].length).trim() : trimmed;
+	const looksLikeUrl = /^(https?|ssh):\/\//i.test(url);
 
-	if (hasGitPrefix || looksLikeUrl) {
+	if (gitPrefix || looksLikeUrl) {
 		const { repo } = splitGitRef(url);
 		let host = "";
 		let path = "";
@@ -100,7 +96,7 @@ export function packageIdentity(source: string, baseDir: string): string {
 		} else if (repo.includes("://")) {
 			try {
 				const parsed = new URL(repo);
-				host = parsed.hostname;
+				host = parsed.hostname.toLowerCase();
 				path = parsed.pathname.replace(/^\/+/, "");
 			} catch {
 				return `raw:${trimmed}`;
@@ -108,22 +104,25 @@ export function packageIdentity(source: string, baseDir: string): string {
 		} else {
 			const slashIndex = repo.indexOf("/");
 			if (slashIndex >= 0) {
-				host = repo.slice(0, slashIndex);
+				host = repo.slice(0, slashIndex).toLowerCase();
 				path = repo.slice(slashIndex + 1);
 			}
 		}
 
-		path = path.replace(/\.git$/, "").replace(/^\/+/, "");
+		// Host case and a trailing slash or .git suffix are not identity: pi
+		// normalizes them away, so matching its spelling avoids appending a
+		// duplicate that pi would then silently dedupe at load.
+		path = path.replace(/\.git$/, "").replace(/^\/+/, "").replace(/\/+$/, "");
 		if (host && path) return `git:${host}/${path}`;
 		return `raw:${trimmed}`;
 	}
 
-	if (isLocalPathSource(trimmed)) {
-		return `local:${resolve(baseDir, trimmed.replace(/^~(?=\/|$)/, process.env.HOME ?? "~"))}`;
-	}
-
-	// Bare npm name (settings allows "pi-skills" without the npm: prefix).
-	return `npm:${parseNpmName(trimmed)}`;
+	// Everything else is a local path, mirroring pi's isLocalPath
+	// (utils/paths.ts:41-55): anything without a known non-local prefix is local.
+	// A bare `pi-wtf` is therefore NOT an npm source to pi, however much it reads
+	// like one — calling it npm here would let a settings entry that pi resolves
+	// to a nonexistent directory satisfy a requirement.
+	return `local:${resolve(baseDir, trimmed.replace(/^~(?=\/|$)/, process.env.HOME ?? "~"))}`;
 }
 
 /** packages[] entries are either a source string or { source, ...filters }. */

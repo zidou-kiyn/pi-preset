@@ -16,7 +16,7 @@ Restart pi, then run:
 /preset-sync
 ```
 
-`/preset-sync` shows a diff of everything it would change and writes nothing until you confirm. Restart pi once more so the newly declared packages install and load.
+`/preset-sync` shows a diff of everything it would change and writes nothing until you confirm. Restart pi once more so the newly declared packages install and load — and do that before touching `/config` in the same session (see [Design notes](#design-notes)).
 
 ## What it ships
 
@@ -101,7 +101,9 @@ pi only reconciles a git source to its *configured* ref and never advances it on
 
 - **No preferences are shipped.** No `theme`, no `defaultProvider`, no `defaultModel`, no `defaultThinkingLevel`, no `AGENTS.md`. Those are personal and belong on the machine, not in a package.
 - **No credentials, ever.** `scripts/scan-secrets.sh` scans the working tree and the full git history before every push.
-- **No automatic `pi install`.** `/preset-sync` only writes `packages[]` and lets pi install on its next start, so it never writes concurrently with pi's own package manager.
+- **No automatic `pi install`.** `/preset-sync` only writes `packages[]` and lets pi install on its next start.
+
+  > **Restart pi after a sync that changed `packages[]`.** Extensions get no access to pi's settings manager, so the write goes straight to the file while the running session still holds the array it loaded at startup. If you use `/config` or `pi install` in that same session afterwards, pi persists its stale snapshot and the newly added entries disappear. Re-running `/preset-sync` restores them; nothing else is lost.
 - **No runtime dependencies.** Zip extraction uses system tools instead of adding a supply-chain layer.
 - **`pi-startup-redraw-fix` is not included.** It rewrites `ESC[3J ESC[2J ESC[H` into `ESC[H ESC[2J ESC[3J`, but pi's alternate-screen renderer emits `ESC[2J ESC[H ESC[3J`, which never matches its trigger. The patch cannot fire.
 

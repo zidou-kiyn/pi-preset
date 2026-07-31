@@ -83,7 +83,13 @@ export default function (pi: ExtensionAPI) {
 			if (result.ok) {
 				lines.push("", POST_SYNC_REMINDER);
 				if (result.results.some((entry) => entry.kind === "settings.packages.add")) {
-					lines.push("Restart pi to install and load the newly added packages.");
+					// Extensions cannot reach pi's settings manager, so this session is
+					// still holding the packages[] it loaded at startup. Anything that
+					// makes pi persist settings before a restart writes that stale array
+					// back over what was just added.
+					lines.push(
+						"Restart pi to install and load the newly added packages — before using /config or pi install in this session, which would persist this session's older packages[] over them.",
+					);
 				}
 				if (result.results.some((entry) => entry.kind === "footer.demote")) {
 					lines.push("Restart pi so the footer loads once, from the package.");

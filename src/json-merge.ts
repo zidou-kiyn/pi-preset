@@ -9,7 +9,19 @@
  *   - back up to <file>.preset-bak before writing, then tmp + rename
  */
 
-import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import {
+	chmodSync,
+	copyFileSync,
+	existsSync,
+	lstatSync,
+	mkdirSync,
+	readFileSync,
+	realpathSync,
+	renameSync,
+	statSync,
+	unlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { dirname } from "node:path";
 
 export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
@@ -104,21 +116,45 @@ export function flattenLeaves(patch: JsonObject, prefix: readonly string[] = [])
 }
 
 /**
+ * Resolve a symlinked target to the file it points at.
+ *
+ * rename() replaces a symlink rather than writing through it, which would
+ * silently detach a dotfiles-managed config from its repository. Writing to the
+ * resolved path keeps the link intact. A dangling link resolves to nothing and
+ * is treated as an absent file.
+ */
+function resolveTarget(filePath: string): string {
+	try {
+		if (lstatSync(filePath).isSymbolicLink()) return realpathSync(filePath);
+	} catch {
+		// missing, or a dangling link: write the path as given
+	}
+	return filePath;
+}
+
+/**
  * Write a JSON object atomically, keeping a .preset-bak of the previous content.
  *
  * Backup first, then write a sibling tmp file and rename it over the target, so
- * an interrupted write can never leave a truncated file in place.
+ * an interrupted write can never leave a truncated file in place. The tmp file
+ * inherits the target's permissions before the rename: these files hold provider
+ * API keys, and a 0600 config must not silently widen to 0644 because a fresh
+ * file was created under the process umask.
  */
-export function writeJsonObjectAtomic(filePath: string, data: JsonObject): void {
+export function writeJsonObjectAtomic(inputPath: string, data: JsonObject): void {
+	const filePath = resolveTarget(inputPath);
 	mkdirSync(dirname(filePath), { recursive: true });
 
+	let mode: number | undefined;
 	if (existsSync(filePath)) {
+		mode = statSync(filePath).mode & 0o777;
 		copyFileSync(filePath, `${filePath}.preset-bak`);
 	}
 
 	const tmpPath = `${filePath}.preset.tmp`;
 	try {
 		writeFileSync(tmpPath, `${JSON.stringify(data, null, 2)}\n`, "utf-8");
+		if (mode !== undefined) chmodSync(tmpPath, mode);
 		renameSync(tmpPath, filePath);
 	} catch (error) {
 		if (existsSync(tmpPath)) {

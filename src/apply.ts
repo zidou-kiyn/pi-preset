@@ -51,6 +51,12 @@ function applyPackages(step: Extract<Step, { kind: "settings.packages.add" }>): 
 
 	// Append only: never reorder, never drop entries the user added themselves.
 	const appended = step.missing.filter((source) => !installed.has(packageIdentity(source, baseDir)));
+	if (appended.length === 0) {
+		// pi installed them between plan and apply. Writing anyway would rewrite a
+		// credential-bearing file, bump its mtime, and clobber a good .preset-bak
+		// with an identical one, all to change nothing.
+		return "settings.json: already up to date, nothing written";
+	}
 	existing.push(...appended);
 
 	// Top-level key with array semantics: a plain override, not a deep merge.

@@ -102,10 +102,14 @@ export async function detectFont(): Promise<boolean> {
 
 	if (fontPlatform === "linux") {
 		const result = await runCommand("fc-list", [":", "family"], 15_000);
-		if (result.code === 0) {
-			return result.stdout.toLowerCase().includes(FONT.family.toLowerCase());
+		if (result.code === 0 && result.stdout.toLowerCase().includes(FONT.family.toLowerCase())) {
+			return true;
 		}
-		// fc-list missing or failed: fall through to the directory scan.
+		// A clean fc-list that does not report the family is NOT proof of absence:
+		// fontconfig older than 2.13.94 ignores XDG_DATA_HOME, and a failed
+		// fc-cache leaves installed files unindexed. Believing it would make the
+		// font step permanently unsatisfiable, so the plan would never be empty and
+		// every run would re-download 159 MB. Fall through to the disk scan.
 	}
 
 	return getFontSearchDirs().some((dir) => scanDirForFont(dir, FONT.fileHints));
