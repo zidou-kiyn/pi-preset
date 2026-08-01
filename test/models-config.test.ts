@@ -4,6 +4,7 @@ import { chmodSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { withPlatform } from "./platform-test-utils.ts";
 import { isPlainObject, type JsonValue } from "../src/json-merge.ts";
 import {
 	buildProviderCandidate,
@@ -102,7 +103,7 @@ test("Pi JSONC comments and trailing commas are accepted and the root is normali
 	}
 });
 
-test("invalid JSON, non-object roots, non-object providers, broad modes, and dangling links block before write", () => {
+test("invalid JSON, non-object roots, non-object providers, broad modes, and dangling links block before write", async () => {
 	const home = makeHome();
 	try {
 		const invalidPath = join(home, "invalid.json");
@@ -117,14 +118,32 @@ test("invalid JSON, non-object roots, non-object providers, broad modes, and dan
 		secureWrite(providersPath, '{ "providers": [] }');
 		assert.throws(() => readModelsDocument(providersPath), /non-object "providers"/);
 
-		const broadPath = join(home, "broad.json");
-		secureWrite(broadPath, '{ "providers": {} }');
-		chmodSync(broadPath, 0o640);
-		assert.throws(() => readModelsDocument(broadPath), /chmod 600/);
+		for (const platform of ["linux", "darwin"] as const) {
+			const broadPath = join(home, `${platform}-broad.json`);
+			secureWrite(broadPath, '{ "providers": {} }');
+			chmodSync(broadPath, 0o640);
+			await withPlatform(platform, () => {
+				assert.throws(() => readModelsDocument(broadPath), /chmod 600/);
+			});
+		}
 
 		const danglingPath = join(home, "dangling.json");
 		symlinkSync(join(home, "missing-target.json"), danglingPath);
 		assert.throws(() => readModelsDocument(danglingPath), /dangling symlink/);
+	} finally {
+		cleanup(home);
+	}
+});
+
+test("Windows writable files skip the POSIX group/other permission gate", async () => {
+	const home = makeHome();
+	try {
+		const path = join(home, "models.json");
+		secureWrite(path, '{ "providers": {} }');
+		chmodSync(path, 0o666);
+		const document = await withPlatform("win32", () => readModelsDocument(path));
+		assert.equal(document.exists, true);
+		assert.deepEqual(document.data, { providers: {} });
 	} finally {
 		cleanup(home);
 	}

@@ -83,7 +83,7 @@ function readTargetStats(inputPath: string): { targetPath: string; exists: boole
 	}
 
 	const mode = targetStats.mode & 0o777;
-	if ((mode & 0o077) !== 0) {
+	if (process.platform !== "win32" && (mode & 0o077) !== 0) {
 		throw new Error(
 			`refusing to read ${requestedPath}: file permissions are broader than owner-only; run chmod 600 ${targetPath}`,
 		);

@@ -7,6 +7,7 @@ import { test } from "node:test";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { KeybindingsManager, TUI_KEYBINDINGS, visibleWidth } from "@earendil-works/pi-tui";
 import { type PresetModelsAddDependencies, runPresetModelsAdd } from "../extensions/preset-models-add.ts";
+import { assertModeOnPosix, withPlatform } from "./platform-test-utils.ts";
 import { FAMILY_TEMPLATES } from "../src/model-templates.ts";
 import { buildProviderCandidate } from "../src/models-config.ts";
 import { applyProviderPlan } from "../src/models-config-apply.ts";
@@ -223,9 +224,124 @@ test("successful workflow writes the selected bundle and never reports the API k
 			["gpt-5.6-sol"],
 		);
 		assert.equal(parsed.providers["provider-id"].apiKey, key);
-		assert.equal(statSync(path).mode & 0o777, 0o600);
+		assertModeOnPosix(path, 0o600);
 		assert.equal(preview.includes(key), false);
 		assert.equal(notifications.join("\n").includes(key), false);
+		assert.equal(notifications.join("\n").includes("no restart is required"), true);
+	} finally {
+		cleanup(home);
+	}
+});
+
+test("simulated Windows first add writes the selected provider", async () => {
+	const home = makeHome();
+	try {
+		const path = join(home, "models.json");
+		const key = runtimeKey();
+		const notifications: string[] = [];
+		await withPlatform("win32", async () => {
+			await runPresetModelsAdd(makeContext("tui", notifications), makeDependencies(path, key));
+		});
+		const parsed = JSON.parse(readFileSync(path, "utf8"));
+		assert.equal(parsed.providers["provider-id"].api, "openai-responses");
+		assert.deepEqual(
+			parsed.providers["provider-id"].models.map((model: { id: string }) => model.id),
+			["gpt-5.6-sol"],
+		);
+		assert.equal(parsed.providers["provider-id"].apiKey, key);
+		assert.equal(existsSync(`${path}.preset-bak`), false);
+		assert.equal(notifications.join("\n").includes("no restart is required"), true);
+	} finally {
+		cleanup(home);
+	}
+});
+
+test("simulated Windows repeated identical add is an exact no-op", async () => {
+	const home = makeHome();
+	try {
+		const path = join(home, "models.json");
+		const key = runtimeKey();
+		const notifications: string[] = [];
+		await withPlatform("win32", async () => {
+			await runPresetModelsAdd(makeContext("tui", notifications), makeDependencies(path, key));
+			chmodSync(path, 0o666);
+			const beforeBytes = readFileSync(path);
+			const beforeMtime = statSync(path).mtimeMs;
+			await new Promise((resolve) => setTimeout(resolve, 10));
+
+			let keyPrompts = 0;
+			let applyCalls = 0;
+			const dependencies = makeDependencies(path, key);
+			dependencies.promptApiKey = async () => {
+				keyPrompts++;
+				return key;
+			};
+			dependencies.apply = async () => {
+				applyCalls++;
+				throw new Error("must not apply an exact no-op");
+			};
+			await runPresetModelsAdd(makeContext("tui", notifications), dependencies);
+
+			assert.equal(keyPrompts, 1);
+			assert.equal(applyCalls, 0);
+			assert.equal(notifications.join("\n").includes("already configured"), true);
+			assert.deepEqual(readFileSync(path), beforeBytes);
+			assert.equal(statSync(path).mtimeMs, beforeMtime);
+			assert.equal(existsSync(`${path}.preset-bak`), false);
+		});
+	} finally {
+		cleanup(home);
+	}
+});
+
+test("simulated Windows replacement preserves siblings and backs up the original bytes", async () => {
+	const home = makeHome();
+	try {
+		const path = join(home, "models.json");
+		const old = {
+			baseUrl: "https://old.example.invalid/v1",
+			apiKey: runtimeKey(),
+			api: "openai-responses",
+			compat: { supportsDeveloperRole: false, staleCompatibility: true },
+			models: [{ id: "stale-model", custom: true }],
+		};
+		const original = JSON.stringify({ providers: { "provider-id": old, sibling: { keep: true } } });
+		secureWrite(path, original);
+		chmodSync(path, 0o666);
+		const key = runtimeKey();
+		const notifications: string[] = [];
+		let diffConfirmations = 0;
+		let replacementConfirmations = 0;
+		await withPlatform("win32", async () => {
+			const dependencies = makeDependencies(path, key, {
+				selectedModels: ["gpt-5.6-terra"],
+				baseUrl: "https://new.example.invalid/v1",
+			});
+			dependencies.confirmDiff = async () => {
+				diffConfirmations++;
+				return true;
+			};
+			dependencies.confirmReplacement = async () => {
+				replacementConfirmations++;
+				return true;
+			};
+			await runPresetModelsAdd(makeContext("tui", notifications), dependencies);
+		});
+
+		const parsed = JSON.parse(readFileSync(path, "utf8"));
+		const replaced = parsed.providers["provider-id"];
+		assert.equal(diffConfirmations, 1);
+		assert.equal(replacementConfirmations, 1);
+		assert.equal(replaced.baseUrl, "https://new.example.invalid/v1");
+		assert.equal(replaced.apiKey, key);
+		assert.deepEqual(
+			replaced.models.map((model: { id: string }) => model.id),
+			["gpt-5.6-terra"],
+		);
+		assert.equal("staleCompatibility" in replaced.compat, false);
+		assert.equal(replaced.models.some((model: { id: string }) => model.id === "stale-model"), false);
+		assert.deepEqual(parsed.providers.sibling, { keep: true });
+		assert.equal(readFileSync(`${path}.preset-bak`, "utf8"), original);
 		assert.equal(notifications.join("\n").includes("no restart is required"), true);
 	} finally {
 		cleanup(home);
@@ -442,23 +558,27 @@ test("invalid URL and empty API key fail before preview or write", async () => {
 	}
 });
 
-test("broad permissions block before masked credential entry", async () => {
+test("simulated Linux and macOS broad permissions block before masked credential entry", async () => {
 	const home = makeHome();
 	try {
 		const path = join(home, "models.json");
 		secureWrite(path, '{ "providers": {} }');
-		chmodSync(path, 0o640);
-		let keyPrompts = 0;
-		const notifications: string[] = [];
-		const dependencies = makeDependencies(path, runtimeKey());
-		dependencies.promptApiKey = async () => {
-			keyPrompts++;
-			return runtimeKey();
-		};
-		await runPresetModelsAdd(makeContext("tui", notifications), dependencies);
-		assert.equal(keyPrompts, 0);
-		assert.equal(notifications.join("\n").includes("chmod 600"), true);
-		assert.equal(existsSync(`${path}.preset-bak`), false);
+		for (const platform of ["linux", "darwin"] as const) {
+			chmodSync(path, 0o640);
+			let keyPrompts = 0;
+			const notifications: string[] = [];
+			const dependencies = makeDependencies(path, runtimeKey());
+			dependencies.promptApiKey = async () => {
+				keyPrompts++;
+				return runtimeKey();
+			};
+			await withPlatform(platform, async () => {
+				await runPresetModelsAdd(makeContext("tui", notifications), dependencies);
+			});
+			assert.equal(keyPrompts, 0, platform);
+			assert.equal(notifications.join("\n").includes("chmod 600"), true, platform);
+			assert.equal(existsSync(`${path}.preset-bak`), false, platform);
+		}
 	} finally {
 		cleanup(home);
 	}

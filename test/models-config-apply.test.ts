@@ -14,6 +14,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { assertModeOnPosix } from "./platform-test-utils.ts";
 import {
 	buildProviderCandidate,
 	type ProviderPlan,
@@ -213,10 +214,10 @@ test("valid symlink apply keeps the link and owner-only target mode", () => {
 		);
 		applyProviderPlan(readyPlan(plan), path);
 		assert.equal(lstatSync(path).isSymbolicLink(), true);
-		assert.equal(statSync(target).mode & 0o777, 0o600);
+		assertModeOnPosix(target, 0o600);
 		assert.equal(JSON.parse(readFileSync(target, "utf8")).providers["provider-id"].models[0].id, "gpt-5.6-terra");
 		assert.equal(readFileSync(`${target}.preset-bak`, "utf8"), original);
-		assert.equal(statSync(`${target}.preset-bak`).mode & 0o777, 0o600);
+		assertModeOnPosix(`${target}.preset-bak`, 0o600);
 	} finally {
 		cleanup(home);
 	}

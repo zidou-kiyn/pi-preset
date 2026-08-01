@@ -14,6 +14,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { assertModeOnPosix } from "./platform-test-utils.ts";
 import { apply } from "../src/apply.ts";
 import { deepMerge, type JsonObject, readJsonObject, writeJsonObjectAtomic } from "../src/json-merge.ts";
 import type { SyncPlan } from "../src/plan.ts";
@@ -53,7 +54,7 @@ test("new model files use exact 0600 mode and leave no temporary sibling", () =>
 	try {
 		const path = join(home, "nested", "models.json");
 		writeJsonObjectAtomic(path, { providers: {} }, { newFileMode: 0o600, rejectDanglingSymlink: true });
-		assert.equal(statSync(path).mode & 0o777, 0o600);
+		assertModeOnPosix(path, 0o600);
 		assert.deepEqual(
 			readdirSync(join(home, "nested")).filter((name) => name.includes("preset.tmp")),
 			[],
@@ -71,9 +72,9 @@ test("existing owner-only modes and original backup bytes are preserved", () => 
 		writeFileSync(path, original);
 		chmodSync(path, 0o400);
 		writeJsonObjectAtomic(path, { providers: { added: true } }, { newFileMode: 0o600, rejectDanglingSymlink: true });
-		assert.equal(statSync(path).mode & 0o777, 0o400);
+		assertModeOnPosix(path, 0o400);
 		assert.equal(readFileSync(`${path}.preset-bak`, "utf8"), original);
-		assert.equal(statSync(`${path}.preset-bak`).mode & 0o777, 0o400);
+		assertModeOnPosix(`${path}.preset-bak`, 0o400);
 	} finally {
 		cleanup(home);
 	}
@@ -86,7 +87,7 @@ test("legacy callers still preserve a broader existing mode when no opt-in gate 
 		writeFileSync(path, '{ "keep": true }');
 		chmodSync(path, 0o640);
 		writeJsonObjectAtomic(path, { keep: true, changed: true });
-		assert.equal(statSync(path).mode & 0o777, 0o640);
+		assertModeOnPosix(path, 0o640);
 	} finally {
 		cleanup(home);
 	}
@@ -176,7 +177,7 @@ test("backup creation never follows a pre-existing backup symlink", () => {
 		assert.equal(readFileSync(unrelated, "utf8"), "must remain unchanged");
 		assert.equal(lstatSync(backupPath).isSymbolicLink(), false);
 		assert.equal(readFileSync(backupPath, "utf8"), original);
-		assert.equal(statSync(backupPath).mode & 0o777, 0o600);
+		assertModeOnPosix(backupPath, 0o600);
 	} finally {
 		cleanup(home);
 	}
@@ -216,8 +217,8 @@ test("legacy preset-sync callers retain merge behavior and existing modes", asyn
 		assert.deepEqual(webSearch.keep, { nested: true });
 		assert.deepEqual(webSearch.webSearch, { extra: "preserve", enabled: false });
 		assert.deepEqual(webSearch.ssrf, { trustEnvProxy: true });
-		assert.equal(statSync(settingsPath).mode & 0o777, 0o640);
-		assert.equal(statSync(webSearchPath).mode & 0o777, 0o640);
+		assertModeOnPosix(settingsPath, 0o640);
+		assertModeOnPosix(webSearchPath, 0o640);
 		assert.equal(existsSync(`${settingsPath}.preset-bak`), true);
 		assert.equal(existsSync(`${webSearchPath}.preset-bak`), true);
 	} finally {

@@ -17,6 +17,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { assertModeOnPosix } from "./platform-test-utils.ts";
 import { runPresetSkillsSync } from "../extensions/preset-skills-sync.ts";
 import {
 	applySkillSync,
@@ -230,9 +231,9 @@ test("process failure restores tracked state without deleting untracked root ent
 		assert.equal(readFileSync(paths.lockPath, "utf8"), beforeLock);
 		assert.equal(readFileSync(join(paths.piSkillsRoot, "officecli", "SKILL.md"), "utf8"), beforeOfficecli);
 		assert.equal(existsSync(join(paths.piSkillsRoot, "unrelated")), true);
-		assert.equal(statSync(paths.skillPaths["grill-me"].pi).mode & 0o777, 0o750);
-		assert.equal(statSync(`${paths.skillPaths["grill-me"].pi}/SKILL.md`).mode & 0o777, 0o640);
-		assert.equal(statSync(paths.lockPath).mode & 0o777, 0o600);
+		assertModeOnPosix(paths.skillPaths["grill-me"].pi, 0o750);
+		assertModeOnPosix(`${paths.skillPaths["grill-me"].pi}/SKILL.md`, 0o640);
+		assertModeOnPosix(paths.lockPath, 0o600);
 		assert.equal(statSync(`${paths.skillPaths["grill-me"].pi}/SKILL.md`).mtimeMs, preservedTime.getTime());
 		assert.equal(statSync(paths.lockPath).mtimeMs, preservedTime.getTime());
 		assert.match(renderSkillSyncApplyResult(result), /recovery command: npx/);
