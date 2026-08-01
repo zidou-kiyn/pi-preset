@@ -41,6 +41,11 @@ export function getSettingsPath(): string {
 	return join(getAgentDir(), "settings.json");
 }
 
+/** pi's native custom-provider catalogue. */
+export function getModelsPath(): string {
+	return join(getAgentDir(), "models.json");
+}
+
 /** Directory auto-discovered for user extensions. */
 export function getUserExtensionsDir(): string {
 	return join(getAgentDir(), "extensions");

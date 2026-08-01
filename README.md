@@ -18,6 +18,26 @@ Restart pi, then run:
 
 `/preset-sync` shows a diff of everything it would change and writes nothing until you confirm. Restart pi once more so the newly declared packages install and load — and do that before touching `/config` in the same session (see [Design notes](#design-notes)). If you want the optional upstream grilling workflow, run `/preset-skills-sync` to install its two required skills.
 
+To add a custom model provider, run `/preset-models-add` in interactive TUI mode. The wizard writes only the selected provider entry to `~/.pi/agent/models.json` and never changes `/preset-sync` behavior.
+
+## Interactive model provider wizard
+
+`/preset-models-add` is a deterministic, TUI-only wizard for three fixed model bundles:
+
+| Family | Models | Fixed API mode |
+|---|---|---|
+| Anthropic | Claude Fable 5, Claude Opus 5, Claude Sonnet 5 | `anthropic-messages` |
+| OpenAI | GPT-5.6 Sol, GPT-5.6 Terra, GPT-5.6 Luna | `openai-responses` |
+| DeepSeek | DeepSeek V4 Flash | `openai-responses` |
+
+Choose a family, explicitly select one or more models, then enter a provider identifier, base URL, and API key. The catalog metadata, compatibility flags, thinking-level maps, context limits, modalities, and pricing tiers are bundled in the package; the wizard never asks for those schema details. The API key is collected by a masked TUI component and is not rendered in the preview, notifications, diagnostics, or command arguments. RPC, JSON, and print modes report that the wizard requires interactive TUI mode and do not write anything.
+
+The target file is parsed with Pi-compatible `//` comments and trailing commas. Only `providers[providerId]` is added or replaced; unrelated top-level data and sibling providers are re-read immediately before the atomic write and preserved. Existing files must grant no group or other permissions. A missing file is created as `0600`; an existing owner-only mode such as `0600` or `0400` is preserved. A broader mode stops the wizard before API-key entry and prints an actionable `chmod 600` instruction. Valid symlinks are followed without replacing the symlink inode; dangling symlinks are blocked.
+
+The wizard shows a redacted provider-only diff and asks for explicit confirmation. Replacing a different existing provider requires a second confirmation and replaces that provider object as a unit rather than merging stale model fields. An existing identical provider is reported as already configured and does not create a backup or change the file mtime. Successful writes create `<real-models-path>.preset-bak` containing the original bytes, then atomically rename the new JSON. Open `/model` after success to hot-reload the selected models; no Pi restart is required.
+
+Custom model entry and editing, arbitrary model metadata, OAuth, environment-variable generation, secret managers, and provider families outside Anthropic, OpenAI, and DeepSeek are intentionally out of scope. Use the provider's own endpoint and credentials locally; the public preset contains no user-specific provider identifier, endpoint, or credential.
+
 ## Upstream grilling skills
 
 The preset can install Matt Pocock's upstream [`skills`](https://github.com/mattpocock/skills) workflow. The repository and its skill content are MIT-licensed; Matt Pocock owns the upstream files. This package does not vendor, rewrite, or behaviorally fork them. It invokes the official Vercel `skills` CLI at install or refresh time instead.
@@ -68,6 +88,7 @@ Skills execute as model instructions with Pi's agent permissions. Review the two
 | `extensions/vibrant-footer.ts` | The status bar. Toggle with `/vibrant-footer` |
 | `extensions/preset-sync.ts` | The `/preset-sync` command |
 | `extensions/preset-skills-sync.ts` | The `/preset-skills-sync` upstream skill installer and refresher |
+| `extensions/preset-models-add.ts` | The `/preset-models-add` masked model-provider wizard |
 
 ## What `/preset-sync` does
 
