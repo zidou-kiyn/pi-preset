@@ -9,12 +9,14 @@
  *   - back up to <file>.preset-bak before writing, then tmp + rename
  */
 
+import { randomBytes } from "node:crypto";
 import {
-	chmodSync,
-	copyFileSync,
+	closeSync,
 	existsSync,
+	fchmodSync,
 	lstatSync,
 	mkdirSync,
+	openSync,
 	readFileSync,
 	realpathSync,
 	renameSync,
@@ -29,6 +31,13 @@ export type JsonObject = { [key: string]: JsonValue };
 
 export function isPlainObject(value: unknown): value is JsonObject {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export interface WriteJsonObjectAtomicOptions {
+	/** Exact mode for a newly created target file. */
+	newFileMode?: number;
+	/** Refuse to replace a dangling symlink instead of treating it as absent. */
+	rejectDanglingSymlink?: boolean;
 }
 
 export interface ReadJsonResult {
@@ -102,7 +111,10 @@ export function getPath(source: JsonObject, keyPath: readonly string[]): JsonVal
 }
 
 /** Flatten a patch object into leaf key paths, so a diff can be reported per key. */
-export function flattenLeaves(patch: JsonObject, prefix: readonly string[] = []): Array<{ path: string[]; value: JsonValue }> {
+export function flattenLeaves(
+	patch: JsonObject,
+	prefix: readonly string[] = [],
+): Array<{ path: string[]; value: JsonValue }> {
 	const leaves: Array<{ path: string[]; value: JsonValue }> = [];
 	for (const [key, value] of Object.entries(patch)) {
 		const keyPath = [...prefix, key];
@@ -123,43 +135,120 @@ export function flattenLeaves(patch: JsonObject, prefix: readonly string[] = [])
  * resolved path keeps the link intact. A dangling link resolves to nothing and
  * is treated as an absent file.
  */
-function resolveTarget(filePath: string): string {
+export function resolveJsonTargetPath(filePath: string, rejectDanglingSymlink = false): string {
 	try {
-		if (lstatSync(filePath).isSymbolicLink()) return realpathSync(filePath);
-	} catch {
-		// missing, or a dangling link: write the path as given
+		if (!lstatSync(filePath).isSymbolicLink()) return filePath;
+		try {
+			return realpathSync(filePath);
+		} catch {
+			if (rejectDanglingSymlink) {
+				throw new Error(`${filePath} is a dangling symlink; point it at a file or remove the link before retrying`);
+			}
+			return filePath;
+		}
+	} catch (error) {
+		if (rejectDanglingSymlink && (error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+		// missing, or a dangling link when rejection is disabled: write the path as given
 	}
 	return filePath;
+}
+
+interface UniqueSiblingFile {
+	path: string;
+	descriptor: number;
+}
+
+function openUniqueSibling(filePath: string, label: string, mode: number): UniqueSiblingFile {
+	for (let attempt = 0; attempt < 10; attempt++) {
+		const suffix = `${process.pid}-${randomBytes(8).toString("hex")}`;
+		const candidate = `${filePath}.${label}-${suffix}`;
+		try {
+			return { path: candidate, descriptor: openSync(candidate, "wx", mode & 0o777) };
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+		}
+	}
+	throw new Error(`cannot allocate a unique temporary path beside ${filePath}`);
+}
+
+function writeBackupAtomic(filePath: string, mode: number): void {
+	const backupPath = `${filePath}.preset-bak`;
+	const temporary = openUniqueSibling(filePath, "preset.bak-tmp", mode | 0o200);
+	let descriptor: number | undefined = temporary.descriptor;
+	let temporaryExists = true;
+	try {
+		writeFileSync(descriptor, readFileSync(filePath));
+		fchmodSync(descriptor, mode);
+		closeSync(descriptor);
+		descriptor = undefined;
+		renameSync(temporary.path, backupPath);
+		temporaryExists = false;
+	} catch (error) {
+		if (descriptor !== undefined) {
+			try {
+				closeSync(descriptor);
+			} catch {
+				// best effort; the backup error below is the one that matters
+			}
+		}
+		if (temporaryExists && existsSync(temporary.path)) {
+			try {
+				unlinkSync(temporary.path);
+			} catch {
+				// best effort; the backup error below is the one that matters
+			}
+		}
+		throw error;
+	}
 }
 
 /**
  * Write a JSON object atomically, keeping a .preset-bak of the previous content.
  *
  * Backup first, then write a sibling tmp file and rename it over the target, so
- * an interrupted write can never leave a truncated file in place. The tmp file
- * inherits the target's permissions before the rename: these files hold provider
- * API keys, and a 0600 config must not silently widen to 0644 because a fresh
- * file was created under the process umask.
+ * an interrupted write can never leave a truncated file in place. Unique files
+ * are opened exclusively and kept open through write/chmod, preventing another
+ * process from swapping in a symlink between allocation and writing.
  */
-export function writeJsonObjectAtomic(inputPath: string, data: JsonObject): void {
-	const filePath = resolveTarget(inputPath);
+export function writeJsonObjectAtomic(
+	inputPath: string,
+	data: JsonObject,
+	options: WriteJsonObjectAtomicOptions = {},
+): void {
+	const serialized = `${JSON.stringify(data, null, 2)}\n`;
+	const filePath = resolveJsonTargetPath(inputPath, options.rejectDanglingSymlink ?? false);
 	mkdirSync(dirname(filePath), { recursive: true });
 
 	let mode: number | undefined;
 	if (existsSync(filePath)) {
 		mode = statSync(filePath).mode & 0o777;
-		copyFileSync(filePath, `${filePath}.preset-bak`);
+		writeBackupAtomic(filePath, mode);
 	}
 
-	const tmpPath = `${filePath}.preset.tmp`;
+	const tempMode =
+		options.newFileMode !== undefined ? options.newFileMode | 0o200 : mode !== undefined ? mode | 0o200 : 0o666;
+	const temporary = openUniqueSibling(filePath, "preset.tmp", tempMode);
+	let descriptor: number | undefined = temporary.descriptor;
+	let temporaryExists = true;
 	try {
-		writeFileSync(tmpPath, `${JSON.stringify(data, null, 2)}\n`, "utf-8");
-		if (mode !== undefined) chmodSync(tmpPath, mode);
-		renameSync(tmpPath, filePath);
+		writeFileSync(descriptor, serialized, "utf8");
+		const finalMode = mode ?? options.newFileMode;
+		if (finalMode !== undefined) fchmodSync(descriptor, finalMode & 0o777);
+		closeSync(descriptor);
+		descriptor = undefined;
+		renameSync(temporary.path, filePath);
+		temporaryExists = false;
 	} catch (error) {
-		if (existsSync(tmpPath)) {
+		if (descriptor !== undefined) {
 			try {
-				unlinkSync(tmpPath);
+				closeSync(descriptor);
+			} catch {
+				// best effort; the write error below is the one that matters
+			}
+		}
+		if (temporaryExists && existsSync(temporary.path)) {
+			try {
+				unlinkSync(temporary.path);
 			} catch {
 				// best effort; the write error below is the one that matters
 			}
