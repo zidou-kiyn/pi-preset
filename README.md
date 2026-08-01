@@ -2,7 +2,7 @@
 
 Personal [pi](https://pi.dev) environment as a pi package: a theme-reactive status bar, a curated extension set, the handful of non-default config keys, and the Nerd Font the footer's glyphs need.
 
-Reproduces a working setup on a new machine in two commands, without shipping a single credential.
+Reproduces the base working setup on a new machine in two commands, without shipping a single credential; the optional upstream grilling workflow has its own explicit sync command.
 
 ## Bootstrap
 
@@ -16,7 +16,50 @@ Restart pi, then run:
 /preset-sync
 ```
 
-`/preset-sync` shows a diff of everything it would change and writes nothing until you confirm. Restart pi once more so the newly declared packages install and load — and do that before touching `/config` in the same session (see [Design notes](#design-notes)).
+`/preset-sync` shows a diff of everything it would change and writes nothing until you confirm. Restart pi once more so the newly declared packages install and load — and do that before touching `/config` in the same session (see [Design notes](#design-notes)). If you want the optional upstream grilling workflow, run `/preset-skills-sync` to install its two required skills.
+
+## Upstream grilling skills
+
+The preset can install Matt Pocock's upstream [`skills`](https://github.com/mattpocock/skills) workflow. The repository and its skill content are MIT-licensed; Matt Pocock owns the upstream files. This package does not vendor, rewrite, or behaviorally fork them. It invokes the official Vercel `skills` CLI at install or refresh time instead.
+
+Both skills are required:
+
+- `grill-me` is the explicitly invoked wrapper. Use `/skill:grill-me` to start a session.
+- `grilling` is the separate interview primitive. Use `/skill:grilling` to invoke it directly.
+
+Pi does not infer a transitive skill dependency, so installing only `grill-me` is not sufficient. The preset's dedicated `/preset-skills-sync` command installs or refreshes both names together. It is the only preset command that performs this network/npm work; `/preset-sync` never installs or refreshes upstream skills.
+
+### Install, refresh, or repair
+
+Run `/preset-skills-sync` in TUI or RPC mode. It shows a read-only plan, asks for explicit confirmation, then invokes this fixed filtered command without a shell:
+
+```bash
+npx --yes skills@latest add mattpocock/skills \
+  --skill grill-me --skill grilling \
+  --agent pi --global --copy --yes
+```
+
+The same filtered `add` command is used for first installation, later refreshes, and repair. The preset deliberately does not use `skills update`: the current update path can drop `--agent pi` and `--copy`, which can retarget another agent or change a Pi-only copy into a different layout. If `npx` is unavailable, the command uses the no-shell equivalent:
+
+```bash
+npm exec --yes --package=skills@latest -- skills add mattpocock/skills \
+  --skill grill-me --skill grilling \
+  --agent pi --global --copy --yes
+```
+
+Node.js 22.20 or newer and npm are required. Network, npm, or GitHub failures are reported without changing the previous pair. The command snapshots the two target entries in both skill roots and the complete global lock before invoking the installer; a non-zero exit or invalid post-install state restores that snapshot and prints a safe recovery command. Concurrent preset-managed runs are serialized with a short-lived lock next to the global skill lock, and a stale lock from a dead process is recovered automatically. Installer diagnostics are control-sequence stripped, credential-redacted, and bounded before display.
+
+Do not use `--all`, install the Claude plugin, install the whole Matt repository as a pi package, or copy individual files into the skill roots. Those paths can load unrelated skills or create duplicate names. If the command finds two independent copies of the same skill, it stops and reports the paths; it never deletes an intentional third-party copy automatically.
+
+The official CLI invocations disable its optional telemetry and npm lifecycle scripts. The preset stores no credentials, passes no CLI metadata, and adds no provider configuration. The child inherits the user’s normal process environment so existing npm, GitHub, proxy, and CA configuration keeps working; displayed diagnostics redact common credential forms. In TUI and RPC modes, a successful content change reloads Pi resources before the command returns. A restart is a fallback if reload is unavailable. Print (`-p`) and JSON modes only render the plan to the appropriate diagnostic stream; they never ask for consent, invoke npm, or write files.
+
+Installed state is kept in these global locations:
+
+- Pi targets: `~/.pi/agent/skills/grill-me/` and `~/.pi/agent/skills/grilling/`
+- Duplicate-check root: `~/.agents/skills/`
+- Lock: `~/.agents/.skill-lock.json`, or `$XDG_STATE_HOME/skills/.skill-lock.json` when `XDG_STATE_HOME` is set
+
+Skills execute as model instructions with Pi's agent permissions. Review the two upstream `SKILL.md` files before enabling them, just as you would review any extension or package with system access.
 
 ## What it ships
 
@@ -24,6 +67,7 @@ Restart pi, then run:
 |---|---|
 | `extensions/vibrant-footer.ts` | The status bar. Toggle with `/vibrant-footer` |
 | `extensions/preset-sync.ts` | The `/preset-sync` command |
+| `extensions/preset-skills-sync.ts` | The `/preset-skills-sync` upstream skill installer and refresher |
 
 ## What `/preset-sync` does
 
