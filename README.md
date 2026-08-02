@@ -92,14 +92,14 @@ Skills execute as model instructions with Pi's agent permissions. Review the two
 
 ## What `/preset-sync` does
 
-1. **Declares 15 extensions** in `~/.pi/agent/settings.json` `packages[]`.
+1. **Declares 14 extensions** in `~/.pi/agent/settings.json` `packages[]`.
 2. **Sets 4 config keys** across three JSON files (see below).
 3. **Moves a local `extensions/vibrant-footer/`** into `extensions-disabled/` if one exists, so the footer does not load twice.
 4. **Installs the font** when it is missing.
 
 Every step is idempotent. A second run reports "already in sync" and touches nothing — not even file mtimes.
 
-### The 15 extensions
+### The 14 extensions
 
 | Package | |
 |---|---|
@@ -110,13 +110,10 @@ Every step is idempotent. A second run reports "already in sync" and touches not
 | `npm:@narumitw/pi-chrome-devtools` | `npm:@juicesharp/rpiv-todo` |
 | `npm:pi-playwright` | `npm:@juicesharp/rpiv-ask-user-question` |
 | `npm:@amaster.ai/pi-image-gen` | `npm:pi-patty-bg-tasks` |
-| `npm:pi-markdown-preview` | |
 
 They are declared as **independent `packages[]` entries**, not bundled inside this package. That is deliberate: `pi update --extensions` only iterates sources listed in `settings.json`, so bundling them would freeze their versions forever. As independent entries, each one keeps its native update behavior.
 
 `@amaster.ai/pi-image-gen` needs its own provider credentials. Configure them locally; this package never ships keys.
-
-`pi-markdown-preview` (`/preview`, LaTeX/math rendering, PDF export) registers only the `preview_export` tool and `/preview*` commands and no global shortcuts, so it collides with neither `pi-tool-display` nor `pi-patty-bg-tasks`. Its renderers need system tools the preset does not install: pandoc (required), a Chromium-based browser for terminal preview, and a LaTeX engine such as TeX Live for PDF export.
 
 ### The 4 config keys
 

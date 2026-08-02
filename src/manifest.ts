@@ -44,12 +44,6 @@ export const REQUIRED_PACKAGES: readonly string[] = [
 	"npm:@juicesharp/rpiv-ask-user-question",
 	"npm:@amaster.ai/pi-image-gen",
 	"npm:pi-patty-bg-tasks",
-	// Registers only the `preview_export` tool and /preview* commands, and no
-	// global shortcuts — verified free of tool/shortcut collisions with
-	// pi-tool-display and pi-patty-bg-tasks (npm 0.11.1). pandoc, a Chromium
-	// browser, and optionally a LaTeX engine are runtime prerequisites the
-	// preset does not install.
-	"npm:pi-markdown-preview",
 ];
 
 /**
