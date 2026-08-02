@@ -9,15 +9,22 @@
 import { existsSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { detectFont, manualFontInstructions } from "./font.ts";
-import { flattenLeaves, getPath, isPlainObject, type JsonObject, type JsonValue, readJsonObject } from "./json-merge.ts";
-import { FONT, LOCAL_FOOTER_DIR_NAME, REQUIRED_PACKAGES, WEB_SEARCH_PATCH } from "./manifest.ts";
+import {
+	flattenLeaves,
+	getPath,
+	isPlainObject,
+	jsonEquals,
+	type JsonObject,
+	type JsonValue,
+	readJsonObject,
+} from "./json-merge.ts";
+import { FONT, JSON_PATCHES, LOCAL_FOOTER_DIR_NAME, REQUIRED_PACKAGES } from "./manifest.ts";
 import {
 	type FontPlatform,
 	getDisabledExtensionsDir,
 	getFontPlatform,
 	getSettingsPath,
 	getUserExtensionsDir,
-	getWebSearchConfigPath,
 } from "./paths.ts";
 
 // ── package source identity ─────────────────────────────────────────────────
@@ -141,17 +148,26 @@ export interface PackagesAddStep {
 	missing: string[];
 }
 
-export interface WebSearchChange {
+export interface JsonPatchChange {
 	key: string;
 	path: string[];
 	from: JsonValue | undefined;
 	to: JsonValue;
 }
 
-export interface WebSearchPatchStep {
-	kind: "webSearch.patch";
+export interface JsonPatchStep {
+	kind: "json.patch";
+	/** Manifest id of the target, used verbatim in plan and apply output. */
+	targetId: string;
 	configPath: string;
-	changes: WebSearchChange[];
+	/**
+	 * The full patch, carried on the step so apply() merges exactly what was
+	 * shown rather than re-deriving it from a manifest that a hot reload could
+	 * have changed between plan and apply.
+	 */
+	patch: JsonObject;
+	changes: JsonPatchChange[];
+	why?: string;
 }
 
 export interface FooterDemoteStep {
@@ -167,7 +183,7 @@ export interface FontInstallStep {
 	platform: Extract<FontPlatform, "linux" | "darwin">;
 }
 
-export type Step = PackagesAddStep | WebSearchPatchStep | FooterDemoteStep | FontInstallStep;
+export type Step = PackagesAddStep | JsonPatchStep | FooterDemoteStep | FontInstallStep;
 
 export type NoteLevel = "ok" | "info" | "warn";
 
@@ -225,34 +241,45 @@ function planPackages(plan: SyncPlan): void {
 	plan.steps.push({ kind: "settings.packages.add", settingsPath, missing });
 }
 
-function planWebSearch(plan: SyncPlan): void {
-	const configPath = getWebSearchConfigPath();
+function planJsonPatches(plan: SyncPlan): void {
+	for (const target of JSON_PATCHES) {
+		const configPath = target.resolvePath();
 
-	let config: JsonObject;
-	try {
-		config = readJsonObject(configPath).data;
-	} catch (error) {
-		plan.blockers.push(`web-search.json: ${(error as Error).message}`);
-		return;
-	}
-
-	const changes: WebSearchChange[] = [];
-	let matching = 0;
-	for (const leaf of flattenLeaves(WEB_SEARCH_PATCH as unknown as JsonObject)) {
-		const current = getPath(config, leaf.path);
-		if (current === leaf.value) {
-			matching++;
+		let config: JsonObject;
+		try {
+			config = readJsonObject(configPath).data;
+		} catch (error) {
+			// One unreadable file blocks only its own step: the others are unrelated
+			// files and there is no reason to withhold their diffs.
+			plan.blockers.push(`${target.id}: ${(error as Error).message}`);
 			continue;
 		}
-		changes.push({ key: leaf.path.join("."), path: leaf.path, from: current, to: leaf.value });
-	}
 
-	if (matching > 0) {
-		plan.notes.push({ level: "ok", text: `web-search: ${matching} key(s) already match` });
-	}
-	if (changes.length === 0) return;
+		const changes: JsonPatchChange[] = [];
+		let matching = 0;
+		for (const leaf of flattenLeaves(target.patch)) {
+			const current = getPath(config, leaf.path);
+			if (jsonEquals(current, leaf.value)) {
+				matching++;
+				continue;
+			}
+			changes.push({ key: leaf.path.join("."), path: leaf.path, from: current, to: leaf.value });
+		}
 
-	plan.steps.push({ kind: "webSearch.patch", configPath, changes });
+		if (matching > 0) {
+			plan.notes.push({ level: "ok", text: `${target.id}: ${matching} key(s) already match` });
+		}
+		if (changes.length === 0) continue;
+
+		plan.steps.push({
+			kind: "json.patch",
+			targetId: target.id,
+			configPath,
+			patch: target.patch,
+			changes,
+			...(target.why === undefined ? {} : { why: target.why }),
+		});
+	}
 }
 
 function planFooterDemote(plan: SyncPlan): void {
@@ -297,7 +324,7 @@ export async function plan(): Promise<SyncPlan> {
 	const result: SyncPlan = { steps: [], notes: [], blockers: [] };
 
 	planPackages(result);
-	planWebSearch(result);
+	planJsonPatches(result);
 	planFooterDemote(result);
 	await planFont(result);
 
@@ -314,12 +341,13 @@ export function renderPlan(syncPlan: SyncPlan): string {
 				lines.push(`+ settings.json packages[]: add ${step.missing.length}`);
 				for (const source of step.missing) lines.push(`    ${source}`);
 				break;
-			case "webSearch.patch":
-				lines.push(`~ web-search.json: set ${step.changes.length} key(s)`);
+			case "json.patch":
+				lines.push(`~ ${step.targetId}: set ${step.changes.length} key(s)`);
 				for (const change of step.changes) {
 					const from = change.from === undefined ? "unset" : JSON.stringify(change.from);
 					lines.push(`    ${change.key}: ${from} -> ${JSON.stringify(change.to)}`);
 				}
+				if (step.why) lines.push(`    (${step.why})`);
 				break;
 			case "footer.demote":
 				lines.push("~ local vibrant-footer would double-load: move it aside");

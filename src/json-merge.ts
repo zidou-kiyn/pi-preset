@@ -100,6 +100,27 @@ export function deepMerge(base: JsonObject, patch: JsonObject): JsonObject {
 	return result;
 }
 
+/**
+ * Structural equality for JSON values.
+ *
+ * Leaf comparison cannot use `===`: an array-valued leaf (keybindings.json binds
+ * an action to a LIST of keys) is a fresh object on every read, so `===` would
+ * report a difference on every run and the step would never converge.
+ */
+export function jsonEquals(a: JsonValue | undefined, b: JsonValue | undefined): boolean {
+	if (a === b) return true;
+	if (Array.isArray(a) || Array.isArray(b)) {
+		if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+		return a.every((item, index) => jsonEquals(item, b[index]));
+	}
+	if (isPlainObject(a) && isPlainObject(b)) {
+		const aKeys = Object.keys(a);
+		if (aKeys.length !== Object.keys(b).length) return false;
+		return aKeys.every((key) => key in b && jsonEquals(a[key], b[key]));
+	}
+	return false;
+}
+
 /** Read a nested value by key path. Returns undefined if any segment is missing. */
 export function getPath(source: JsonObject, keyPath: readonly string[]): JsonValue | undefined {
 	let current: JsonValue | undefined = source;

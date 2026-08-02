@@ -5,7 +5,7 @@
  * matters: writing settings.json to the web-search location would put it where
  * pi never reads it.
  *
- *   settings.json / extensions/  -> getAgentDir():
+ *   settings.json / keybindings.json / extensions/  -> getAgentDir():
  *       PI_CODING_AGENT_DIR (tilde-expanded) | ~/.pi/agent
  *       (pi's own config.ts getAgentDir; it has no XDG_CONFIG_HOME branch)
  *
@@ -44,6 +44,22 @@ export function getSettingsPath(): string {
 /** pi's native custom-provider catalogue. */
 export function getModelsPath(): string {
 	return join(getAgentDir(), "models.json");
+}
+
+/** pi's keybinding overrides. A per-action key list here REPLACES the default list, it does not extend it. */
+export function getKeybindingsPath(): string {
+	return join(getAgentDir(), "keybindings.json");
+}
+
+/**
+ * pi-tool-display's own config file.
+ *
+ * The extension resolves it from the same agent dir pi does, so a sandbox that
+ * sets PI_CODING_AGENT_DIR moves both together (pi-tool-display agent-dir.ts
+ * resolvePiAgentDir + config-store.ts CONFIG_FILE).
+ */
+export function getToolDisplayConfigPath(): string {
+	return join(getUserExtensionsDir(), "pi-tool-display", "config.json");
 }
 
 /** Directory auto-discovered for user extensions. */

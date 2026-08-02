@@ -196,8 +196,10 @@ test("legacy preset-sync callers retain merge behavior and existing modes", asyn
 			steps: [
 				{ kind: "settings.packages.add", settingsPath, missing: ["npm:pi-preset-writer-regression"] },
 				{
-					kind: "webSearch.patch",
+					kind: "json.patch",
+					targetId: "web-search.json",
 					configPath: webSearchPath,
+					patch: { webSearch: { enabled: false }, ssrf: { trustEnvProxy: true } },
 					changes: [
 						{ key: "webSearch.enabled", path: ["webSearch", "enabled"], from: undefined, to: false },
 						{ key: "ssrf.trustEnvProxy", path: ["ssrf", "trustEnvProxy"], from: undefined, to: true },

@@ -32,7 +32,7 @@ function report(ctx: ExtensionCommandContext, message: string, type: "info" | "w
 
 export default function (pi: ExtensionAPI) {
 	pi.registerCommand("preset-sync", {
-		description: "Apply the personal pi preset (packages, web-search keys, footer, font)",
+		description: "Apply the personal pi preset (packages, config keys, footer, font)",
 		handler: async (_args, ctx) => {
 			let syncPlan: Awaited<ReturnType<typeof plan>>;
 			try {
@@ -93,6 +93,14 @@ export default function (pi: ExtensionAPI) {
 				}
 				if (result.results.some((entry) => entry.kind === "footer.demote")) {
 					lines.push("Restart pi so the footer loads once, from the package.");
+				}
+				if (result.results.some((entry) => entry.targetId === "pi-tool-display/config.json")) {
+					// pi-tool-display reloads its config live but keeps whatever tool
+					// overrides it already registered; its own modal says the same thing.
+					lines.push("Restart pi (or /reload) so pi-tool-display releases the bash tool.");
+				}
+				if (result.results.some((entry) => entry.targetId === "keybindings.json")) {
+					lines.push("Restart pi so the ctrl+b keybinding change takes effect.");
 				}
 			}
 

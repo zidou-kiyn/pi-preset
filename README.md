@@ -1,6 +1,6 @@
 # pi-preset
 
-Personal [pi](https://pi.dev) environment as a pi package: a theme-reactive status bar, a curated extension set, the handful of non-default config keys, and the Nerd Font the footer's glyphs need.
+Personal [pi](https://pi.dev) environment as a pi package: a theme-reactive status bar, a curated extension set, the handful of non-default config keys (including the two that keep the background-task and tool-display extensions from fighting over `bash`), and the Nerd Font the footer's glyphs need.
 
 Reproduces the base working setup on a new machine in two commands, without shipping a single credential; the optional upstream grilling workflow has its own explicit sync command.
 
@@ -92,14 +92,14 @@ Skills execute as model instructions with Pi's agent permissions. Review the two
 
 ## What `/preset-sync` does
 
-1. **Declares 13 extensions** in `~/.pi/agent/settings.json` `packages[]`.
-2. **Sets 2 config keys** in `web-search.json` (see below).
+1. **Declares 15 extensions** in `~/.pi/agent/settings.json` `packages[]`.
+2. **Sets 4 config keys** across three JSON files (see below).
 3. **Moves a local `extensions/vibrant-footer/`** into `extensions-disabled/` if one exists, so the footer does not load twice.
 4. **Installs the font** when it is missing.
 
 Every step is idempotent. A second run reports "already in sync" and touches nothing — not even file mtimes.
 
-### The 13 extensions
+### The 15 extensions
 
 | Package | |
 |---|---|
@@ -109,13 +109,16 @@ Every step is idempotent. A second run reports "already in sync" and touches not
 | `npm:pi-tool-display` | `git:github.com/code-yeongyu/pi-apply-patch` |
 | `npm:@narumitw/pi-chrome-devtools` | `npm:@juicesharp/rpiv-todo` |
 | `npm:pi-playwright` | `npm:@juicesharp/rpiv-ask-user-question` |
-| `npm:@amaster.ai/pi-image-gen` | |
+| `npm:@amaster.ai/pi-image-gen` | `npm:pi-patty-bg-tasks` |
+| `npm:pi-markdown-preview` | |
 
 They are declared as **independent `packages[]` entries**, not bundled inside this package. That is deliberate: `pi update --extensions` only iterates sources listed in `settings.json`, so bundling them would freeze their versions forever. As independent entries, each one keeps its native update behavior.
 
 `@amaster.ai/pi-image-gen` needs its own provider credentials. Configure them locally; this package never ships keys.
 
-### The 2 config keys
+`pi-markdown-preview` (`/preview`, LaTeX/math rendering, PDF export) registers only the `preview_export` tool and `/preview*` commands and no global shortcuts, so it collides with neither `pi-tool-display` nor `pi-patty-bg-tasks`. Its renderers need system tools the preset does not install: pandoc (required), a Chromium-based browser for terminal preview, and a LaTeX engine such as TeX Live for PDF export.
+
+### The 4 config keys
 
 Written to `web-search.json`:
 
@@ -126,9 +129,40 @@ Written to `web-search.json`:
 }
 ```
 
-Nothing else is written. Both consumers fall back per key to their own defaults, so a partial file is valid and no upstream default can be frozen by a stale snapshot.
+Written to `extensions/pi-tool-display/config.json`:
 
-**That file also holds every provider API key.** Writes are therefore a deep merge of exactly those two leaf keys — never a whole-file overwrite. If the file does not parse as JSON, the step aborts rather than starting from `{}` and erasing your keys. The previous content is copied to `<file>.preset-bak` before every write, and the write itself is a tmp-file rename so an interrupted run cannot truncate it.
+```json
+{ "registerToolOverrides": { "bash": false } }
+```
+
+Written to `keybindings.json`:
+
+```json
+{ "tui.editor.cursorLeft": ["left"] }
+```
+
+Nothing else is written. Every consumer falls back per key to its own defaults, so a partial file is valid and no upstream default can be frozen by a stale snapshot.
+
+**`web-search.json` also holds every provider API key.** Writes to all three files are therefore a deep merge of exactly those leaf keys — never a whole-file overwrite. If a file does not parse as JSON, only that step aborts, rather than starting from `{}` and erasing your keys. The previous content is copied to `<file>.preset-bak` before every write, and the write itself is a tmp-file rename so an interrupted run cannot truncate it.
+
+#### Why the last two keys exist: `pi-patty-bg-tasks`
+
+[`pi-patty-bg-tasks`](https://pi.dev/packages/pi-patty-bg-tasks) brings Claude Code's background-task flow to pi: a foreground command that runs past 120s slides into the background, **Ctrl+B** backgrounds it on demand, and `jobs` / `monitor` / `agent_bg` / `/bg-list` manage what is running. It collides with the rest of the preset in two places.
+
+**1. The `bash` tool — this one is fatal.** Both `pi-patty-bg-tasks` and `pi-tool-display` register a `bash` override, and pi treats a duplicate tool name as a load **error**, not a precedence question:
+
+```
+Error: Failed to load extension ".../pi-patty-bg-tasks/index.ts": Tool "bash" conflicts with .../pi-tool-display/index.ts
+Hint: Start without extensions using "pi -ne".
+```
+
+pi exits 1 and does not start. Reordering `packages[]` does not help. Setting `registerToolOverrides.bash: false` is `pi-tool-display`'s own documented opt-out and leaves every other tool it renders (`read`, `grep`, `find`, `ls`, `edit`, `write`) untouched. Ownership changes only take effect after a restart or `/reload`.
+
+To keep `pi-tool-display`'s bash rendering instead, set that key back to `true` **and** drop `npm:pi-patty-bg-tasks` from `packages[]` — keeping both with `true` makes pi unstartable.
+
+**2. The Ctrl+B keybinding.** pi binds `ctrl+b` to `tui.editor.cursorLeft` by default (an emacs-style alias for `left`), and the extension registers `ctrl+b` unconditionally. The extension wins the key either way — this is only cosmetic — but pi prints `Extension shortcut conflict: 'ctrl+b' ...` on every startup until the built-in claim is dropped. A user key list **replaces** the default list rather than extending it, so `["left"]` is what removes `ctrl+b`.
+
+To keep the emacs binding and live with the warning, restore `"tui.editor.cursorLeft": ["left", "ctrl+b"]`. The extension's other shortcuts (`ctrl+shift+b`, `ctrl+shift+j`, `shift+down`, `ctrl+shift+x`) collide with nothing.
 
 `settings.json` `packages[]` is **append-only**: entries are deduplicated by pi's own identity rule (npm compares the package name, git compares the repository URL without its ref), and packages you added yourself are never reordered or removed.
 

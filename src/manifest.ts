@@ -7,6 +7,9 @@
  * defaultThinkingLevel) are deliberately out of scope.
  */
 
+import type { JsonObject } from "./json-merge.ts";
+import { getKeybindingsPath, getToolDisplayConfigPath, getWebSearchConfigPath } from "./paths.ts";
+
 /**
  * Extensions that must be present in settings.json `packages[]`.
  *
@@ -18,6 +21,13 @@
  * `\x1b[3J\x1b[2J\x1b[H` into `\x1b[H\x1b[2J\x1b[3J`, but pi's alternate-screen
  * renderer emits `\x1b[2J\x1b[H\x1b[3J`, which never matches its trigger
  * sequence. The patch cannot fire, so it is not shipped.
+ *
+ * `pi-patty-bg-tasks` overrides the `bash` tool, which pi-tool-display also
+ * claims. Two extensions registering one tool name is not a soft conflict: pi
+ * reports it as a load ERROR (coding-agent core/resource-loader.ts
+ * detectExtensionConflicts) and exits 1 (main.ts), so pi refuses to start at
+ * all while both own `bash`. Reordering this list cannot help. The
+ * pi-tool-display entry in JSON_PATCHES below is what makes the pair loadable.
  */
 export const REQUIRED_PACKAGES: readonly string[] = [
 	"npm:pi-wtf",
@@ -33,20 +43,69 @@ export const REQUIRED_PACKAGES: readonly string[] = [
 	"npm:@juicesharp/rpiv-todo",
 	"npm:@juicesharp/rpiv-ask-user-question",
 	"npm:@amaster.ai/pi-image-gen",
+	"npm:pi-patty-bg-tasks",
+	// Registers only the `preview_export` tool and /preview* commands, and no
+	// global shortcuts — verified free of tool/shortcut collisions with
+	// pi-tool-display and pi-patty-bg-tasks (npm 0.11.1). pandoc, a Chromium
+	// browser, and optionally a LaTeX engine are runtime prerequisites the
+	// preset does not install.
+	"npm:pi-markdown-preview",
 ];
 
 /**
- * The only web-search.json keys that genuinely deviate from upstream defaults.
+ * JSON config files whose individual leaf keys the preset owns.
  *
- * Both consumers read these optionally and fall back per key, so a partial file
- * is valid and a stale snapshot can never freeze an upstream default. This file
- * is also where every provider API key lives, which is why it is only ever deep
- * merged, never overwritten.
+ * Every entry is deep merged, never written whole: these files hold provider
+ * API keys and hand-tuned preferences the preset has no business replacing.
+ * Consumers of all three read keys optionally and fall back per key, so a
+ * partial file is valid and a stale snapshot can never freeze an upstream
+ * default.
+ *
+ * `resolvePath` is a function, not a string, because the path depends on
+ * PI_CODING_AGENT_DIR at call time — a sandbox run must not inherit a value
+ * captured when this module was first imported.
  */
-export const WEB_SEARCH_PATCH = {
-	webSearch: { enabled: false },
-	ssrf: { trustEnvProxy: true },
-} as const;
+export interface JsonPatchTarget {
+	/** Short id used in plan lines, notes, and blockers. */
+	id: string;
+	resolvePath: () => string;
+	/** Leaf keys to enforce. Everything else in the file is preserved. */
+	patch: JsonObject;
+	/** One-line reason, rendered under the diff so the write is never unexplained. */
+	why?: string;
+}
+
+export const JSON_PATCHES: readonly JsonPatchTarget[] = [
+	{
+		id: "web-search.json",
+		resolvePath: getWebSearchConfigPath,
+		patch: {
+			webSearch: { enabled: false },
+			ssrf: { trustEnvProxy: true },
+		},
+	},
+	{
+		// Without this, pi-tool-display and pi-patty-bg-tasks both register `bash`
+		// and pi aborts startup with `Tool "bash" conflicts with ...` (verified in
+		// a sandbox on pi 0.83.0). This is pi-tool-display's own documented opt-out;
+		// every other tool it renders is left untouched.
+		id: "pi-tool-display/config.json",
+		resolvePath: getToolDisplayConfigPath,
+		patch: { registerToolOverrides: { bash: false } },
+		why: "pi refuses to start while both extensions own the bash tool; pi-tool-display keeps read/grep/find/ls/edit/write",
+	},
+	{
+		// pi's default `tui.editor.cursorLeft` is ["left", "ctrl+b"], and
+		// pi-patty-bg-tasks registers ctrl+b unconditionally. The extension wins
+		// the key either way, but pi prints an "Extension shortcut conflict"
+		// warning on every startup until the built-in claim is dropped. A user key
+		// list REPLACES the default list, so ["left"] is what removes ctrl+b.
+		id: "keybindings.json",
+		resolvePath: getKeybindingsPath,
+		patch: { "tui.editor.cursorLeft": ["left"] },
+		why: "drops the emacs-style ctrl+b cursor-left binding so pi stops warning about the pi-patty-bg-tasks shortcut",
+	},
+];
 
 /**
  * Nerd Font used by the footer's nf-md-* glyphs.

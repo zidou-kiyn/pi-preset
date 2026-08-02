@@ -10,12 +10,13 @@
 import { existsSync, mkdirSync, renameSync } from "node:fs";
 import { dirname } from "node:path";
 import { installFont } from "./font.ts";
-import { deepMerge, type JsonObject, type JsonValue, readJsonObject, writeJsonObjectAtomic } from "./json-merge.ts";
-import { WEB_SEARCH_PATCH } from "./manifest.ts";
+import { deepMerge, type JsonValue, readJsonObject, writeJsonObjectAtomic } from "./json-merge.ts";
 import { packageEntrySource, packageIdentity, type Step, type SyncPlan } from "./plan.ts";
 
 export interface StepResult {
 	kind: Step["kind"];
+	/** Manifest id for json.patch steps, so callers can tell the patched files apart. */
+	targetId?: string;
 	ok: boolean;
 	message: string;
 }
@@ -64,14 +65,14 @@ function applyPackages(step: Extract<Step, { kind: "settings.packages.add" }>): 
 	return `settings.json: added ${appended.length} package(s)`;
 }
 
-function applyWebSearch(step: Extract<Step, { kind: "webSearch.patch" }>): string {
+function applyJsonPatch(step: Extract<Step, { kind: "json.patch" }>): string {
 	// Read again so keys written between plan and apply survive; a parse failure
 	// here aborts the step rather than starting from {} and erasing API keys.
 	const config = readJsonObject(step.configPath).data;
-	const merged = deepMerge(config, WEB_SEARCH_PATCH as unknown as JsonObject);
+	const merged = deepMerge(config, step.patch);
 
 	writeJsonObjectAtomic(step.configPath, merged);
-	return `web-search.json: set ${step.changes.map((change) => change.key).join(", ")}`;
+	return `${step.targetId}: set ${step.changes.map((change) => change.key).join(", ")}`;
 }
 
 function applyFooterDemote(step: Extract<Step, { kind: "footer.demote" }>): string {
@@ -93,8 +94,8 @@ async function runStep(step: Step): Promise<string> {
 	switch (step.kind) {
 		case "settings.packages.add":
 			return applyPackages(step);
-		case "webSearch.patch":
-			return applyWebSearch(step);
+		case "json.patch":
+			return applyJsonPatch(step);
 		case "footer.demote":
 			return applyFooterDemote(step);
 		case "font.install":
@@ -107,10 +108,11 @@ export async function apply(syncPlan: SyncPlan): Promise<ApplyResult> {
 
 	for (let i = 0; i < syncPlan.steps.length; i++) {
 		const step = syncPlan.steps[i]!;
+		const identity = { kind: step.kind, ...(step.kind === "json.patch" ? { targetId: step.targetId } : {}) };
 		try {
-			results.push({ kind: step.kind, ok: true, message: await runStep(step) });
+			results.push({ ...identity, ok: true, message: await runStep(step) });
 		} catch (error) {
-			results.push({ kind: step.kind, ok: false, message: (error as Error).message });
+			results.push({ ...identity, ok: false, message: (error as Error).message });
 			return { results, ok: false, skipped: syncPlan.steps.length - i - 1 };
 		}
 	}
