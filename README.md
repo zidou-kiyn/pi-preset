@@ -22,21 +22,30 @@ To add a custom model provider, run `/preset-models-add` in interactive TUI mode
 
 ## Interactive model provider wizard
 
-`/preset-models-add` is a deterministic, TUI-only wizard for three fixed model bundles:
+`/preset-models-add` is a deterministic, TUI-only wizard for three fixed model bundles plus a fully custom channel:
 
 | Family | Models | Fixed API mode |
 |---|---|---|
 | Anthropic | Claude Fable 5, Claude Opus 5, Claude Sonnet 5 | `anthropic-messages` |
 | OpenAI | GPT-5.6 Sol, GPT-5.6 Terra, GPT-5.6 Luna | `openai-responses` |
 | DeepSeek | DeepSeek V4 Flash | `openai-responses` |
+| Custom | user-defined | `openai-completions`, `openai-responses`, or `anthropic-messages` |
 
-Choose a family, explicitly select one or more models, then enter a provider identifier, base URL, and API key. The catalog metadata, compatibility flags, thinking-level maps, context limits, modalities, and pricing tiers are bundled in the package; the wizard never asks for those schema details. The API key is collected by a masked TUI component and is not rendered in the preview, notifications, diagnostics, or command arguments. RPC, JSON, and print modes report that the wizard requires interactive TUI mode and do not write anything.
+Choose a family, explicitly select one or more models, then enter a provider identifier, base URL, and API key. For the three preset families, the catalog metadata, compatibility flags, thinking-level maps, context limits, modalities, and pricing tiers are bundled in the package; the wizard never asks for those schema details.
+
+The **Custom** entry is a generic channel for any OpenAI- or Anthropic-compatible endpoint (one-api/new-api relays, OpenRouter, vLLM, Ollama, Claude proxies, ...). Every step explains its options on screen before you choose:
+
+1. **API protocol** — a described selector for `openai-completions` (chat completions, the most widely supported), `openai-responses`, or `anthropic-messages`.
+2. **Compatibility flags** — a tri-state checklist filtered to the chosen protocol. Each flag shows what it does; Enter cycles *default → true → false*, where *default* omits the flag so Pi keeps its built-in or URL-auto-detected behavior.
+3. **Models** — one or more models, each with model ID, display name, input modalities (text or text+image), thinking levels (none, OpenAI-, Anthropic-, or DeepSeek-style presets, each explained, or **Custom mapping**, which asks for the provider value of each of Pi's seven thinking levels — leave a level empty to make it unavailable), context window and max output tokens (accepts `128000`, `128k`, `1m`; empty picks a sensible default), and optional per-million-token costs entered as `input,output,cacheRead,cacheWrite`. Invalid entries re-prompt instead of aborting the wizard.
+
+After that, the custom flow joins the normal path: provider identifier, base URL, masked API key, redacted diff preview, and atomic write. The API key is collected by a masked TUI component and is not rendered in the preview, notifications, diagnostics, or command arguments. RPC, JSON, and print modes report that the wizard requires interactive TUI mode and do not write anything.
 
 The target file is parsed with Pi-compatible `//` comments and trailing commas. Only `providers[providerId]` is added or replaced; unrelated top-level data and sibling providers are re-read immediately before the atomic write and preserved. On POSIX filesystems, existing files must grant no group or other permissions. A missing POSIX file is created as `0600`; an existing owner-only mode such as `0600` or `0400` is preserved. On Windows, access is governed by ACLs; Node's numeric mode is only a writable/read-only approximation, so the wizard does not interpret synthetic group/other bits as POSIX permissions. On POSIX, a broader mode stops the wizard before API-key entry and prints an actionable `chmod 600` instruction. Valid symlinks are followed without replacing the symlink inode; dangling symlinks are blocked.
 
 The wizard shows a redacted provider-only diff and asks for explicit confirmation. Replacing a different existing provider requires a second confirmation and replaces that provider object as a unit rather than merging stale model fields. An existing identical provider is reported as already configured and does not create a backup or change the file mtime. Successful writes create `<real-models-path>.preset-bak` containing the original bytes, then atomically rename the new JSON. Open `/model` after success to hot-reload the selected models; no Pi restart is required.
 
-Custom model entry and editing, arbitrary model metadata, OAuth, environment-variable generation, secret managers, and provider families outside Anthropic, OpenAI, and DeepSeek are intentionally out of scope. Use the provider's own endpoint and credentials locally; the public preset contains no user-specific provider identifier, endpoint, or credential.
+OAuth, environment-variable generation, secret managers, editing existing providers in place, and API protocols beyond the three listed above are intentionally out of scope. Advanced compat fields (e.g. `thinkingFormat`, routing preferences) can still be added by editing `models.json` by hand after the wizard writes the provider. Use the provider's own endpoint and credentials locally; the public preset contains no user-specific provider identifier, endpoint, or credential.
 
 ## Upstream grilling skills
 

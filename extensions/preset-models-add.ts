@@ -2,9 +2,9 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-c
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import { type FamilyId, getFamilyTemplate } from "../src/model-templates.ts";
 import {
+	buildCustomProviderCandidate,
 	buildProviderCandidate,
-	familyFromLabel,
-	familyOptions,
+	type CustomProviderSpec,
 	type ModelsDocument,
 	normalizeBaseUrl,
 	type ProviderCandidate,
@@ -14,15 +14,24 @@ import {
 	validateApiKey,
 	validateBaseUrl,
 	validateProviderId,
+	type WizardFamilyChoice,
+	wizardFamilyFromLabel,
+	wizardFamilyOptions,
 } from "../src/models-config.ts";
 import { type ApplyModelsProviderResult, applyProviderPlan } from "../src/models-config-apply.ts";
-import { confirmProviderDiff, promptApiKeyWithUi, selectModelsWithUi } from "../src/models-wizard-ui.ts";
+import {
+	collectCustomProviderWithUi,
+	confirmProviderDiff,
+	promptApiKeyWithUi,
+	selectModelsWithUi,
+} from "../src/models-wizard-ui.ts";
 import { getModelsPath } from "../src/paths.ts";
 
 export interface PresetModelsAddDependencies {
 	getModelsPath?: () => string;
-	selectFamily?: (ctx: ExtensionCommandContext) => Promise<FamilyId | undefined>;
+	selectFamily?: (ctx: ExtensionCommandContext) => Promise<WizardFamilyChoice | undefined>;
 	selectModels?: (ctx: ExtensionCommandContext, family: FamilyId) => Promise<string[] | undefined>;
+	collectCustomProvider?: (ctx: ExtensionCommandContext) => Promise<CustomProviderSpec | undefined>;
 	input?: (ctx: ExtensionCommandContext, title: string, placeholder?: string) => Promise<string | undefined>;
 	promptApiKey?: (ctx: ExtensionCommandContext) => Promise<string | undefined>;
 	readDocument?: (path: string) => ModelsDocument;
@@ -40,9 +49,9 @@ function report(ctx: ExtensionCommandContext, message: string, type: "info" | "w
 	ctx.ui.notify(message, type);
 }
 
-async function defaultSelectFamily(ctx: ExtensionCommandContext): Promise<FamilyId | undefined> {
-	const label = await ctx.ui.select("Select a model family", familyOptions());
-	return label === undefined ? undefined : familyFromLabel(label);
+async function defaultSelectFamily(ctx: ExtensionCommandContext): Promise<WizardFamilyChoice | undefined> {
+	const label = await ctx.ui.select("Select a model family", wizardFamilyOptions());
+	return label === undefined ? undefined : wizardFamilyFromLabel(label);
 }
 
 async function defaultSelectModels(ctx: ExtensionCommandContext, family: FamilyId): Promise<string[] | undefined> {
@@ -66,12 +75,24 @@ export async function runPresetModelsAdd(
 	const selectedFamily = await selectFamily(ctx);
 	if (selectedFamily === undefined) return;
 
-	const selectModels = dependencies.selectModels ?? defaultSelectModels;
-	const selectedModelIds = await selectModels(ctx, selectedFamily);
-	if (selectedModelIds === undefined) return;
-	if (selectedModelIds.length === 0) {
-		ctx.ui.notify("Select at least one model; nothing was written", "warning");
-		return;
+	let customSpec: CustomProviderSpec | undefined;
+	let selectedModelIds: string[] | undefined;
+	if (selectedFamily === "custom") {
+		const collectCustomProvider = dependencies.collectCustomProvider ?? collectCustomProviderWithUi;
+		customSpec = await collectCustomProvider(ctx);
+		if (customSpec === undefined) return;
+		if (customSpec.models.length === 0) {
+			ctx.ui.notify("Define at least one model; nothing was written", "warning");
+			return;
+		}
+	} else {
+		const selectModels = dependencies.selectModels ?? defaultSelectModels;
+		selectedModelIds = await selectModels(ctx, selectedFamily);
+		if (selectedModelIds === undefined) return;
+		if (selectedModelIds.length === 0) {
+			ctx.ui.notify("Select at least one model; nothing was written", "warning");
+			return;
+		}
 	}
 
 	const input = dependencies.input ?? defaultInput;
@@ -111,7 +132,10 @@ export async function runPresetModelsAdd(
 
 	let candidate: ProviderCandidate;
 	try {
-		candidate = buildProviderCandidate(selectedFamily, selectedModelIds, normalizeBaseUrl(baseUrl), apiKey);
+		candidate =
+			selectedFamily === "custom"
+				? buildCustomProviderCandidate(customSpec!, normalizeBaseUrl(baseUrl), apiKey)
+				: buildProviderCandidate(selectedFamily, selectedModelIds!, normalizeBaseUrl(baseUrl), apiKey);
 	} catch (error) {
 		ctx.ui.notify((error as Error).message, "error");
 		return;
@@ -171,7 +195,7 @@ export async function runPresetModelsAdd(
 
 export default function presetModelsAddExtension(pi: ExtensionAPI): void {
 	pi.registerCommand("preset-models-add", {
-		description: "Add a predefined Anthropic, OpenAI, or DeepSeek provider to models.json",
+		description: "Add a predefined Anthropic/OpenAI/DeepSeek provider or a fully custom provider to models.json",
 		handler: async (_args, ctx) => {
 			await runPresetModelsAdd(ctx);
 		},
