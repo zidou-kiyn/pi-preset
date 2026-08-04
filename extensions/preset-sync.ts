@@ -12,7 +12,6 @@
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { apply, renderApplyResult } from "../src/apply.ts";
-import { POST_SYNC_REMINDER } from "../src/manifest.ts";
 import { plan, renderPlan } from "../src/plan.ts";
 
 /**
@@ -81,7 +80,6 @@ export default function (pi: ExtensionAPI) {
 			const lines = [renderApplyResult(result)];
 
 			if (result.ok) {
-				lines.push("", POST_SYNC_REMINDER);
 				if (result.results.some((entry) => entry.kind === "settings.packages.add")) {
 					// Extensions cannot reach pi's settings manager, so this session is
 					// still holding the packages[] it loaded at startup. Anything that

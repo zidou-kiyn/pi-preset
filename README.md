@@ -92,14 +92,14 @@ Skills execute as model instructions with Pi's agent permissions. Review the two
 
 ## What `/preset-sync` does
 
-1. **Declares 14 extensions** in `~/.pi/agent/settings.json` `packages[]`.
+1. **Declares 13 extensions** in `~/.pi/agent/settings.json` `packages[]`.
 2. **Sets 4 config keys** across three JSON files (see below).
 3. **Moves a local `extensions/vibrant-footer/`** into `extensions-disabled/` if one exists, so the footer does not load twice.
 4. **Installs the font** when it is missing.
 
 Every step is idempotent. A second run reports "already in sync" and touches nothing — not even file mtimes.
 
-### The 14 extensions
+### The 13 extensions
 
 | Package | |
 |---|---|
@@ -109,11 +109,9 @@ Every step is idempotent. A second run reports "already in sync" and touches not
 | `npm:pi-tool-display` | `git:github.com/code-yeongyu/pi-apply-patch` |
 | `npm:@narumitw/pi-chrome-devtools` | `npm:@juicesharp/rpiv-todo` |
 | `npm:pi-playwright` | `npm:@juicesharp/rpiv-ask-user-question` |
-| `npm:@amaster.ai/pi-image-gen` | `npm:pi-patty-bg-tasks` |
+| `npm:pi-patty-bg-tasks` | |
 
 They are declared as **independent `packages[]` entries**, not bundled inside this package. That is deliberate: `pi update --extensions` only iterates sources listed in `settings.json`, so bundling them would freeze their versions forever. As independent entries, each one keeps its native update behavior.
-
-`@amaster.ai/pi-image-gen` needs its own provider credentials. Configure them locally; this package never ships keys.
 
 ### The 4 config keys
 

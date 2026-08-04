@@ -42,7 +42,6 @@ export const REQUIRED_PACKAGES: readonly string[] = [
 	"git:github.com/code-yeongyu/pi-apply-patch",
 	"npm:@juicesharp/rpiv-todo",
 	"npm:@juicesharp/rpiv-ask-user-question",
-	"npm:@amaster.ai/pi-image-gen",
 	"npm:pi-patty-bg-tasks",
 ];
 
@@ -123,7 +122,3 @@ export const FONT = {
 
 /** Extension directory name the packaged footer would collide with if it stayed local. */
 export const LOCAL_FOOTER_DIR_NAME = "vibrant-footer";
-
-/** Printed after a sync; pi-image-gen needs provider credentials that this package must never ship. */
-export const POST_SYNC_REMINDER =
-	"pi-image-gen needs its own provider credentials. Configure them locally; the preset never ships keys.";
