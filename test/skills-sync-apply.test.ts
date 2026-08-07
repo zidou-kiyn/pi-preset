@@ -18,7 +18,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { assertModeOnPosix } from "./platform-test-utils.ts";
-import { runPresetSkillsSync } from "../extensions/preset-skills-sync.ts";
+import { runPresetSkillsSync } from "../src/skills-sync-run.ts";
 import {
 	applySkillSync,
 	type CommandRunner,

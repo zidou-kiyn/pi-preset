@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { KeybindingsManager, TUI_KEYBINDINGS, visibleWidth } from "@earendil-works/pi-tui";
-import { type PresetModelsAddDependencies, runPresetModelsAdd } from "../extensions/preset-models-add.ts";
+import { type PresetModelsAddDependencies, runPresetModelsAdd } from "../src/models-add-run.ts";
 import { assertModeOnPosix, withPlatform } from "./platform-test-utils.ts";
 import { FAMILY_TEMPLATES } from "../src/model-templates.ts";
 import { buildProviderCandidate } from "../src/models-config.ts";

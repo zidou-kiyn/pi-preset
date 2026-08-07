@@ -1,5 +1,5 @@
 /**
- * Compute what /preset-sync would change.
+ * Compute what the /pi-preset sync flow would change.
  *
  * Read-only: this module reads files and probes the font, and computes a plan.
  * It never writes. apply.ts is the single side-effecting point, which is what
@@ -202,9 +202,19 @@ export interface SyncPlan {
 
 // ── planning ────────────────────────────────────────────────────────────────
 
-function planPackages(plan: SyncPlan): void {
+function planPackages(plan: SyncPlan, extraPackages: readonly string[]): void {
 	const settingsPath = getSettingsPath();
 	const baseDir = dirname(settingsPath);
+
+	// Extras are appended after the required set, deduplicated by identity so a
+	// checked optional package can never be planned twice.
+	const desired: string[] = [...REQUIRED_PACKAGES];
+	const desiredIdentities = new Set(desired.map((source) => packageIdentity(source, baseDir)));
+	for (const source of extraPackages) {
+		if (desiredIdentities.has(packageIdentity(source, baseDir))) continue;
+		desiredIdentities.add(packageIdentity(source, baseDir));
+		desired.push(source);
+	}
 
 	let settings: JsonObject;
 	try {
@@ -227,14 +237,14 @@ function planPackages(plan: SyncPlan): void {
 		if (source) installed.add(packageIdentity(source, baseDir));
 	}
 
-	const missing = REQUIRED_PACKAGES.filter((source) => !installed.has(packageIdentity(source, baseDir)));
+	const missing = desired.filter((source) => !installed.has(packageIdentity(source, baseDir)));
 
 	if (missing.length === 0) {
-		plan.notes.push({ level: "ok", text: `packages: all ${REQUIRED_PACKAGES.length} already in settings.json` });
+		plan.notes.push({ level: "ok", text: `packages: all ${desired.length} already in settings.json` });
 		return;
 	}
 
-	const alreadyThere = REQUIRED_PACKAGES.length - missing.length;
+	const alreadyThere = desired.length - missing.length;
 	if (alreadyThere > 0) {
 		plan.notes.push({ level: "ok", text: `packages: ${alreadyThere} already present` });
 	}
@@ -316,14 +326,19 @@ async function planFont(plan: SyncPlan): Promise<void> {
 	plan.steps.push({ kind: "font.install", family: FONT.family, platform: fontPlatform });
 }
 
+export interface PlanOptions {
+	/** Opt-in package sources (checked optional packages) to include in the desired set. */
+	extraPackages?: readonly string[];
+}
+
 /**
  * Build the full plan. Steps only exist when something actually needs to change,
  * so an empty steps array means "already in sync".
  */
-export async function plan(): Promise<SyncPlan> {
+export async function plan(options: PlanOptions = {}): Promise<SyncPlan> {
 	const result: SyncPlan = { steps: [], notes: [], blockers: [] };
 
-	planPackages(result);
+	planPackages(result, options.extraPackages ?? []);
 	planJsonPatches(result);
 	planFooterDemote(result);
 	await planFont(result);

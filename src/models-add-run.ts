@@ -1,6 +1,6 @@
-import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
-import { type FamilyId, getFamilyTemplate } from "../src/model-templates.ts";
+import { type FamilyId, getFamilyTemplate } from "./model-templates.ts";
 import {
 	buildCustomProviderCandidate,
 	buildProviderCandidate,
@@ -17,15 +17,15 @@ import {
 	type WizardFamilyChoice,
 	wizardFamilyFromLabel,
 	wizardFamilyOptions,
-} from "../src/models-config.ts";
-import { type ApplyModelsProviderResult, applyProviderPlan } from "../src/models-config-apply.ts";
+} from "./models-config.ts";
+import { type ApplyModelsProviderResult, applyProviderPlan } from "./models-config-apply.ts";
 import {
 	collectCustomProviderWithUi,
 	confirmProviderDiff,
 	promptApiKeyWithUi,
 	selectModelsWithUi,
-} from "../src/models-wizard-ui.ts";
-import { getModelsPath } from "../src/paths.ts";
+} from "./models-wizard-ui.ts";
+import { getModelsPath } from "./paths.ts";
 
 export interface PresetModelsAddDependencies {
 	getModelsPath?: () => string;
@@ -67,7 +67,7 @@ export async function runPresetModelsAdd(
 	dependencies: PresetModelsAddDependencies = {},
 ): Promise<void> {
 	if (ctx.mode !== "tui") {
-		report(ctx, "preset-models-add requires interactive TUI mode; no file was written", "error");
+		report(ctx, "pi-preset models requires interactive TUI mode; no file was written", "error");
 		return;
 	}
 
@@ -117,7 +117,7 @@ export async function runPresetModelsAdd(
 	try {
 		document = (dependencies.readDocument ?? readModelsDocument)(modelsPath);
 	} catch (error) {
-		report(ctx, `preset-models-add: cannot prepare models.json: ${(error as Error).message}`, "error");
+		report(ctx, `pi-preset models: cannot prepare models.json: ${(error as Error).message}`, "error");
 		return;
 	}
 
@@ -158,7 +158,7 @@ export async function runPresetModelsAdd(
 		plan.diff,
 	);
 	if (!confirmed) {
-		ctx.ui.notify("preset-models-add: cancelled, nothing was written", "info");
+		ctx.ui.notify("pi-preset models: cancelled, nothing was written", "info");
 		return;
 	}
 
@@ -171,7 +171,7 @@ export async function runPresetModelsAdd(
 					`Provider "${replacementId}" already exists and differs. Replace that provider object as a unit?`,
 				));
 		if (!(await confirmReplacement(ctx, providerId))) {
-			ctx.ui.notify("preset-models-add: replacement cancelled, nothing was written", "info");
+			ctx.ui.notify("pi-preset models: replacement cancelled, nothing was written", "info");
 			return;
 		}
 	}
@@ -189,15 +189,6 @@ export async function runPresetModelsAdd(
 			"info",
 		);
 	} catch (error) {
-		report(ctx, `preset-models-add: ${(error as Error).message || "write failed"}`, "error");
+		report(ctx, `pi-preset models: ${(error as Error).message || "write failed"}`, "error");
 	}
-}
-
-export default function presetModelsAddExtension(pi: ExtensionAPI): void {
-	pi.registerCommand("preset-models-add", {
-		description: "Add a predefined Anthropic/OpenAI/DeepSeek provider or a fully custom provider to models.json",
-		handler: async (_args, ctx) => {
-			await runPresetModelsAdd(ctx);
-		},
-	});
 }

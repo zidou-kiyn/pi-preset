@@ -1,7 +1,7 @@
 /**
  * Single source of truth for the preset's desired state.
  *
- * Everything /preset-sync writes is derived from this file. Nothing here may
+ * Everything the /pi-preset sync flow writes is derived from this file. Nothing here may
  * carry a credential, a private host, or a personal preference: the repository
  * is public, and preferences (theme, defaultProvider, defaultModel,
  * defaultThinkingLevel) are deliberately out of scope.
@@ -34,8 +34,6 @@ export const REQUIRED_PACKAGES: readonly string[] = [
 	"npm:pi-workspace-history",
 	"npm:@ff-labs/pi-fff",
 	"npm:pi-tool-display",
-	"npm:@narumitw/pi-chrome-devtools",
-	"npm:pi-playwright",
 	"npm:pi-web-access",
 	"npm:@lll9p/pi-better-compaction",
 	"npm:pi-web-search",
@@ -43,6 +41,40 @@ export const REQUIRED_PACKAGES: readonly string[] = [
 	"npm:@juicesharp/rpiv-todo",
 	"npm:@juicesharp/rpiv-ask-user-question",
 	"npm:pi-patty-bg-tasks",
+	"npm:pi-context-view",
+	"npm:pi-btw",
+];
+
+/**
+ * Extensions offered as opt-in checkboxes before a sync.
+ *
+ * These are not part of REQUIRED_PACKAGES: both pull a full browser-automation
+ * stack that not every machine wants. The sync flow shows them as a checklist
+ * (already-installed entries render checked and locked), and only checked
+ * entries join the desired package set. The preset is additive-only: leaving
+ * an installed entry unchecked never removes it.
+ */
+export interface OptionalPackage {
+	/** settings.json packages[] source string. */
+	source: string;
+	/** Short display name for the checklist row. */
+	label: string;
+	/** One-line explanation rendered under the highlighted row. */
+	description: string;
+}
+
+export const OPTIONAL_PACKAGES: readonly OptionalPackage[] = [
+	{
+		source: "npm:@narumitw/pi-chrome-devtools",
+		label: "Chrome DevTools (@narumitw/pi-chrome-devtools)",
+		description:
+			"Drive a running Chrome through the DevTools Protocol: list pages, navigate, evaluate JS, screenshot.",
+	},
+	{
+		source: "npm:pi-playwright",
+		label: "Playwright (pi-playwright)",
+		description: "Browser automation via Playwright. Heavier install; only useful when the agent should run browsers.",
+	},
 ];
 
 /**

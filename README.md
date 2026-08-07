@@ -13,16 +13,24 @@ pi install git:github.com/zidou-kiyn/pi-preset
 Restart pi, then run:
 
 ```
-/preset-sync
+/pi-preset
 ```
 
-`/preset-sync` shows a diff of everything it would change and writes nothing until you confirm. Restart pi once more so the newly declared packages install and load — and do that before touching `/config` in the same session (see [Design notes](#design-notes)). If you want the optional upstream grilling workflow, run `/preset-skills-sync` to install its two required skills.
+`/pi-preset` is the preset's single visual control panel — a TUI menu with three entries:
 
-To add a custom model provider, run `/preset-models-add` in interactive TUI mode. The wizard writes only the selected provider entry to `~/.pi/agent/models.json` and never changes `/preset-sync` behavior.
+1. **Sync preset** — packages, config keys, footer, and font. Starts with an optional-extension checklist (Chrome DevTools and Playwright, unchecked by default), then shows a diff of everything it would change and writes nothing until you confirm.
+2. **Install / refresh grilling skills** — the optional upstream grilling workflow.
+3. **Add model provider** — the masked model-provider wizard for `~/.pi/agent/models.json`.
+
+After a sync that added packages, restart pi so they install and load — and do that before touching `/config` in the same session (see [Design notes](#design-notes)).
+
+## Optional extensions
+
+`@narumitw/pi-chrome-devtools` and `pi-playwright` are **not installed by default**: both pull a browser-automation stack that not every machine wants. The sync flow opens with a checklist where you tick the ones this machine should have. Already-installed entries render checked and locked — the preset is additive-only and never removes a package, so unchecking an installed entry is not offered.
 
 ## Interactive model provider wizard
 
-`/preset-models-add` is a deterministic, TUI-only wizard for three fixed model bundles plus a fully custom channel:
+The **Add model provider** menu entry is a deterministic, TUI-only wizard for three fixed model bundles plus a fully custom channel:
 
 | Family | Models | Fixed API mode |
 |---|---|---|
@@ -56,11 +64,11 @@ Both skills are required:
 - `grill-me` is the explicitly invoked wrapper. Use `/skill:grill-me` to start a session.
 - `grilling` is the separate interview primitive. Use `/skill:grilling` to invoke it directly.
 
-Pi does not infer a transitive skill dependency, so installing only `grill-me` is not sufficient. The preset's dedicated `/preset-skills-sync` command installs or refreshes both names together. It is the only preset command that performs this network/npm work; `/preset-sync` never installs or refreshes upstream skills.
+Pi does not infer a transitive skill dependency, so installing only `grill-me` is not sufficient. The preset's **Install / refresh grilling skills** menu entry installs or refreshes both names together. It is the only preset flow that performs this network/npm work; the sync flow never installs or refreshes upstream skills.
 
 ### Install, refresh, or repair
 
-Run `/preset-skills-sync` in TUI or RPC mode. It shows a read-only plan, asks for explicit confirmation, then invokes this fixed filtered command without a shell:
+Choose **Install / refresh grilling skills** from `/pi-preset` in TUI or RPC mode. It shows a read-only plan, asks for explicit confirmation, then invokes this fixed filtered command without a shell:
 
 ```bash
 npx --yes skills@latest add mattpocock/skills \
@@ -95,20 +103,18 @@ Skills execute as model instructions with Pi's agent permissions. Review the two
 | Resource | Effect |
 |---|---|
 | `extensions/vibrant-footer.ts` | The status bar. Toggle with `/vibrant-footer` |
-| `extensions/preset-sync.ts` | The `/preset-sync` command |
-| `extensions/preset-skills-sync.ts` | The `/preset-skills-sync` upstream skill installer and refresher |
-| `extensions/preset-models-add.ts` | The `/preset-models-add` masked model-provider wizard |
+| `extensions/pi-preset.ts` | The `/pi-preset` control panel: sync, skills, and model wizard in one TUI menu |
 
-## What `/preset-sync` does
+## What Sync preset does
 
-1. **Declares 13 extensions** in `~/.pi/agent/settings.json` `packages[]`.
+1. **Declares 13 required extensions** (plus any checked optional ones) in `~/.pi/agent/settings.json` `packages[]`.
 2. **Sets 4 config keys** across three JSON files (see below).
 3. **Moves a local `extensions/vibrant-footer/`** into `extensions-disabled/` if one exists, so the footer does not load twice.
 4. **Installs the font** when it is missing.
 
 Every step is idempotent. A second run reports "already in sync" and touches nothing — not even file mtimes.
 
-### The 13 extensions
+### The 13 required extensions
 
 | Package | |
 |---|---|
@@ -116,9 +122,18 @@ Every step is idempotent. A second run reports "already in sync" and touches not
 | `npm:pi-workspace-history` | `npm:@lll9p/pi-better-compaction` |
 | `npm:@ff-labs/pi-fff` | `npm:pi-web-search` |
 | `npm:pi-tool-display` | `git:github.com/code-yeongyu/pi-apply-patch` |
-| `npm:@narumitw/pi-chrome-devtools` | `npm:@juicesharp/rpiv-todo` |
-| `npm:pi-playwright` | `npm:@juicesharp/rpiv-ask-user-question` |
+| `npm:pi-context-view` | `npm:@juicesharp/rpiv-todo` |
+| `npm:pi-btw` | `npm:@juicesharp/rpiv-ask-user-question` |
 | `npm:pi-patty-bg-tasks` | |
+
+### The 2 optional extensions
+
+| Package | Why opt-in |
+|---|---|
+| `npm:@narumitw/pi-chrome-devtools` | Drives a running Chrome over the DevTools Protocol |
+| `npm:pi-playwright` | Full Playwright browser automation; heavy install |
+
+Both appear as unchecked boxes at the start of every sync. Checking one adds it to the desired set for that run; already-installed ones show as checked and locked.
 
 They are declared as **independent `packages[]` entries**, not bundled inside this package. That is deliberate: `pi update --extensions` only iterates sources listed in `settings.json`, so bundling them would freeze their versions forever. As independent entries, each one keeps its native update behavior.
 
@@ -174,7 +189,7 @@ To keep the emacs binding and live with the warning, restore `"tui.editor.cursor
 
 The footer uses Nerd Fonts v3 Material Design glyphs (`nf-md-*`). Without a Nerd Font they render as tofu.
 
-`/preset-sync` detects the family **`Maple Mono NF CN`** and skips when present. Detection is a purely local check — `fc-list` where available, otherwise a scan of the platform font directories — so a machine that already has the font issues no network request and keeps whatever build it has.
+The sync flow detects the family **`Maple Mono NF CN`** and skips when present. Detection is a purely local check — `fc-list` where available, otherwise a scan of the platform font directories — so a machine that already has the font issues no network request and keeps whatever build it has.
 
 When the font is missing:
 
@@ -204,9 +219,9 @@ pi only reconciles a git source to its *configured* ref and never advances it on
 
 - **No preferences are shipped.** No `theme`, no `defaultProvider`, no `defaultModel`, no `defaultThinkingLevel`, no `AGENTS.md`. Those are personal and belong on the machine, not in a package.
 - **No credentials, ever.** `scripts/scan-secrets.sh` scans the working tree and the full git history before every push.
-- **No automatic `pi install`.** `/preset-sync` only writes `packages[]` and lets pi install on its next start.
+- **No automatic `pi install`.** The sync flow only writes `packages[]` and lets pi install on its next start.
 
-  > **Restart pi after a sync that changed `packages[]`.** Extensions get no access to pi's settings manager, so the write goes straight to the file while the running session still holds the array it loaded at startup. If you use `/config` or `pi install` in that same session afterwards, pi persists its stale snapshot and the newly added entries disappear. Re-running `/preset-sync` restores them; nothing else is lost.
+  > **Restart pi after a sync that changed `packages[]`.** Extensions get no access to pi's settings manager, so the write goes straight to the file while the running session still holds the array it loaded at startup. If you use `/config` or `pi install` in that same session afterwards, pi persists its stale snapshot and the newly added entries disappear. Re-running the sync restores them; nothing else is lost.
 - **No runtime dependencies.** Zip extraction uses system tools instead of adding a supply-chain layer.
 - **`pi-startup-redraw-fix` is not included.** It rewrites `ESC[3J ESC[2J ESC[H` into `ESC[H ESC[2J ESC[3J`, but pi's alternate-screen renderer emits `ESC[2J ESC[H ESC[3J`, which never matches its trigger. The patch cannot fire.
 

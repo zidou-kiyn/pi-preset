@@ -419,7 +419,7 @@ function acquireSkillSyncLease(plan: SkillSyncPlan): SkillSyncLease {
 			}
 			if (!parentExisted && pathExists(parentPath) && readdirSync(parentPath).length === 0)
 				removeResource(parentPath);
-			if (code === "EEXIST") throw new Error(`another preset-skills-sync transaction is active (${path})`);
+			if (code === "EEXIST") throw new Error(`another skills-sync transaction is active (${path})`);
 			throw new Error(`cannot create transaction lock ${path}: ${(error as Error).message}`);
 		}
 	}
@@ -627,7 +627,7 @@ export async function applySkillSync(
 
 export function renderSkillSyncApplyResult(result: SkillSyncApplyResult): string {
 	if (!result.ok) {
-		const lines = [`preset-skills-sync: failed: ${sanitizeCliOutput(result.error ?? "unknown error")}`];
+		const lines = [`pi-preset skills: failed: ${sanitizeCliOutput(result.error ?? "unknown error")}`];
 		if (result.rolledBack) lines.push("previous skill and lock state restored");
 		else if (result.rollbackAttempted) lines.push("rollback was attempted but did not complete");
 		if (result.rollbackError) lines.push(`rollback error: ${sanitizeCliOutput(result.rollbackError)}`);
@@ -636,5 +636,5 @@ export function renderSkillSyncApplyResult(result: SkillSyncApplyResult): string
 	}
 
 	const statuses = result.statuses.map((entry) => `${entry.name}: ${entry.status}`).join(", ");
-	return `preset-skills-sync: ${statuses.replaceAll("already-current", "already current")}`;
+	return `pi-preset skills: ${statuses.replaceAll("already-current", "already current")}`;
 }

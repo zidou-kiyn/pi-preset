@@ -6,8 +6,8 @@ import { test } from "node:test";
 import { assertModeOnPosix, withPlatform } from "./platform-test-utils.ts";
 import { apply } from "../src/apply.ts";
 import { jsonEquals } from "../src/json-merge.ts";
-import { JSON_PATCHES, REQUIRED_PACKAGES } from "../src/manifest.ts";
-import { plan, type Step } from "../src/plan.ts";
+import { JSON_PATCHES, OPTIONAL_PACKAGES, REQUIRED_PACKAGES } from "../src/manifest.ts";
+import { plan, type PlanOptions, type Step } from "../src/plan.ts";
 
 function makeAgentDir(): string {
 	return mkdtempSync(join(tmpdir(), "pi-preset-json-patch-test-"));
@@ -24,11 +24,11 @@ function cleanup(path: string): void {
  * darwin; on win32 it only emits a note, which keeps these tests hermetic and
  * fast without touching the font code under test elsewhere.
  */
-async function planIn(agentDir: string): Promise<Awaited<ReturnType<typeof plan>>> {
+async function planIn(agentDir: string, options?: PlanOptions): Promise<Awaited<ReturnType<typeof plan>>> {
 	const previous = process.env.PI_CODING_AGENT_DIR;
 	process.env.PI_CODING_AGENT_DIR = agentDir;
 	try {
-		return await withPlatform("win32", () => plan());
+		return await withPlatform("win32", () => plan(options));
 	} finally {
 		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
 		else process.env.PI_CODING_AGENT_DIR = previous;
@@ -54,9 +54,54 @@ test("jsonEquals compares arrays and objects structurally, not by reference", ()
 
 test("the background-tasks package ships and every patch target has a distinct id", () => {
 	assert.ok(REQUIRED_PACKAGES.includes("npm:pi-patty-bg-tasks"));
+	assert.ok(REQUIRED_PACKAGES.includes("npm:pi-context-view"));
+	assert.ok(REQUIRED_PACKAGES.includes("npm:pi-btw"));
 	const ids = JSON_PATCHES.map((target) => target.id);
 	assert.equal(new Set(ids).size, ids.length);
 	assert.deepEqual(ids, ["web-search.json", "pi-tool-display/config.json", "keybindings.json"]);
+});
+
+test("optional packages stay out of the default plan and join only when checked", async () => {
+	assert.deepEqual(
+		OPTIONAL_PACKAGES.map((pkg) => pkg.source),
+		["npm:@narumitw/pi-chrome-devtools", "npm:pi-playwright"],
+	);
+	for (const pkg of OPTIONAL_PACKAGES) {
+		assert.ok(!REQUIRED_PACKAGES.includes(pkg.source), `${pkg.source} must not be required`);
+	}
+
+	const agentDir = makeAgentDir();
+	try {
+		writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ packages: [] }));
+
+		const withoutExtras = await planIn(agentDir);
+		const defaultAdd = withoutExtras.steps.find(
+			(step): step is Extract<Step, { kind: "settings.packages.add" }> => step.kind === "settings.packages.add",
+		);
+		assert.ok(defaultAdd);
+		for (const pkg of OPTIONAL_PACKAGES) {
+			assert.ok(!defaultAdd.missing.includes(pkg.source), `${pkg.source} must not be planned by default`);
+		}
+
+		const extras = OPTIONAL_PACKAGES.map((pkg) => pkg.source);
+		const withExtras = await planIn(agentDir, { extraPackages: extras });
+		const extrasAdd = withExtras.steps.find(
+			(step): step is Extract<Step, { kind: "settings.packages.add" }> => step.kind === "settings.packages.add",
+		);
+		assert.ok(extrasAdd);
+		for (const source of extras) {
+			assert.ok(extrasAdd.missing.includes(source), `${source} must be planned when checked`);
+		}
+		// A checked extra that duplicates a required package is not planned twice.
+		const duplicated = await planIn(agentDir, { extraPackages: ["npm:pi-wtf", ...extras] });
+		const dupAdd = duplicated.steps.find(
+			(step): step is Extract<Step, { kind: "settings.packages.add" }> => step.kind === "settings.packages.add",
+		);
+		assert.ok(dupAdd);
+		assert.equal(dupAdd.missing.filter((source) => source === "npm:pi-wtf").length, 1);
+	} finally {
+		cleanup(agentDir);
+	}
 });
 
 test("existing configs are patched per leaf, keep unrelated keys and modes, and converge", async () => {

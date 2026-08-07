@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { KeybindingsManager, TUI_KEYBINDINGS, visibleWidth } from "@earendil-works/pi-tui";
-import { runPresetModelsAdd } from "../extensions/preset-models-add.ts";
+import { runPresetModelsAdd } from "../src/models-add-run.ts";
 import {
 	COMPAT_FLAG_OPTIONS,
 	compatFlagsForApi,

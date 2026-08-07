@@ -1,20 +1,21 @@
 /**
- * /preset-skills-sync — install or refresh Matt Pocock's two-part grilling workflow.
+ * Skills-sync flow — install or refresh Matt Pocock's two-part grilling workflow.
+ * Invoked from the /pi-preset main menu.
  *
  * The upstream files are deliberately not vendored in this package. Every run
  * uses the filtered official skills CLI, with an outer snapshot/rollback layer
  * so a partial installer failure cannot destroy the previous working pair.
  */
 
-import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import {
 	type ApplySkillSyncOptions,
 	applySkillSync,
 	renderSkillSyncApplyResult,
 	type SkillSyncApplyResult,
-} from "../src/skills-sync-apply.ts";
-import { sanitizeTerminalText } from "../src/skills-sync-output.ts";
-import { createSkillSyncPlan, renderSkillSyncPlan, type SkillSyncPlan } from "../src/skills-sync-plan.ts";
+} from "./skills-sync-apply.ts";
+import { sanitizeTerminalText } from "./skills-sync-output.ts";
+import { createSkillSyncPlan, renderSkillSyncPlan, type SkillSyncPlan } from "./skills-sync-plan.ts";
 
 export interface PresetSkillsSyncDependencies {
 	createPlan?: () => SkillSyncPlan;
@@ -42,7 +43,7 @@ export async function runPresetSkillsSync(
 	} catch (error) {
 		report(
 			ctx,
-			`preset-skills-sync: could not compute a plan: ${sanitizeTerminalText((error as Error).message, 2_000)}`,
+			`pi-preset skills: could not compute a plan: ${sanitizeTerminalText((error as Error).message, 2_000)}`,
 			"error",
 		);
 		return;
@@ -50,7 +51,7 @@ export async function runPresetSkillsSync(
 	const body = renderSkillSyncPlan(syncPlan);
 
 	if (syncPlan.blockers.length > 0) {
-		report(ctx, `preset-skills-sync: cannot continue\n${body}`, "warning");
+		report(ctx, `pi-preset skills: cannot continue\n${body}`, "warning");
 		return;
 	}
 
@@ -58,10 +59,10 @@ export async function runPresetSkillsSync(
 		report(
 			ctx,
 			[
-				`preset-skills-sync plan (${ctx.mode} mode, dry run — no consent possible here):`,
+				`pi-preset skills plan (${ctx.mode} mode, dry run — no consent possible here):`,
 				body,
 				"",
-				"Run /preset-skills-sync in TUI or RPC mode to apply.",
+				"Run /pi-preset in TUI or RPC mode to apply.",
 			].join("\n"),
 			"info",
 		);
@@ -73,7 +74,7 @@ export async function runPresetSkillsSync(
 		`${body}\n\nThis uses network access and writes the two global skill entries. Continue?`,
 	);
 	if (!confirmed) {
-		ctx.ui.notify("preset-skills-sync: cancelled, nothing was written", "info");
+		ctx.ui.notify("pi-preset skills: cancelled, nothing was written", "info");
 		return;
 	}
 
@@ -84,7 +85,7 @@ export async function runPresetSkillsSync(
 	} catch (error) {
 		report(
 			ctx,
-			`preset-skills-sync: apply failed before a result was produced: ${sanitizeTerminalText((error as Error).message, 2_000)}`,
+			`pi-preset skills: apply failed before a result was produced: ${sanitizeTerminalText((error as Error).message, 2_000)}`,
 			"error",
 		);
 		return;
@@ -96,18 +97,9 @@ export async function runPresetSkillsSync(
 	// Notify before reload; reload is terminal for this command handler because
 	// the old extension context is stale once the resource set is replaced.
 	ctx.ui.notify(
-		"preset-skills-sync: skill content changed; reloading Pi resources now (restart Pi if reload fails)",
+		"pi-preset skills: skill content changed; reloading Pi resources now (restart Pi if reload fails)",
 		"info",
 	);
 	await ctx.reload();
 	return;
-}
-
-export default function presetSkillsSyncExtension(pi: ExtensionAPI): void {
-	pi.registerCommand("preset-skills-sync", {
-		description: "Install or refresh the upstream grill-me and grilling skills",
-		handler: async (_args, ctx) => {
-			await runPresetSkillsSync(ctx);
-		},
-	});
 }

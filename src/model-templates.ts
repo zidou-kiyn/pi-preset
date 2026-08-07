@@ -1,4 +1,4 @@
-/** Credential-free model bundles used by /preset-models-add. */
+/** Credential-free model bundles used by the /pi-preset model wizard. */
 
 export type FamilyId = "anthropic" | "openai" | "deepseek";
 export type ModelInput = "text" | "image";

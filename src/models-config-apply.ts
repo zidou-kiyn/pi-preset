@@ -35,7 +35,7 @@ export function applyProviderPlan(plan: ReadyProviderPlan, inputPath: string): A
 
 	const latest = readModelsDocument(inputPath);
 	if (targetProviderChanged(plan, latest)) {
-		throw new Error(`provider "${plan.providerId}" changed after preview; run /preset-models-add again`);
+		throw new Error(`provider "${plan.providerId}" changed after preview; run /pi-preset again`);
 	}
 
 	const latestProviders = getModelsProviders(latest.data);
