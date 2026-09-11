@@ -56,15 +56,19 @@ test("the background-tasks package ships and every patch target has a distinct i
 	assert.ok(REQUIRED_PACKAGES.includes("npm:pi-patty-bg-tasks"));
 	assert.ok(REQUIRED_PACKAGES.includes("npm:pi-context-view"));
 	assert.ok(REQUIRED_PACKAGES.includes("npm:pi-btw"));
+	assert.ok(REQUIRED_PACKAGES.includes("npm:pi-web-search"));
+	// pi-web-access registers the same tool names as pi-web-search; pi treats
+	// that as a fatal load error, so the pair must never be declared together.
+	assert.ok(!REQUIRED_PACKAGES.includes("npm:pi-web-access"));
 	const ids = JSON_PATCHES.map((target) => target.id);
 	assert.equal(new Set(ids).size, ids.length);
-	assert.deepEqual(ids, ["web-search.json", "pi-tool-display/config.json", "keybindings.json"]);
+	assert.deepEqual(ids, ["pi-tool-display/config.json", "keybindings.json"]);
 });
 
 test("optional packages stay out of the default plan and join only when checked", async () => {
 	assert.deepEqual(
 		OPTIONAL_PACKAGES.map((pkg) => pkg.source),
-		["npm:@narumitw/pi-chrome-devtools", "npm:pi-playwright"],
+		["npm:@narumitw/pi-chrome-devtools"],
 	);
 	for (const pkg of OPTIONAL_PACKAGES) {
 		assert.ok(!REQUIRED_PACKAGES.includes(pkg.source), `${pkg.source} must not be required`);
@@ -109,7 +113,6 @@ test("existing configs are patched per leaf, keep unrelated keys and modes, and 
 	try {
 		const toolDisplayPath = toolDisplayConfigPath(agentDir);
 		const keybindingsPath = join(agentDir, "keybindings.json");
-		const webSearchPath = join(agentDir, "web-search.json");
 		mkdirSync(join(agentDir, "extensions", "pi-tool-display"), { recursive: true });
 		writeFileSync(
 			toolDisplayPath,
@@ -124,7 +127,6 @@ test("existing configs are patched per leaf, keep unrelated keys and modes, and 
 			keybindingsPath,
 			JSON.stringify({ "tui.editor.cursorLeft": ["left", "ctrl+b"], "app.exit": ["ctrl+q"] }),
 		);
-		writeFileSync(webSearchPath, JSON.stringify({ webSearch: { enabled: false }, ssrf: { trustEnvProxy: true } }));
 		chmodSync(toolDisplayPath, 0o640);
 		chmodSync(keybindingsPath, 0o640);
 
@@ -134,8 +136,6 @@ test("existing configs are patched per leaf, keep unrelated keys and modes, and 
 			steps.map((step) => step.targetId),
 			["pi-tool-display/config.json", "keybindings.json"],
 		);
-		// web-search.json already matched, so it produced a note instead of a step.
-		assert.ok(first.notes.some((note) => note.text.startsWith("web-search.json: 2 key(s) already match")));
 		assert.deepEqual(steps[0]?.changes, [
 			{ key: "registerToolOverrides.bash", path: ["registerToolOverrides", "bash"], from: true, to: false },
 		]);
@@ -182,9 +182,9 @@ test("absent targets are created holding only the preset's keys", async () => {
 		const steps = patchSteps(first.steps);
 		assert.deepEqual(
 			steps.map((step) => step.targetId),
-			["web-search.json", "pi-tool-display/config.json", "keybindings.json"],
+			["pi-tool-display/config.json", "keybindings.json"],
 		);
-		assert.deepEqual(steps[1]?.changes, [
+		assert.deepEqual(steps[0]?.changes, [
 			{ key: "registerToolOverrides.bash", path: ["registerToolOverrides", "bash"], from: undefined, to: false },
 		]);
 
@@ -212,7 +212,7 @@ test("an unreadable target blocks only its own step", async () => {
 		assert.match(result.blockers[0] ?? "", /^keybindings\.json: .*not valid JSON/);
 		assert.deepEqual(
 			patchSteps(result.steps).map((step) => step.targetId),
-			["web-search.json", "pi-tool-display/config.json"],
+			["pi-tool-display/config.json"],
 		);
 	} finally {
 		cleanup(agentDir);

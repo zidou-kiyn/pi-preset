@@ -1,6 +1,6 @@
 # pi-preset
 
-Personal [pi](https://pi.dev) environment as a pi package: a theme-reactive status bar, a curated extension set, the handful of non-default config keys (including the two that keep the background-task and tool-display extensions from fighting over `bash`), and the Nerd Font the footer's glyphs need.
+Personal [pi](https://pi.dev) environment as a pi package: a theme-reactive status bar, a curated extension set, the two non-default config keys (the ones that keep the background-task and tool-display extensions from fighting over `bash`), and the Nerd Font the footer's glyphs need.
 
 Reproduces the base working setup on a new machine in two commands, without shipping a single credential; the optional upstream grilling workflow has its own explicit sync command.
 
@@ -18,7 +18,7 @@ Restart pi, then run:
 
 `/pi-preset` is the preset's single visual control panel — a TUI menu with three entries:
 
-1. **Sync preset** — packages, config keys, footer, and font. Starts with an optional-extension checklist (Chrome DevTools and Playwright, unchecked by default), then shows a diff of everything it would change and writes nothing until you confirm.
+1. **Sync preset** — packages, config keys, footer, and font. Starts with an optional-extension checklist (Chrome DevTools, unchecked by default), then shows a diff of everything it would change and writes nothing until you confirm.
 2. **Install / refresh grilling skills** — the optional upstream grilling workflow.
 3. **Add model provider** — the masked model-provider wizard for `~/.pi/agent/models.json`.
 
@@ -26,7 +26,9 @@ After a sync that added packages, restart pi so they install and load — and do
 
 ## Optional extensions
 
-`@narumitw/pi-chrome-devtools` and `pi-playwright` are **not installed by default**: both pull a browser-automation stack that not every machine wants. The sync flow opens with a checklist where you tick the ones this machine should have. Already-installed entries render checked and locked — the preset is additive-only and never removes a package, so unchecking an installed entry is not offered.
+`@narumitw/pi-chrome-devtools` is **not installed by default**: it drives a real browser, which not every machine wants. The sync flow opens with a checklist where you tick the ones this machine should have. Already-installed entries render checked and locked — the preset is additive-only and never removes a package, so unchecking an installed entry is not offered.
+
+`pi-playwright` used to sit next to it and was dropped: Chrome DevTools already covers navigate / evaluate / screenshot against a live browser without Playwright's own browser downloads.
 
 ## Interactive model provider wizard
 
@@ -107,46 +109,37 @@ Skills execute as model instructions with Pi's agent permissions. Review the two
 
 ## What Sync preset does
 
-1. **Declares 13 required extensions** (plus any checked optional ones) in `~/.pi/agent/settings.json` `packages[]`.
-2. **Sets 4 config keys** across three JSON files (see below).
+1. **Declares 12 required extensions** (plus any checked optional ones) in `~/.pi/agent/settings.json` `packages[]`.
+2. **Sets 2 config keys** across two JSON files (see below).
 3. **Moves a local `extensions/vibrant-footer/`** into `extensions-disabled/` if one exists, so the footer does not load twice.
 4. **Installs the font** when it is missing.
 
 Every step is idempotent. A second run reports "already in sync" and touches nothing — not even file mtimes.
 
-### The 13 required extensions
+### The 12 required extensions
 
 | Package | |
 |---|---|
-| `npm:pi-wtf` | `npm:pi-web-access` |
-| `npm:pi-workspace-history` | `npm:@lll9p/pi-better-compaction` |
-| `npm:@ff-labs/pi-fff` | `npm:pi-web-search` |
-| `npm:pi-tool-display` | `git:github.com/code-yeongyu/pi-apply-patch` |
-| `npm:pi-context-view` | `npm:@juicesharp/rpiv-todo` |
-| `npm:pi-btw` | `npm:@juicesharp/rpiv-ask-user-question` |
-| `npm:pi-patty-bg-tasks` | |
+| `npm:pi-wtf` | `npm:@lll9p/pi-better-compaction` |
+| `npm:pi-workspace-history` | `npm:pi-web-search` |
+| `npm:@ff-labs/pi-fff` | `git:github.com/code-yeongyu/pi-apply-patch` |
+| `npm:pi-tool-display` | `npm:@juicesharp/rpiv-todo` |
+| `npm:pi-context-view` | `npm:@juicesharp/rpiv-ask-user-question` |
+| `npm:pi-btw` | `npm:pi-patty-bg-tasks` |
 
-### The 2 optional extensions
+Web search is `pi-web-search` only. It uses the selected model provider's native search (Gemini grounding, xAI, OpenAI Responses, Anthropic), so no separate search API key is needed. `pi-web-access` was dropped because it registers the same tool names; pi treats a duplicate tool name as a fatal load error, so the two cannot coexist.
+
+### The optional extension
 
 | Package | Why opt-in |
 |---|---|
 | `npm:@narumitw/pi-chrome-devtools` | Drives a running Chrome over the DevTools Protocol |
-| `npm:pi-playwright` | Full Playwright browser automation; heavy install |
 
-Both appear as unchecked boxes at the start of every sync. Checking one adds it to the desired set for that run; already-installed ones show as checked and locked.
+It appears as an unchecked box at the start of every sync. Checking it adds it to the desired set for that run; when already installed it shows as checked and locked.
 
 They are declared as **independent `packages[]` entries**, not bundled inside this package. That is deliberate: `pi update --extensions` only iterates sources listed in `settings.json`, so bundling them would freeze their versions forever. As independent entries, each one keeps its native update behavior.
 
-### The 4 config keys
-
-Written to `web-search.json`:
-
-```json
-{
-  "webSearch": { "enabled": false },
-  "ssrf": { "trustEnvProxy": true }
-}
-```
+### The 2 config keys
 
 Written to `extensions/pi-tool-display/config.json`:
 
@@ -162,9 +155,9 @@ Written to `keybindings.json`:
 
 Nothing else is written. Every consumer falls back per key to its own defaults, so a partial file is valid and no upstream default can be frozen by a stale snapshot.
 
-**`web-search.json` also holds every provider API key.** Writes to all three files are therefore a deep merge of exactly those leaf keys — never a whole-file overwrite. If a file does not parse as JSON, only that step aborts, rather than starting from `{}` and erasing your keys. The previous content is copied to `<file>.preset-bak` before every write, and the write itself is a tmp-file rename so an interrupted run cannot truncate it.
+Writes to both files are a deep merge of exactly those leaf keys — never a whole-file overwrite. If a file does not parse as JSON, only that step aborts, rather than starting from `{}` and erasing your hand-tuned settings. The previous content is copied to `<file>.preset-bak` before every write, and the write itself is a tmp-file rename so an interrupted run cannot truncate it.
 
-#### Why the last two keys exist: `pi-patty-bg-tasks`
+#### Why these keys exist: `pi-patty-bg-tasks`
 
 [`pi-patty-bg-tasks`](https://pi.dev/packages/pi-patty-bg-tasks) brings Claude Code's background-task flow to pi: a foreground command that runs past 120s slides into the background, **Ctrl+B** backgrounds it on demand, and `jobs` / `monitor` / `agent_bg` / `/bg-list` manage what is running. It collides with the rest of the preset in two places.
 

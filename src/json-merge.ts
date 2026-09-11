@@ -1,8 +1,8 @@
 /**
  * JSON read / deep merge / atomic write.
  *
- * The files this touches (web-search.json, settings.json) hold provider API
- * keys, so the rules are strict:
+ * The files this touches (settings.json, keybindings.json, extension configs)
+ * hold hand-tuned user state, so the rules are strict:
  *   - never overwrite a whole file; merge only the leaf keys of a patch
  *   - a JSON.parse failure aborts the step instead of starting from {}
  *     (starting from {} is exactly how a file full of keys gets erased)

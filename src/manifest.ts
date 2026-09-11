@@ -8,7 +8,7 @@
  */
 
 import type { JsonObject } from "./json-merge.ts";
-import { getKeybindingsPath, getToolDisplayConfigPath, getWebSearchConfigPath } from "./paths.ts";
+import { getKeybindingsPath, getToolDisplayConfigPath } from "./paths.ts";
 
 /**
  * Extensions that must be present in settings.json `packages[]`.
@@ -28,13 +28,18 @@ import { getKeybindingsPath, getToolDisplayConfigPath, getWebSearchConfigPath } 
  * detectExtensionConflicts) and exits 1 (main.ts), so pi refuses to start at
  * all while both own `bash`. Reordering this list cannot help. The
  * pi-tool-display entry in JSON_PATCHES below is what makes the pair loadable.
+ *
+ * Deliberately absent: `npm:pi-web-access`. It registers the same tool names
+ * as `pi-web-search`, which is the same fatal duplicate-tool error as above,
+ * and there is no opt-out on either side. `pi-web-search` is kept because it
+ * uses the current model provider's native search (Gemini grounding, xAI,
+ * OpenAI Responses, Anthropic) instead of a separate Exa/Brave-style API key.
  */
 export const REQUIRED_PACKAGES: readonly string[] = [
 	"npm:pi-wtf",
 	"npm:pi-workspace-history",
 	"npm:@ff-labs/pi-fff",
 	"npm:pi-tool-display",
-	"npm:pi-web-access",
 	"npm:@lll9p/pi-better-compaction",
 	"npm:pi-web-search",
 	"git:github.com/code-yeongyu/pi-apply-patch",
@@ -48,11 +53,15 @@ export const REQUIRED_PACKAGES: readonly string[] = [
 /**
  * Extensions offered as opt-in checkboxes before a sync.
  *
- * These are not part of REQUIRED_PACKAGES: both pull a full browser-automation
+ * These are not part of REQUIRED_PACKAGES: they pull a browser-automation
  * stack that not every machine wants. The sync flow shows them as a checklist
  * (already-installed entries render checked and locked), and only checked
  * entries join the desired package set. The preset is additive-only: leaving
  * an installed entry unchecked never removes it.
+ *
+ * Deliberately absent: `npm:pi-playwright`. Chrome DevTools covers the same
+ * navigate / evaluate / screenshot needs against a real browser without
+ * downloading Playwright's own browser bundles.
  */
 export interface OptionalPackage {
 	/** settings.json packages[] source string. */
@@ -70,21 +79,15 @@ export const OPTIONAL_PACKAGES: readonly OptionalPackage[] = [
 		description:
 			"Drive a running Chrome through the DevTools Protocol: list pages, navigate, evaluate JS, screenshot.",
 	},
-	{
-		source: "npm:pi-playwright",
-		label: "Playwright (pi-playwright)",
-		description: "Browser automation via Playwright. Heavier install; only useful when the agent should run browsers.",
-	},
 ];
 
 /**
  * JSON config files whose individual leaf keys the preset owns.
  *
- * Every entry is deep merged, never written whole: these files hold provider
- * API keys and hand-tuned preferences the preset has no business replacing.
- * Consumers of all three read keys optionally and fall back per key, so a
- * partial file is valid and a stale snapshot can never freeze an upstream
- * default.
+ * Every entry is deep merged, never written whole: these files hold
+ * hand-tuned preferences the preset has no business replacing. Both consumers
+ * read keys optionally and fall back per key, so a partial file is valid and
+ * a stale snapshot can never freeze an upstream default.
  *
  * `resolvePath` is a function, not a string, because the path depends on
  * PI_CODING_AGENT_DIR at call time — a sandbox run must not inherit a value
@@ -101,14 +104,6 @@ export interface JsonPatchTarget {
 }
 
 export const JSON_PATCHES: readonly JsonPatchTarget[] = [
-	{
-		id: "web-search.json",
-		resolvePath: getWebSearchConfigPath,
-		patch: {
-			webSearch: { enabled: false },
-			ssrf: { trustEnvProxy: true },
-		},
-	},
 	{
 		// Without this, pi-tool-display and pi-patty-bg-tasks both register `bash`
 		// and pi aborts startup with `Tool "bash" conflicts with ...` (verified in

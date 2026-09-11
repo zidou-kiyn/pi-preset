@@ -7,7 +7,7 @@
  * `if (!confirmed) return;` below covers every decline path.
  *
  * In TUI mode the flow starts with the optional-extension checklist
- * (chrome-devtools, playwright): only checked entries join the desired
+ * (currently chrome-devtools): only checked entries join the desired
  * package set, and already-installed entries are locked because the preset
  * never removes packages.
  *

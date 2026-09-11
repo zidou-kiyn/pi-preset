@@ -1,20 +1,13 @@
 /**
  * Path resolution.
  *
- * pi and pi-web-access do NOT share a config-dir resolver, and the difference
- * matters: writing settings.json to the web-search location would put it where
- * pi never reads it.
+ * Everything the preset writes lives under pi's agent dir:
  *
  *   settings.json / keybindings.json / extensions/  -> getAgentDir():
  *       PI_CODING_AGENT_DIR (tilde-expanded) | ~/.pi/agent
  *       (pi's own config.ts getAgentDir; it has no XDG_CONFIG_HOME branch)
  *
- *   web-search.json              -> getWebSearchConfigDir():
- *       PI_CODING_AGENT_DIR | $XDG_CONFIG_HOME/pi | ~/.pi
- *       (pi-web-access utils.ts getWebSearchConfigDir)
- *
- * Both collapse onto PI_CODING_AGENT_DIR when it is set, which is what makes a
- * single-directory sandbox work.
+ * Setting PI_CODING_AGENT_DIR is what makes a single-directory sandbox work.
  */
 
 import { homedir, platform } from "node:os";
@@ -73,17 +66,6 @@ export function getUserExtensionsDir(): string {
  */
 export function getDisabledExtensionsDir(): string {
 	return join(getAgentDir(), "extensions-disabled");
-}
-
-/** pi-web-access's config directory. Note the XDG branch that getAgentDir lacks. */
-export function getWebSearchConfigDir(): string {
-	if (process.env.PI_CODING_AGENT_DIR) return process.env.PI_CODING_AGENT_DIR;
-	if (process.env.XDG_CONFIG_HOME) return join(process.env.XDG_CONFIG_HOME, "pi");
-	return join(homedir(), ".pi");
-}
-
-export function getWebSearchConfigPath(): string {
-	return join(getWebSearchConfigDir(), "web-search.json");
 }
 
 export type FontPlatform = "linux" | "darwin" | "win32" | "unsupported";
