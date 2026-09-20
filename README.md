@@ -106,6 +106,7 @@ Skills execute as model instructions with Pi's agent permissions. Review the two
 |---|---|
 | `extensions/vibrant-footer.ts` | The status bar. Toggle with `/vibrant-footer` |
 | `extensions/pi-preset.ts` | The `/pi-preset` control panel: sync, skills, and model wizard in one TUI menu |
+| `extensions/headless-keepalive.ts` | Keeps headless `pi -p` children alive during tool calls (works around a `pi-patty-bg-tasks` bug, see below). No command, no UI |
 
 ## What Sync preset does
 
@@ -175,6 +176,10 @@ To keep `pi-tool-display`'s bash rendering instead, set that key back to `true` 
 **2. The Ctrl+B keybinding.** pi binds `ctrl+b` to `tui.editor.cursorLeft` by default (an emacs-style alias for `left`), and the extension registers `ctrl+b` unconditionally. The extension wins the key either way — this is only cosmetic — but pi prints `Extension shortcut conflict: 'ctrl+b' ...` on every startup until the built-in claim is dropped. A user key list **replaces** the default list rather than extending it, so `["left"]` is what removes `ctrl+b`.
 
 To keep the emacs binding and live with the warning, restore `"tui.editor.cursorLeft": ["left", "ctrl+b"]`. The extension's other shortcuts (`ctrl+shift+b`, `ctrl+shift+j`, `shift+down`, `ctrl+shift+x`) collide with nothing.
+
+**3. Headless children die on the first `bash` call.** This one is why `extensions/headless-keepalive.ts` ships. `pi-patty-bg-tasks` spawns its foreground `bash` with `detached: true` + `proc.unref()` and `unref()`s every timer. In the TUI the terminal keeps Node's event loop alive, so nothing is noticed. In a headless `pi -p` process (Trellis `trellis_subagent` workers, pi-patty's own `agent_bg`, anything driving `--mode json|text`) the loop is empty once stdin is drained and the LLM stream ends, so Node exits **0** mid tool-call: no `tool_execution_end`, no `agent_end`, empty or first-turn-only output. Verified on 1.1.6: `pi -p --no-extensions -e …/pi-patty-bg-tasks` reproduces it, built-in bash does not.
+
+The keepalive extension holds one ref'd `setInterval` per in-flight tool call (`tool_execution_start` → `tool_execution_end`) and releases everything on `agent_end` / `session_shutdown`. It registers no tool and no command, so it never appears in the footer's package count. Drop it once upstream stops unref'ing the foreground child.
 
 `settings.json` `packages[]` is **append-only**: entries are deduplicated by pi's own identity rule (npm compares the package name, git compares the repository URL without its ref), and packages you added yourself are never reordered or removed.
 
