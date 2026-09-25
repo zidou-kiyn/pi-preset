@@ -64,7 +64,7 @@ function makeDependencies(
 	return {
 		getModelsPath: () => path,
 		selectFamily: async () => "openai",
-		selectModels: async () => options.selectedModels ?? ["gpt-5.6-sol"],
+		selectModels: async () => options.selectedModels ?? ["gpt-6-sol"],
 		input: async (_ctx, title) =>
 			title === "Provider identifier"
 				? (options.providerId ?? "provider-id")
@@ -120,11 +120,11 @@ test("every family checklist starts empty and cannot continue without an explici
 	assert.deepEqual(result, ["unexpected"]);
 	component.handleInput("\x1b[A");
 	component.handleInput("\n");
-	assert.deepEqual(component.getSelectedModelIds(), ["gpt-5.6-luna"]);
+	assert.deepEqual(component.getSelectedModelIds(), ["gpt-6-luna"]);
 	assert.equal(component.isContinueEnabled(), true);
 	component.handleInput("\x1b[6~");
 	component.handleInput("\n");
-	assert.deepEqual(result, ["gpt-5.6-luna"]);
+	assert.deepEqual(result, ["gpt-6-luna"]);
 
 	let orderedResult: string[] | undefined;
 	const ordered = new ModelChecklistComponent(
@@ -143,7 +143,7 @@ test("every family checklist starts empty and cannot continue without an explici
 	ordered.handleInput("\n");
 	ordered.handleInput("\x1b[6~");
 	ordered.handleInput("\n");
-	assert.deepEqual(orderedResult, ["gpt-5.6-sol", "gpt-5.6-luna"]);
+	assert.deepEqual(orderedResult, ["gpt-6-astra", "gpt-6-luna"]);
 });
 
 test("masked input uses a fixed mask, never renders the value, and clears its editor before resolving", () => {
@@ -221,7 +221,7 @@ test("successful workflow writes the selected bundle and never reports the API k
 		assert.equal(parsed.providers["provider-id"].api, "openai-responses");
 		assert.deepEqual(
 			parsed.providers["provider-id"].models.map((model: { id: string }) => model.id),
-			["gpt-5.6-sol"],
+			["gpt-6-sol"],
 		);
 		assert.equal(parsed.providers["provider-id"].apiKey, key);
 		assertModeOnPosix(path, 0o600);
@@ -246,7 +246,7 @@ test("simulated Windows first add writes the selected provider", async () => {
 		assert.equal(parsed.providers["provider-id"].api, "openai-responses");
 		assert.deepEqual(
 			parsed.providers["provider-id"].models.map((model: { id: string }) => model.id),
-			["gpt-5.6-sol"],
+			["gpt-6-sol"],
 		);
 		assert.equal(parsed.providers["provider-id"].apiKey, key);
 		assert.equal(existsSync(`${path}.preset-bak`), false);
@@ -314,7 +314,7 @@ test("simulated Windows replacement preserves siblings and backs up the original
 		let replacementConfirmations = 0;
 		await withPlatform("win32", async () => {
 			const dependencies = makeDependencies(path, key, {
-				selectedModels: ["gpt-5.6-terra"],
+				selectedModels: ["gpt-6-astra"],
 				baseUrl: "https://new.example.invalid/v1",
 			});
 			dependencies.confirmDiff = async () => {
@@ -336,7 +336,7 @@ test("simulated Windows replacement preserves siblings and backs up the original
 		assert.equal(replaced.apiKey, key);
 		assert.deepEqual(
 			replaced.models.map((model: { id: string }) => model.id),
-			["gpt-5.6-terra"],
+			["gpt-6-astra"],
 		);
 		assert.equal("staleCompatibility" in replaced.compat, false);
 		assert.equal(replaced.models.some((model: { id: string }) => model.id === "stale-model"), false);
@@ -395,7 +395,7 @@ test("replacement needs a second confirmation and decline performs no write", as
 	try {
 		const path = join(home, "models.json");
 		const oldKey = runtimeKey();
-		const old = buildProviderCandidate("openai", ["gpt-5.6-terra"], "https://old.example.invalid/v1", oldKey);
+		const old = buildProviderCandidate("openai", ["gpt-6-astra"], "https://old.example.invalid/v1", oldKey);
 		secureWrite(path, JSON.stringify({ providers: { "provider-id": old } }));
 		const beforeBytes = readFileSync(path);
 		const beforeMtime = statSync(path).mtimeMs;
@@ -478,7 +478,7 @@ test("already configured workflow skips confirmation and apply", async () => {
 	try {
 		const path = join(home, "models.json");
 		const key = runtimeKey();
-		const provider = buildProviderCandidate("openai", ["gpt-5.6-sol"], "https://api.example.invalid/v1", key);
+		const provider = buildProviderCandidate("openai", ["gpt-6-sol"], "https://api.example.invalid/v1", key);
 		secureWrite(path, JSON.stringify({ providers: { "provider-id": provider } }));
 		let confirms = 0;
 		let applies = 0;

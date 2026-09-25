@@ -80,9 +80,9 @@ test("API keys and model selections are validated without echoing secret input",
 	assert.equal((emptyError ?? "").includes(key), false);
 	assert.match(validateModelSelection("openai", []) ?? "", /at least one/);
 	assert.match(validateModelSelection("openai", ["not-in-catalog"]) ?? "", /unsupported/);
-	assert.deepEqual(normalizeSelectedModelIds("openai", ["gpt-5.6-luna", "gpt-5.6-sol"]), [
-		"gpt-5.6-sol",
-		"gpt-5.6-luna",
+	assert.deepEqual(normalizeSelectedModelIds("openai", ["gpt-6-luna", "gpt-6-sol"]), [
+		"gpt-6-sol",
+		"gpt-6-luna",
 	]);
 });
 
@@ -152,24 +152,24 @@ test("Windows writable files skip the POSIX group/other permission gate", async 
 test("candidate construction emits only selected catalog models with complete metadata", () => {
 	const candidate = buildProviderCandidate(
 		"anthropic",
-		["claude-sonnet-5", "claude-fable-5"],
+		["claude-sonnet-5", "claude-fable-5-1"],
 		"https://api.example.invalid/v1",
 		runtimeKey(),
 	);
 	assert.equal(candidate.api, "anthropic-messages");
-	assert.deepEqual(modelIds(candidate.models), ["claude-fable-5", "claude-sonnet-5"]);
+	assert.deepEqual(modelIds(candidate.models), ["claude-fable-5-1", "claude-sonnet-5"]);
 	assert.deepEqual(candidate.compat, {
 		supportsEagerToolInputStreaming: false,
 		supportsLongCacheRetention: true,
 		forceAdaptiveThinking: true,
 		supportsStrictTools: true,
 	});
-	assert.equal(modelIds(candidate.models).includes("claude-opus-5"), false);
+	assert.equal(modelIds(candidate.models).includes("claude-opus-5-5"), false);
 });
 
 test("plans add, exact no-op, and replacement states", () => {
 	const key = runtimeKey();
-	const candidate = buildProviderCandidate("deepseek", ["deepseek-v4-flash"], "https://api.example.invalid/v1", key);
+	const candidate = buildProviderCandidate("deepseek", ["deepseek-flash"], "https://api.example.invalid/v1", key);
 	const add = readyPlan(planProviderUpsert({ providers: {} }, "provider-id", candidate, "/tmp/models.json"));
 	assert.equal(add.status, "add");
 	assert.equal(
@@ -216,7 +216,7 @@ test("recursive redaction distinguishes existing and supplied secrets, including
 
 test("provider-only diff is deterministic and never includes the supplied key", () => {
 	const key = runtimeKey();
-	const candidate = buildProviderCandidate("openai", ["gpt-5.6-sol"], "https://api.example.invalid/v1", key);
+	const candidate = buildProviderCandidate("openai", ["gpt-6-sol"], "https://api.example.invalid/v1", key);
 	const diff = renderProviderDiff("provider-id", { apiKey: runtimeKey(), keep: true }, candidate);
 	assert.equal(diff[0]?.startsWith('- providers["provider-id"]'), true);
 	assert.equal(
@@ -242,7 +242,7 @@ test("semantic equality ignores object order but preserves array order", () => {
 
 test("malformed non-object provider values are fully redacted in replacement previews", () => {
 	const key = runtimeKey();
-	const candidate = buildProviderCandidate("deepseek", ["deepseek-v4-flash"], "https://api.example.invalid/v1", key);
+	const candidate = buildProviderCandidate("deepseek", ["deepseek-flash"], "https://api.example.invalid/v1", key);
 	const existingValue = runtimeKey();
 	const diff = renderProviderDiff("provider-id", existingValue, candidate);
 	assert.equal(diff.join("\n").includes(existingValue), false);

@@ -61,7 +61,7 @@ test("add preserves unrelated top-level fields and sibling providers", () => {
 				providers: { sibling: { keep: true, models: ["outside-catalog"] } },
 			}),
 		);
-		const provider = candidate("openai", ["gpt-5.6-sol", "gpt-5.6-luna"]);
+		const provider = candidate("openai", ["gpt-6-sol", "gpt-6-luna"]);
 		const before = readModelsDocument(path);
 		const plan = planProviderUpsert(before.data, "provider-id", provider, before.targetPath);
 		assert.equal(plan.status, "add");
@@ -72,7 +72,7 @@ test("add preserves unrelated top-level fields and sibling providers", () => {
 		assert.deepEqual(after.providers.sibling, { keep: true, models: ["outside-catalog"] });
 		assert.deepEqual(
 			after.providers["provider-id"].models.map((model: { id: string }) => model.id),
-			["gpt-5.6-sol", "gpt-5.6-luna"],
+			["gpt-6-sol", "gpt-6-luna"],
 		);
 	} finally {
 		cleanup(home);
@@ -91,13 +91,13 @@ test("replacement replaces the provider object as a unit without stale fields", 
 			models: [{ id: "stale-model", custom: true }],
 		};
 		secureWrite(path, JSON.stringify({ providers: { "provider-id": old, sibling: { keep: true } } }));
-		const provider = candidate("openai", ["gpt-5.6-terra"]);
+		const provider = candidate("openai", ["gpt-6-astra"]);
 		const before = readModelsDocument(path);
 		const plan = planProviderUpsert(before.data, "provider-id", provider, before.targetPath);
 		assert.equal(plan.status, "replace");
 		applyProviderPlan(readyPlan(plan), path);
 		const after = JSON.parse(readFileSync(path, "utf8"));
-		assert.equal(after.providers["provider-id"].models[0].id, "gpt-5.6-terra");
+		assert.equal(after.providers["provider-id"].models[0].id, "gpt-6-astra");
 		assert.equal("staleCompatibility" in after.providers["provider-id"].compat, false);
 		assert.equal("stale-model" === after.providers["provider-id"].models[0].id, false);
 		assert.deepEqual(after.providers.sibling, { keep: true });
@@ -116,7 +116,7 @@ test("commented input is normalized after writing while backup retains original 
 		const plan = planProviderUpsert(
 			before.data,
 			"provider-id",
-			candidate("deepseek", ["deepseek-v4-flash"]),
+			candidate("deepseek", ["deepseek-flash"]),
 			before.targetPath,
 		);
 		applyProviderPlan(readyPlan(plan), path);
@@ -137,10 +137,10 @@ test("provider target TOCTOU conflict aborts without changing the latest file", 
 		const plan = planProviderUpsert(
 			before.data,
 			"provider-id",
-			candidate("deepseek", ["deepseek-v4-flash"]),
+			candidate("deepseek", ["deepseek-flash"]),
 			before.targetPath,
 		);
-		const concurrent = candidate("openai", ["gpt-5.6-sol"]);
+		const concurrent = candidate("openai", ["gpt-6-sol"]);
 		secureWrite(path, JSON.stringify({ providers: { "provider-id": concurrent, sibling: { keep: true } } }));
 		assert.throws(() => applyProviderPlan(readyPlan(plan), path), /changed after preview/);
 		const after = JSON.parse(readFileSync(path, "utf8"));
@@ -161,7 +161,7 @@ test("unrelated concurrent sibling changes survive when the target is unchanged"
 		const plan = planProviderUpsert(
 			before.data,
 			"provider-id",
-			candidate("anthropic", ["claude-fable-5"]),
+			candidate("anthropic", ["claude-fable-5-1"]),
 			before.targetPath,
 		);
 		secureWrite(path, JSON.stringify({ providers: { sibling: { before: true, concurrent: true } }, top: "after" }));
@@ -169,7 +169,7 @@ test("unrelated concurrent sibling changes survive when the target is unchanged"
 		const after = JSON.parse(readFileSync(path, "utf8"));
 		assert.deepEqual(after.providers.sibling, { before: true, concurrent: true });
 		assert.equal(after.top, "after");
-		assert.equal(after.providers["provider-id"].models[0].id, "claude-fable-5");
+		assert.equal(after.providers["provider-id"].models[0].id, "claude-fable-5-1");
 	} finally {
 		cleanup(home);
 	}
@@ -179,7 +179,7 @@ test("exact no-op does not create a backup or rewrite the file", async () => {
 	const home = makeHome();
 	try {
 		const path = join(home, "models.json");
-		const provider = candidate("deepseek", ["deepseek-v4-flash"]);
+		const provider = candidate("deepseek", ["deepseek-flash"]);
 		secureWrite(path, JSON.stringify({ providers: { "provider-id": provider } }));
 		const before = readModelsDocument(path);
 		const plan = planProviderUpsert(before.data, "provider-id", provider, before.targetPath);
@@ -209,13 +209,13 @@ test("valid symlink apply keeps the link and owner-only target mode", () => {
 		const plan = planProviderUpsert(
 			before.data,
 			"provider-id",
-			candidate("openai", ["gpt-5.6-terra"]),
+			candidate("openai", ["gpt-6-astra"]),
 			before.targetPath,
 		);
 		applyProviderPlan(readyPlan(plan), path);
 		assert.equal(lstatSync(path).isSymbolicLink(), true);
 		assertModeOnPosix(target, 0o600);
-		assert.equal(JSON.parse(readFileSync(target, "utf8")).providers["provider-id"].models[0].id, "gpt-5.6-terra");
+		assert.equal(JSON.parse(readFileSync(target, "utf8")).providers["provider-id"].models[0].id, "gpt-6-astra");
 		assert.equal(readFileSync(`${target}.preset-bak`, "utf8"), original);
 		assertModeOnPosix(`${target}.preset-bak`, 0o600);
 	} finally {
@@ -236,7 +236,7 @@ test("retargeted or newly dangling symlinks abort without writing either target"
 		const plan = planProviderUpsert(
 			before.data,
 			"provider-id",
-			candidate("deepseek", ["deepseek-v4-flash"]),
+			candidate("deepseek", ["deepseek-flash"]),
 			before.targetPath,
 		);
 

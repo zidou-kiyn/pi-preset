@@ -36,9 +36,9 @@ The **Add model provider** menu entry is a deterministic, TUI-only wizard for th
 
 | Family | Models | Fixed API mode |
 |---|---|---|
-| Anthropic | Claude Fable 5, Claude Opus 5, Claude Sonnet 5 | `anthropic-messages` |
-| OpenAI | GPT-5.6 Sol, GPT-5.6 Terra, GPT-5.6 Luna | `openai-responses` |
-| DeepSeek | DeepSeek V4 Flash | `openai-responses` |
+| Anthropic | Claude Fable 5.1, Claude Opus 5.5, Claude Sonnet 5 | `anthropic-messages` |
+| OpenAI | GPT-6 Astra, GPT-6 Sol, GPT-6 Luna | `openai-responses` |
+| DeepSeek | DeepSeek V4.1 Flash | `openai-responses` |
 | Custom | user-defined | `openai-completions`, `openai-responses`, or `anthropic-messages` |
 
 Choose a family, explicitly select one or more models, then enter a provider identifier, base URL, and API key. For the three preset families, the catalog metadata, compatibility flags, thinking-level maps, context limits, modalities, and pricing tiers are bundled in the package; the wizard never asks for those schema details.
