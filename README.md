@@ -36,7 +36,7 @@ The **Add model provider** menu entry is a deterministic, TUI-only wizard for th
 
 | Family | Models | Fixed API mode |
 |---|---|---|
-| Anthropic | Claude Fable 5.1, Claude Opus 5.5, Claude Sonnet 5 | `anthropic-messages` |
+| Anthropic | Claude Fable 5.1, Claude Opus 5.5, Claude Sonnet 5.5 | `anthropic-messages` |
 | OpenAI | GPT-6 Astra, GPT-6 Sol, GPT-6 Luna | `openai-responses` |
 | DeepSeek | DeepSeek V4.1 Flash | `openai-responses` |
 | Custom | user-defined | `openai-completions`, `openai-responses`, or `anthropic-messages` |

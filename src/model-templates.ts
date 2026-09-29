@@ -117,8 +117,8 @@ export const FAMILY_TEMPLATES: Readonly<Record<FamilyId, FamilyTemplate>> = deep
 				thinkingLevelMap: { ...ANTHROPIC_THINKING },
 			},
 			{
-				id: "claude-sonnet-5",
-				name: "Claude Sonnet 5",
+				id: "claude-sonnet-5-5",
+				name: "Claude Sonnet 5.5",
 				reasoning: true,
 				input: ["text", "image"],
 				contextWindow: 1_000_000,

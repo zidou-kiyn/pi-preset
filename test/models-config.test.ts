@@ -152,12 +152,12 @@ test("Windows writable files skip the POSIX group/other permission gate", async 
 test("candidate construction emits only selected catalog models with complete metadata", () => {
 	const candidate = buildProviderCandidate(
 		"anthropic",
-		["claude-sonnet-5", "claude-fable-5-1"],
+		["claude-sonnet-5-5", "claude-fable-5-1"],
 		"https://api.example.invalid/v1",
 		runtimeKey(),
 	);
 	assert.equal(candidate.api, "anthropic-messages");
-	assert.deepEqual(modelIds(candidate.models), ["claude-fable-5-1", "claude-sonnet-5"]);
+	assert.deepEqual(modelIds(candidate.models), ["claude-fable-5-1", "claude-sonnet-5-5"]);
 	assert.deepEqual(candidate.compat, {
 		supportsEagerToolInputStreaming: false,
 		supportsLongCacheRetention: true,

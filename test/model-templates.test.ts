@@ -56,8 +56,8 @@ test("Anthropic templates exactly preserve current local credential-free metadat
 			thinkingLevelMap,
 		},
 		{
-			id: "claude-sonnet-5",
-			name: "Claude Sonnet 5",
+			id: "claude-sonnet-5-5",
+			name: "Claude Sonnet 5.5",
 			reasoning: true,
 			input: ["text", "image"],
 			contextWindow: 1_000_000,
