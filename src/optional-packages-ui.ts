@@ -1,14 +1,23 @@
 /**
- * Opt-in package checklist shown before a preset sync.
+ * Package checklist shown before a preset sync.
  *
- * Already-installed entries render checked and locked: the preset is
- * additive-only, so unchecking an installed package would promise a removal
- * that apply() will never perform.
+ * packages[] is managed as a whitelist, so this screen is where consent for
+ * every removal comes from:
+ *
+ *   - Optional extensions: checked = installed after the sync. Installed ones
+ *     start checked; unchecking one removes it.
+ *   - Packages outside the preset: start UNCHECKED. Check the ones to keep;
+ *     everything left unchecked is removed.
+ *
+ * The plan diff that follows still lists every removal and needs its own
+ * confirmation, so nothing is written from this screen.
  */
 
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { type Component, type KeybindingsManager, type TUI, truncateToWidth } from "@earendil-works/pi-tui";
 import type { OptionalPackage } from "./manifest.ts";
+import type { UnlistedPackage } from "./plan.ts";
+import { sanitizeTerminalText } from "./skills-sync-output.ts";
 
 interface ChecklistTheme {
 	fg(color: string, text: string): string;
@@ -39,41 +48,88 @@ function wrapText(text: string, width: number): string[] {
 	return lines.map((line) => fit(line, width));
 }
 
-export class OptionalPackagesComponent implements Component {
-	private readonly packages: readonly OptionalPackage[];
-	private readonly installed: ReadonlySet<string>;
+export interface PackageSelection {
+	/** Every checked optional source, installed or not. */
+	extraPackages: string[];
+	/** Sources outside the preset the user checked to keep. */
+	keep: string[];
+}
+
+interface Row {
+	kind: "optional" | "unlisted";
+	source: string;
+	label: string;
+	description: string;
+	installed: boolean;
+}
+
+/** Untrusted settings.json text, made safe for a single terminal line. */
+function display(value: string): string {
+	return sanitizeTerminalText(value, 500).replace(/\n+/g, " ");
+}
+
+function unlistedDescription(source: string): string {
+	const kind = source.startsWith("npm:") ? "npm" : /^(git|github):|^(https?|ssh):\/\/|^git@/.test(source) ? "git" : "local";
+	if (kind === "local") {
+		return "Not part of the preset. Unchecked: the entry is removed from settings.json; the local directory itself is left alone.";
+	}
+	return `Not part of the preset. Unchecked: \`pi remove\` drops it from settings.json and deletes its installed ${kind} files.`;
+}
+
+export class PackageChecklistComponent implements Component {
+	private readonly rows: Row[];
+	private readonly optionalCount: number;
 	private readonly theme: ChecklistTheme;
 	private readonly keybindings: KeybindingsManager;
 	private readonly requestRender: () => void;
-	private readonly done: (result: string[] | undefined) => void;
+	private readonly done: (result: PackageSelection | undefined) => void;
 	private readonly checked: Set<string>;
 	private cursor = 0;
 	private settled = false;
 
 	constructor(
 		packages: readonly OptionalPackage[],
-		installed: ReadonlySet<string>,
+		installedOptional: ReadonlySet<string>,
+		unlisted: readonly UnlistedPackage[],
 		theme: ChecklistTheme,
 		keybindings: KeybindingsManager,
 		requestRender: () => void,
-		done: (result: string[] | undefined) => void,
+		done: (result: PackageSelection | undefined) => void,
 	) {
-		this.packages = packages;
-		this.installed = installed;
+		this.rows = [
+			...packages.map(
+				(pkg): Row => ({
+					kind: "optional",
+					source: pkg.source,
+					label: pkg.label,
+					description: pkg.description,
+					installed: installedOptional.has(pkg.source),
+				}),
+			),
+			...unlisted.map(
+				(pkg): Row => ({
+					kind: "unlisted",
+					source: pkg.source,
+					label: display(pkg.source),
+					description: unlistedDescription(pkg.source),
+					installed: true,
+				}),
+			),
+		];
+		this.optionalCount = packages.length;
 		this.theme = theme;
 		this.keybindings = keybindings;
 		this.requestRender = requestRender;
 		this.done = done;
-		// Installed entries start checked; they stay checked (locked) because the
-		// sync never removes packages.
-		this.checked = new Set(packages.filter((pkg) => installed.has(pkg.source)).map((pkg) => pkg.source));
+		// Installed optional packages start checked; packages outside the preset
+		// start unchecked (removed unless the user keeps them).
+		this.checked = new Set(this.rows.filter((row) => row.kind === "optional" && row.installed).map((row) => row.source));
 	}
 
-	/** Checked sources that are not already installed — the extras a plan should add. */
-	getExtraSources(): string[] {
-		return this.packages
-			.filter((pkg) => this.checked.has(pkg.source) && !this.installed.has(pkg.source))
-			.map((pkg) => pkg.source);
+	getSelection(): PackageSelection {
+		const checked = (kind: Row["kind"]) =>
+			this.rows.filter((row) => row.kind === kind && this.checked.has(row.source)).map((row) => row.source);
+		return { extraPackages: checked("optional"), keep: checked("unlisted") };
 	}
 
 	handleInput(data: string): void {
@@ -82,42 +138,58 @@ export class OptionalPackagesComponent implements Component {
 			this.finish(undefined);
 			return;
 		}
-		const lastIndex = this.packages.length;
+		const lastIndex = this.rows.length;
 		if (this.keybindings.matches(data, "tui.select.up")) {
 			this.cursor = this.cursor === 0 ? lastIndex : this.cursor - 1;
 		} else if (this.keybindings.matches(data, "tui.select.down")) {
 			this.cursor = this.cursor === lastIndex ? 0 : this.cursor + 1;
 		} else if (this.keybindings.matches(data, "tui.select.confirm")) {
 			if (this.cursor === lastIndex) {
-				this.finish(this.getExtraSources());
+				this.finish(this.getSelection());
 				return;
 			}
-			const pkg = this.packages[this.cursor];
-			if (pkg && !this.installed.has(pkg.source)) {
-				if (this.checked.has(pkg.source)) this.checked.delete(pkg.source);
-				else this.checked.add(pkg.source);
+			const row = this.rows[this.cursor];
+			if (row) {
+				if (this.checked.has(row.source)) this.checked.delete(row.source);
+				else this.checked.add(row.source);
 			}
 		}
 		this.requestRender();
 	}
 
+	private renderRow(index: number, width: number): string {
+		const row = this.rows[index]!;
+		const active = index === this.cursor;
+		const checked = this.checked.has(row.source);
+		let suffix = "";
+		if (row.kind === "optional" && row.installed && !checked) suffix = " (installed, will be removed)";
+		else if (row.kind === "optional" && row.installed) suffix = " (installed)";
+		else if (row.kind === "unlisted" && !checked) suffix = " (will be removed)";
+		const text = `${active ? "→" : " "} [${checked ? "x" : " "}] ${row.label}`;
+		if (active) return fit(this.theme.fg("accent", text + suffix), width);
+		const warn = suffix.includes("removed");
+		return fit(text + (warn ? this.theme.fg("warning", suffix) : this.theme.fg("dim", suffix)), width);
+	}
+
 	render(width: number): string[] {
 		const lines: string[] = [
 			fit(this.theme.bold("Optional extensions"), width),
-			fit(this.theme.fg("dim", "Check the browser-automation extensions this machine should install."), width),
+			fit(this.theme.fg("dim", "Checked = installed after the sync. Unchecking an installed one removes it."), width),
 		];
-		for (let index = 0; index < this.packages.length; index++) {
-			const pkg = this.packages[index]!;
-			const active = index === this.cursor;
-			const installed = this.installed.has(pkg.source);
-			const checked = this.checked.has(pkg.source);
-			const suffix = installed ? " (installed)" : "";
-			const row = `${active ? "→" : " "} [${checked ? "x" : " "}] ${pkg.label}${suffix}`;
-			lines.push(fit(active ? this.theme.fg("accent", row) : installed ? this.theme.fg("dim", row) : row, width));
+		for (let index = 0; index < this.optionalCount; index++) lines.push(this.renderRow(index, width));
+
+		if (this.rows.length > this.optionalCount) {
+			lines.push(fit("", width));
+			lines.push(fit(this.theme.bold("Packages not in the preset"), width));
+			lines.push(fit(this.theme.fg("dim", "Check the ones to keep. Unchecked packages are removed."), width));
+			for (let index = this.optionalCount; index < this.rows.length; index++) lines.push(this.renderRow(index, width));
 		}
-		const continueRow = `${this.cursor === this.packages.length ? "→" : " "} Continue`;
-		lines.push(fit(this.cursor === this.packages.length ? this.theme.fg("accent", continueRow) : continueRow, width));
-		const active = this.packages[this.cursor];
+
+		lines.push(fit("", width));
+		const onContinue = this.cursor === this.rows.length;
+		const continueRow = `${onContinue ? "→" : " "} Continue`;
+		lines.push(fit(onContinue ? this.theme.fg("accent", continueRow) : continueRow, width));
+		const active = this.rows[this.cursor];
 		if (active) {
 			lines.push(fit("", width));
 			for (const line of wrapText(active.description, Math.max(1, width - 2))) {
@@ -130,7 +202,7 @@ export class OptionalPackagesComponent implements Component {
 
 	invalidate(): void {}
 
-	private finish(result: string[] | undefined): void {
+	private finish(result: PackageSelection | undefined): void {
 		if (this.settled) return;
 		this.settled = true;
 		this.done(result);
@@ -138,15 +210,24 @@ export class OptionalPackagesComponent implements Component {
 }
 
 /**
- * Show the optional-package checklist. Resolves to the extra sources to add,
- * or undefined when the user cancels.
+ * Show the package checklist. Resolves to the selection, or undefined when the
+ * user cancels.
  */
-export async function selectOptionalPackagesWithUi(
+export async function selectPackagesWithUi(
 	ctx: ExtensionCommandContext,
 	packages: readonly OptionalPackage[],
-	installed: ReadonlySet<string>,
-): Promise<string[] | undefined> {
-	return ctx.ui.custom<string[] | undefined>((tui: TUI, theme, keybindings, done) => {
-		return new OptionalPackagesComponent(packages, installed, theme, keybindings, () => tui.requestRender(), done);
+	installedOptional: ReadonlySet<string>,
+	unlisted: readonly UnlistedPackage[],
+): Promise<PackageSelection | undefined> {
+	return ctx.ui.custom<PackageSelection | undefined>((tui: TUI, theme, keybindings, done) => {
+		return new PackageChecklistComponent(
+			packages,
+			installedOptional,
+			unlisted,
+			theme,
+			keybindings,
+			() => tui.requestRender(),
+			done,
+		);
 	});
 }

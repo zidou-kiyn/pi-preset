@@ -7,11 +7,13 @@
  * and each is individually idempotent on the next run.
  */
 
-import { existsSync, mkdirSync, renameSync } from "node:fs";
+import { execFile } from "node:child_process";
+import { existsSync, mkdirSync, realpathSync, renameSync } from "node:fs";
 import { dirname } from "node:path";
 import { installFont } from "./font.ts";
-import { deepMerge, type JsonValue, readJsonObject, writeJsonObjectAtomic } from "./json-merge.ts";
+import { deepMerge, type JsonObject, type JsonValue, readJsonObject, writeJsonObjectAtomic } from "./json-merge.ts";
 import { packageEntrySource, packageIdentity, type Step, type SyncPlan } from "./plan.ts";
+import { sanitizeTerminalText } from "./skills-sync-output.ts";
 
 export interface StepResult {
 	kind: Step["kind"];
@@ -65,6 +67,125 @@ function applyPackages(step: Extract<Step, { kind: "settings.packages.add" }>): 
 	return `settings.json: added ${appended.length} package(s)`;
 }
 
+/** Deletes a removed package's installed files. Injectable so tests never spawn pi. */
+export type PackageUninstaller = (source: string, agentDir: string) => Promise<void>;
+
+/**
+ * The pi CLI to spawn: the running one when pi is the host process, else `pi`
+ * on PATH. Spawning the exact binary that is running avoids a PATH that points
+ * at a different pi install.
+ */
+function piCommand(): { command: string; args: string[] } {
+	let script = process.argv[1] ?? "";
+	try {
+		// argv[1] is usually the bin/pi symlink, not the package path.
+		script = realpathSync(script);
+	} catch {
+		// Not a file (e.g. `node -e`): fall through to PATH.
+	}
+	if (/pi-coding-agent[\\/]/.test(script)) return { command: process.execPath, args: [script] };
+	return { command: "pi", args: [] };
+}
+
+/**
+ * `pi remove <source>`, with output captured.
+ *
+ * Goes through pi's own CLI so the npm root, the configured npmCommand, and git
+ * checkout paths all match what the user would get by hand. Output is captured
+ * rather than inherited: inherited npm output would print over the TUI.
+ */
+const piRemove: PackageUninstaller = (source, agentDir) =>
+	new Promise((resolvePromise, reject) => {
+		const { command, args } = piCommand();
+		execFile(
+			command,
+			[...args, "remove", source],
+			{
+				env: { ...process.env, PI_CODING_AGENT_DIR: agentDir },
+				timeout: 180_000,
+				shell: process.platform === "win32" && command === "pi",
+				windowsHide: true,
+			},
+			(error, stdout, stderr) => {
+				if (!error) return resolvePromise();
+				const detail = sanitizeTerminalText(`${stderr}${stdout}`.trim(), 500).replace(/\n+/g, " ");
+				reject(new Error(detail || error.message));
+			},
+		);
+	});
+
+export interface ApplyOptions {
+	/** Replaces `pi remove` for packages being removed. Tests only. */
+	uninstall?: PackageUninstaller;
+}
+
+/** packages[] entries whose identity the step targets, split from the rest. */
+function targetedEntries(
+	settingsPath: string,
+	identities: Set<string>,
+): { settings: JsonObject; kept: JsonValue[]; removed: { source: string; identity: string }[] } {
+	const settings = readJsonObject(settingsPath).data;
+	const raw = settings.packages;
+	if (raw !== undefined && !Array.isArray(raw)) {
+		throw new Error(`"packages" in ${settingsPath} is not an array`);
+	}
+	const baseDir = dirname(settingsPath);
+	const removed: { source: string; identity: string }[] = [];
+	const kept = (Array.isArray(raw) ? raw : []).filter((entry) => {
+		const source = packageEntrySource(entry);
+		if (!source) return true;
+		const identity = packageIdentity(source, baseDir);
+		if (!identities.has(identity)) return true;
+		removed.push({ source, identity });
+		return false;
+	});
+	return { settings, kept, removed };
+}
+
+async function applyPackagesRemove(
+	step: Extract<Step, { kind: "settings.packages.remove" }>,
+	uninstall: PackageUninstaller,
+): Promise<string> {
+	const identities = new Set(step.remove.map((removal) => removal.identity));
+	const agentDir = dirname(step.settingsPath);
+
+	// Re-read immediately before acting, exactly like the add step.
+	const before = targetedEntries(step.settingsPath, identities);
+	if (before.removed.length === 0) {
+		return "settings.json: packages to remove already gone, nothing written";
+	}
+
+	// `pi remove` first, while the entry still exists: it deletes the installed
+	// files and drops the entry. Run after the entry is gone, it still deletes
+	// the files but exits 1 ("No matching package"). One call per identity: a
+	// second spelling of the same package would hit exactly that error. A
+	// failure only costs disk space, so it is reported rather than thrown;
+	// settings are fixed below either way.
+	const failures: string[] = [];
+	const uninstalled = new Set<string>();
+	for (const { source, identity } of before.removed) {
+		if (uninstalled.has(identity)) continue;
+		uninstalled.add(identity);
+		try {
+			await uninstall(source, agentDir);
+		} catch (error) {
+			failures.push(`${source}: ${(error as Error).message}`);
+		}
+	}
+
+	// Whatever pi remove left behind (it failed, or another spelling of the
+	// same package is present) is dropped here, matched by identity.
+	const after = targetedEntries(step.settingsPath, identities);
+	if (after.removed.length > 0) {
+		writeJsonObjectAtomic(step.settingsPath, { ...after.settings, packages: after.kept });
+	}
+
+	const sources = before.removed.map((entry) => entry.source);
+	const message = `settings.json: removed ${uninstalled.size} package(s): ${sources.join(", ")}`;
+	if (failures.length === 0) return `${message}; installed files deleted`;
+	return `${message}; installed files may remain (run \`pi remove <source>\` to clean up): ${failures.join("; ")}`;
+}
+
 function applyJsonPatch(step: Extract<Step, { kind: "json.patch" }>): string {
 	// Read again so keys written between plan and apply survive; a parse failure
 	// here aborts the step rather than starting from {} and erasing API keys.
@@ -90,8 +211,10 @@ async function applyFont(): Promise<string> {
 	return result.message;
 }
 
-async function runStep(step: Step): Promise<string> {
+async function runStep(step: Step, options: ApplyOptions): Promise<string> {
 	switch (step.kind) {
+		case "settings.packages.remove":
+			return applyPackagesRemove(step, options.uninstall ?? piRemove);
 		case "settings.packages.add":
 			return applyPackages(step);
 		case "json.patch":
@@ -103,14 +226,14 @@ async function runStep(step: Step): Promise<string> {
 	}
 }
 
-export async function apply(syncPlan: SyncPlan): Promise<ApplyResult> {
+export async function apply(syncPlan: SyncPlan, options: ApplyOptions = {}): Promise<ApplyResult> {
 	const results: StepResult[] = [];
 
 	for (let i = 0; i < syncPlan.steps.length; i++) {
 		const step = syncPlan.steps[i]!;
 		const identity = { kind: step.kind, ...(step.kind === "json.patch" ? { targetId: step.targetId } : {}) };
 		try {
-			results.push({ ...identity, ok: true, message: await runStep(step) });
+			results.push({ ...identity, ok: true, message: await runStep(step, options) });
 		} catch (error) {
 			results.push({ ...identity, ok: false, message: (error as Error).message });
 			return { results, ok: false, skipped: syncPlan.steps.length - i - 1 };

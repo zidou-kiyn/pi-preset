@@ -18,15 +18,15 @@ Restart pi, then run:
 
 `/pi-preset` is the preset's single visual control panel — a TUI menu with three entries:
 
-1. **Sync preset** — packages, config keys, footer, and font. Starts with an optional-extension checklist (Chrome DevTools, unchecked by default), then shows a diff of everything it would change and writes nothing until you confirm.
+1. **Sync preset** — packages, config keys, footer, and font. Starts with a package checklist (optional extensions, plus every installed package that is not part of the preset — unchecked, i.e. removed, by default), then shows a diff of everything it would change and writes nothing until you confirm.
 2. **Install / refresh grilling skills** — the optional upstream grilling workflow.
 3. **Add model provider** — the masked model-provider wizard for `~/.pi/agent/models.json`.
 
-After a sync that added packages, restart pi so they install and load — and do that before touching `/config` in the same session (see [Design notes](#design-notes)).
+After a sync that added or removed packages, restart pi so the new package set loads — and do that before touching `/config` in the same session (see [Design notes](#design-notes)).
 
 ## Optional extensions
 
-`@narumitw/pi-chrome-devtools` is **not installed by default**: it drives a real browser, which not every machine wants. The sync flow opens with a checklist where you tick the ones this machine should have. Already-installed entries render checked and locked — the preset is additive-only and never removes a package, so unchecking an installed entry is not offered.
+`@narumitw/pi-chrome-devtools` is **not installed by default**: it drives a real browser, which not every machine wants. The sync flow opens with a checklist where you tick the ones this machine should have. Already-installed entries start checked; unchecking one removes it (see [Packages outside the preset](#packages-outside-the-preset)).
 
 `pi-playwright` used to sit next to it and was dropped: Chrome DevTools already covers navigate / evaluate / screenshot against a live browser without Playwright's own browser downloads.
 
@@ -142,7 +142,7 @@ pi rebuilds every `/new` session from `settings.json` (`defaultModel`, `defaultT
 
 ## What Sync preset does
 
-1. **Declares 12 required extensions** (plus any checked optional ones) in `~/.pi/agent/settings.json` `packages[]`.
+1. **Declares 12 required extensions** (plus any checked optional ones) in `~/.pi/agent/settings.json` `packages[]`, and **removes every other entry you did not check to keep** (see [Packages outside the preset](#packages-outside-the-preset)).
 2. **Sets 2 config keys** across two JSON files (see below).
 3. **Moves a local `extensions/vibrant-footer/`** into `extensions-disabled/` if one exists, so the footer does not load twice.
 4. **Installs the font** when it is missing.
@@ -158,11 +158,24 @@ Every step is idempotent. A second run reports "already in sync" and touches not
 | `npm:@ff-labs/pi-fff` | `git:github.com/code-yeongyu/pi-apply-patch` |
 | `npm:pi-tool-display` | `npm:@juicesharp/rpiv-todo` |
 | `npm:pi-context-view` | `npm:@juicesharp/rpiv-ask-user-question` |
-| `npm:pi-btw` | `npm:pi-patty-bg-tasks` |
+| `npm:@narumitw/pi-btw` | `npm:pi-patty-bg-tasks` |
 
 `pi-apply-patch` stays required: pi has no built-in `apply_patch`. Its Codex Lark grammar only reaches the model once the tool declares it through pi's `constrainedSampling` API ([code-yeongyu/pi-apply-patch#43](https://github.com/code-yeongyu/pi-apply-patch/pull/43)). Until that lands, it goes out as a plain function tool even though the OpenAI bundle enables `supportsOpenAIGrammarTools`. The flag is harmless in the meantime and takes effect after an update.
 
 Web search is `pi-web-search` only. It uses the selected model provider's native search (Gemini grounding, xAI, OpenAI Responses, Anthropic), so no separate search API key is needed. `pi-web-access` was dropped because it registers the same tool names; pi treats a duplicate tool name as a fatal load error, so the two cannot coexist.
+
+### Packages outside the preset
+
+`packages[]` is managed as a **whitelist**. The sync checklist lists every installed entry that is neither required, optional, nor the preset itself, under *Packages not in the preset*, **unchecked**. Check the ones this machine should keep; everything left unchecked is removed. Unchecking an installed optional extension removes it the same way.
+
+- **Nothing is written from the checklist.** The plan that follows lists each removal as a `- remove` line with its reason, and needs the usual confirmation.
+- **The preset never removes itself**, whether it was installed as `git:github.com/zidou-kiyn/pi-preset` (any ref) or from a local path pointing at this package.
+- **Removal goes through `pi remove <source>`**, so npm packages are uninstalled and git checkouts deleted exactly as pi would do it by hand. Its output is captured so it cannot print over the TUI. For a local-path entry only the `settings.json` entry is removed; the directory is left alone.
+- **Matching is by package identity**: `npm:pi-btw@0.6.1` and `{ "source": "npm:pi-btw", ... }` are the same package, listed once and removed together.
+- If `pi remove` fails, the entry is still removed from `settings.json` and the result says which files may remain.
+- **RPC and print modes never remove anything**: with no checklist there is no consent, so they only add.
+
+This is also how the old `npm:pi-btw` goes away after the switch to `npm:@narumitw/pi-btw` (both register `/btw`): it shows up unchecked under *Packages not in the preset*.
 
 ### The optional extension
 
@@ -170,7 +183,7 @@ Web search is `pi-web-search` only. It uses the selected model provider's native
 |---|---|
 | `npm:@narumitw/pi-chrome-devtools` | Drives a running Chrome over the DevTools Protocol |
 
-It appears as an unchecked box at the start of every sync. Checking it adds it to the desired set for that run; when already installed it shows as checked and locked.
+It appears as an unchecked box at the start of every sync. Checking it adds it to the desired set for that run; when already installed it starts checked, and unchecking it removes it.
 
 They are declared as **independent `packages[]` entries**, not bundled inside this package. That is deliberate: `pi update --extensions` only iterates sources listed in `settings.json`, so bundling them would freeze their versions forever. As independent entries, each one keeps its native update behavior.
 
@@ -251,9 +264,9 @@ pi only reconciles a git source to its *configured* ref and never advances it on
 
 - **No preferences are shipped.** No `theme`, no `defaultProvider`, no `defaultModel`, no `defaultThinkingLevel`, no `AGENTS.md`. Those are personal and belong on the machine, not in a package.
 - **No credentials, ever.** `scripts/scan-secrets.sh` scans the working tree and the full git history before every push.
-- **No automatic `pi install`.** The sync flow only writes `packages[]` and lets pi install on its next start.
+- **No automatic `pi install`.** The sync flow only writes `packages[]` and lets pi install on its next start. (Removals are the exception: they run `pi remove` so the installed files go too.)
 
-  > **Restart pi after a sync that changed `packages[]`.** Extensions get no access to pi's settings manager, so the write goes straight to the file while the running session still holds the array it loaded at startup. If you use `/config` or `pi install` in that same session afterwards, pi persists its stale snapshot and the newly added entries disappear. Re-running the sync restores them; nothing else is lost.
+  > **Restart pi after a sync that changed `packages[]`.** Extensions get no access to pi's settings manager, so the write goes straight to the file while the running session still holds the array it loaded at startup. If you use `/config` or `pi install` in that same session afterwards, pi persists its stale snapshot and the newly added entries disappear (or removed ones come back). Re-running the sync fixes it; nothing else is lost.
 - **MCP, codemode, and tool search are left to pi.** Since 0.99, pi ships them as built-in extensions: servers live in `~/.pi/agent/mcp.json` and are managed with `/mcp`, while `codemode` and `tool_search` switch on by themselves when an MCP server needs them. The preset writes no `mcp.json` and no `defaultTools`. MCP servers carry credentials and differ per person, and codemode is not worth keeping on without MCP, because the models already call tools in parallel natively. None of the required extensions collide with the built-ins. The footer shows what is connected.
 - **No runtime dependencies.** Zip extraction uses system tools instead of adding a supply-chain layer.
 - **`pi-startup-redraw-fix` is not included.** It rewrites `ESC[3J ESC[2J ESC[H` into `ESC[H ESC[2J ESC[3J`, but pi's alternate-screen renderer emits `ESC[2J ESC[H ESC[3J`, which never matches its trigger. The patch cannot fire.

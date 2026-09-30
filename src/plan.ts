@@ -6,8 +6,9 @@
  * makes "decline changes nothing" a structural guarantee rather than a promise.
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { detectFont, manualFontInstructions } from "./font.ts";
 import {
 	flattenLeaves,
@@ -18,7 +19,14 @@ import {
 	type JsonValue,
 	readJsonObject,
 } from "./json-merge.ts";
-import { FONT, JSON_PATCHES, LOCAL_FOOTER_DIR_NAME, REQUIRED_PACKAGES } from "./manifest.ts";
+import {
+	FONT,
+	JSON_PATCHES,
+	LOCAL_FOOTER_DIR_NAME,
+	OPTIONAL_PACKAGES,
+	PRESET_SELF_SOURCE,
+	REQUIRED_PACKAGES,
+} from "./manifest.ts";
 import {
 	type FontPlatform,
 	getDisabledExtensionsDir,
@@ -26,6 +34,7 @@ import {
 	getSettingsPath,
 	getUserExtensionsDir,
 } from "./paths.ts";
+import { sanitizeTerminalText } from "./skills-sync-output.ts";
 
 // ── package source identity ─────────────────────────────────────────────────
 //
@@ -139,6 +148,66 @@ export function packageEntrySource(entry: JsonValue): string | undefined {
 	return undefined;
 }
 
+// ── the preset itself and packages outside it ───────────────────────────────
+
+/** This package's root (src/..), to recognise a local-path install of the preset. */
+const PRESET_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+
+function realpathOrSelf(path: string): string {
+	try {
+		return realpathSync(path);
+	} catch {
+		return path;
+	}
+}
+
+/** True for the preset's own packages[] entry, whether installed from git or a local path. */
+export function isPresetSelf(identity: string, baseDir: string): boolean {
+	if (identity === packageIdentity(PRESET_SELF_SOURCE, baseDir)) return true;
+	if (!identity.startsWith("local:")) return false;
+	return realpathOrSelf(identity.slice("local:".length)) === realpathOrSelf(PRESET_ROOT);
+}
+
+export interface UnlistedPackage {
+	/** Source string exactly as in settings.json (first spelling of its identity). */
+	source: string;
+	identity: string;
+}
+
+export interface InstalledPackages {
+	/** OPTIONAL_PACKAGES sources currently present in settings.json. */
+	optional: Set<string>;
+	/** Entries that are not required, not optional, and not the preset itself. */
+	unlisted: UnlistedPackage[];
+}
+
+/**
+ * Classify settings.json packages[] for the sync checklist. Read-only; throws
+ * when settings.json cannot be read, which plan() then reports as a blocker.
+ */
+export function readInstalledPackages(): InstalledPackages {
+	const settingsPath = getSettingsPath();
+	const baseDir = dirname(settingsPath);
+	const packages = readJsonObject(settingsPath).data.packages;
+	const result: InstalledPackages = { optional: new Set(), unlisted: [] };
+	if (!Array.isArray(packages)) return result;
+
+	const required = new Set(REQUIRED_PACKAGES.map((source) => packageIdentity(source, baseDir)));
+	const optional = new Map(OPTIONAL_PACKAGES.map((pkg) => [packageIdentity(pkg.source, baseDir), pkg.source]));
+	const seen = new Set<string>();
+	for (const entry of packages) {
+		const source = packageEntrySource(entry);
+		if (!source) continue;
+		const identity = packageIdentity(source, baseDir);
+		if (seen.has(identity)) continue;
+		seen.add(identity);
+		const optionalSource = optional.get(identity);
+		if (optionalSource !== undefined) result.optional.add(optionalSource);
+		else if (!required.has(identity) && !isPresetSelf(identity, baseDir)) result.unlisted.push({ source, identity });
+	}
+	return result;
+}
+
 // ── plan shape ──────────────────────────────────────────────────────────────
 
 export interface PackagesAddStep {
@@ -146,6 +215,21 @@ export interface PackagesAddStep {
 	settingsPath: string;
 	/** Sources to append, in manifest order. */
 	missing: string[];
+}
+
+export interface PackageRemoval {
+	/** The source string exactly as it appears in settings.json. */
+	source: string;
+	/** Normalized identity; apply() matches on this, not on the raw string. */
+	identity: string;
+	reason: string;
+}
+
+export interface PackagesRemoveStep {
+	kind: "settings.packages.remove";
+	settingsPath: string;
+	/** Entries outside the desired + kept set, one per package identity. */
+	remove: PackageRemoval[];
 }
 
 export interface JsonPatchChange {
@@ -183,7 +267,7 @@ export interface FontInstallStep {
 	platform: Extract<FontPlatform, "linux" | "darwin">;
 }
 
-export type Step = PackagesAddStep | JsonPatchStep | FooterDemoteStep | FontInstallStep;
+export type Step = PackagesRemoveStep | PackagesAddStep | JsonPatchStep | FooterDemoteStep | FontInstallStep;
 
 export type NoteLevel = "ok" | "info" | "warn";
 
@@ -202,7 +286,7 @@ export interface SyncPlan {
 
 // ── planning ────────────────────────────────────────────────────────────────
 
-function planPackages(plan: SyncPlan, extraPackages: readonly string[]): void {
+function planPackages(plan: SyncPlan, extraPackages: readonly string[], keep: readonly string[] | undefined): void {
 	const settingsPath = getSettingsPath();
 	const baseDir = dirname(settingsPath);
 
@@ -235,6 +319,31 @@ function planPackages(plan: SyncPlan, extraPackages: readonly string[]): void {
 	for (const entry of existing) {
 		const source = packageEntrySource(entry);
 		if (source) installed.add(packageIdentity(source, baseDir));
+	}
+
+	// Whitelist mode: only when the caller passed an explicit keep list, i.e.
+	// the user saw the checklist. Without one (RPC, print mode, tests of the
+	// add path) nothing is ever removed, because nobody consented.
+	if (keep !== undefined) {
+		const protectedIdentities = new Set(desiredIdentities);
+		for (const source of keep) protectedIdentities.add(packageIdentity(source, baseDir));
+		const optionalIdentities = new Set(OPTIONAL_PACKAGES.map((pkg) => packageIdentity(pkg.source, baseDir)));
+
+		// Matched by identity, so `npm:foo@1.2` and { source: "npm:foo", ... }
+		// are one package. Entries whose source cannot be read are left alone.
+		const remove: PackageRemoval[] = [];
+		for (const entry of existing) {
+			const source = packageEntrySource(entry);
+			if (!source) continue;
+			const identity = packageIdentity(source, baseDir);
+			if (protectedIdentities.has(identity) || isPresetSelf(identity, baseDir)) continue;
+			if (remove.some((removal) => removal.identity === identity)) continue;
+			const reason = optionalIdentities.has(identity) ? "optional, unchecked" : "not in preset, not kept";
+			remove.push({ source, identity, reason });
+		}
+		if (remove.length > 0) {
+			plan.steps.push({ kind: "settings.packages.remove", settingsPath, remove });
+		}
 	}
 
 	const missing = desired.filter((source) => !installed.has(packageIdentity(source, baseDir)));
@@ -329,6 +438,13 @@ async function planFont(plan: SyncPlan): Promise<void> {
 export interface PlanOptions {
 	/** Opt-in package sources (checked optional packages) to include in the desired set. */
 	extraPackages?: readonly string[];
+	/**
+	 * Sources outside the preset the user chose to keep. When present,
+	 * packages[] is treated as a whitelist: every entry that is not required,
+	 * in extraPackages, in this list, or the preset itself is planned for
+	 * removal. When absent, nothing is removed.
+	 */
+	keep?: readonly string[];
 }
 
 /**
@@ -338,7 +454,7 @@ export interface PlanOptions {
 export async function plan(options: PlanOptions = {}): Promise<SyncPlan> {
 	const result: SyncPlan = { steps: [], notes: [], blockers: [] };
 
-	planPackages(result, options.extraPackages ?? []);
+	planPackages(result, options.extraPackages ?? [], options.keep);
 	planJsonPatches(result);
 	planFooterDemote(result);
 	await planFont(result);
@@ -352,6 +468,14 @@ export function renderPlan(syncPlan: SyncPlan): string {
 
 	for (const step of syncPlan.steps) {
 		switch (step.kind) {
+			case "settings.packages.remove":
+				lines.push(`- settings.json packages[]: remove ${step.remove.length}`);
+				// The source string comes from settings.json, not the manifest.
+				for (const removal of step.remove) {
+					const source = sanitizeTerminalText(removal.source, 500).replace(/\n+/g, " ");
+					lines.push(`    ${source}  (${removal.reason})`);
+				}
+				break;
 			case "settings.packages.add":
 				lines.push(`+ settings.json packages[]: add ${step.missing.length}`);
 				for (const source of step.missing) lines.push(`    ${source}`);

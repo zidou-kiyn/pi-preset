@@ -6,22 +6,20 @@
  * confirm() returns false on "No", on Escape, and on timeout, so the single
  * `if (!confirmed) return;` below covers every decline path.
  *
- * In TUI mode the flow starts with the optional-extension checklist
- * (currently chrome-devtools): only checked entries join the desired
- * package set, and already-installed entries are locked because the preset
- * never removes packages.
+ * In TUI mode the flow starts with the package checklist: optional
+ * extensions (checked = keep/install) and every packages[] entry outside the
+ * preset (unchecked by default = remove). packages[] is a whitelist, so
+ * removals only ever come from this checklist. RPC and print modes never see
+ * it and therefore never remove anything.
  *
  * Invoked from the /pi-preset main menu.
  */
 
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { dirname } from "node:path";
 import { apply, renderApplyResult } from "./apply.ts";
-import { readJsonObject } from "./json-merge.ts";
 import { OPTIONAL_PACKAGES } from "./manifest.ts";
-import { selectOptionalPackagesWithUi } from "./optional-packages-ui.ts";
-import { getSettingsPath } from "./paths.ts";
-import { packageEntrySource, packageIdentity, plan, renderPlan } from "./plan.ts";
+import { selectPackagesWithUi } from "./optional-packages-ui.ts";
+import { type InstalledPackages, type PlanOptions, plan, readInstalledPackages, renderPlan } from "./plan.ts";
 
 /**
  * Emit a multi-line report.
@@ -38,48 +36,32 @@ function report(ctx: ExtensionCommandContext, message: string, type: "info" | "w
 	}
 }
 
-/** Optional-package sources already present in settings.json, by package identity. */
-function installedOptionalSources(): Set<string> {
-	const settingsPath = getSettingsPath();
-	const baseDir = dirname(settingsPath);
-
-	let packages: unknown;
-	try {
-		packages = readJsonObject(settingsPath).data.packages;
-	} catch {
-		// Unreadable settings will surface as a plan blocker; the checklist just
-		// starts with nothing pre-checked.
-		return new Set();
-	}
-	if (!Array.isArray(packages)) return new Set();
-
-	const installed = new Set<string>();
-	for (const entry of packages) {
-		const source = packageEntrySource(entry);
-		if (source) installed.add(packageIdentity(source, baseDir));
-	}
-
-	return new Set(
-		OPTIONAL_PACKAGES.filter((pkg) => installed.has(packageIdentity(pkg.source, baseDir))).map((pkg) => pkg.source),
-	);
-}
-
 export async function runPresetSync(ctx: ExtensionCommandContext): Promise<void> {
 	// The checklist is a full-screen custom component, so it only exists in TUI
-	// mode. RPC and non-interactive modes sync the required set only.
-	let extraPackages: string[] = [];
-	if (ctx.mode === "tui" && OPTIONAL_PACKAGES.length > 0) {
-		const picked = await selectOptionalPackagesWithUi(ctx, OPTIONAL_PACKAGES, installedOptionalSources());
-		if (picked === undefined) {
-			ctx.ui.notify("pi-preset sync: cancelled, nothing was written", "info");
-			return;
+	// mode. RPC and non-interactive modes sync the required set only and, with
+	// no keep list, remove nothing.
+	let planOptions: PlanOptions = {};
+	if (ctx.mode === "tui") {
+		let installed: InstalledPackages;
+		try {
+			installed = readInstalledPackages();
+		} catch {
+			// Unreadable settings surface as a plan blocker below.
+			installed = { optional: new Set(), unlisted: [] };
 		}
-		extraPackages = picked;
+		if (OPTIONAL_PACKAGES.length > 0 || installed.unlisted.length > 0) {
+			const picked = await selectPackagesWithUi(ctx, OPTIONAL_PACKAGES, installed.optional, installed.unlisted);
+			if (picked === undefined) {
+				ctx.ui.notify("pi-preset sync: cancelled, nothing was written", "info");
+				return;
+			}
+			planOptions = { extraPackages: picked.extraPackages, keep: picked.keep };
+		}
 	}
 
 	let syncPlan: Awaited<ReturnType<typeof plan>>;
 	try {
-		syncPlan = await plan({ extraPackages });
+		syncPlan = await plan(planOptions);
 	} catch (error) {
 		report(ctx, `pi-preset sync: could not compute a plan: ${(error as Error).message}`, "error");
 		return;
@@ -124,13 +106,17 @@ export async function runPresetSync(ctx: ExtensionCommandContext): Promise<void>
 	const lines = [renderApplyResult(result)];
 
 	if (result.ok) {
-		if (result.results.some((entry) => entry.kind === "settings.packages.add")) {
+		if (
+			result.results.some(
+				(entry) => entry.kind === "settings.packages.add" || entry.kind === "settings.packages.remove",
+			)
+		) {
 			// Extensions cannot reach pi's settings manager, so this session is
 			// still holding the packages[] it loaded at startup. Anything that
 			// makes pi persist settings before a restart writes that stale array
-			// back over what was just added.
+			// back over what was just changed.
 			lines.push(
-				"Restart pi to install and load the newly added packages — before using /config or pi install in this session, which would persist this session's older packages[] over them.",
+				"Restart pi to load the updated package set — before using /config or pi install in this session, which would persist this session's older packages[] over it.",
 			);
 		}
 		if (result.results.some((entry) => entry.kind === "footer.demote")) {

@@ -47,8 +47,20 @@ export const REQUIRED_PACKAGES: readonly string[] = [
 	"npm:@juicesharp/rpiv-ask-user-question",
 	"npm:pi-patty-bg-tasks",
 	"npm:pi-context-view",
-	"npm:pi-btw",
+	"npm:@narumitw/pi-btw",
 ];
+
+/**
+ * The preset's own packages[] source.
+ *
+ * packages[] is managed as a whitelist: after the optional checklist, every
+ * entry that is neither required, a checked optional package, nor explicitly
+ * kept by the user is planned for removal. The preset itself must never be on
+ * that list, or a sync would uninstall the extension running it. A local-path
+ * install (`pi install ~/pi-preset`) is recognised separately by resolving the
+ * path to this package's root.
+ */
+export const PRESET_SELF_SOURCE = "git:github.com/zidou-kiyn/pi-preset";
 
 /**
  * Extensions offered as opt-in checkboxes before a sync.
@@ -56,8 +68,8 @@ export const REQUIRED_PACKAGES: readonly string[] = [
  * These are not part of REQUIRED_PACKAGES: they pull a browser-automation
  * stack that not every machine wants. The sync flow shows them as a checklist
  * (already-installed entries render checked and locked), and only checked
- * entries join the desired package set. The preset is additive-only: leaving
- * an installed entry unchecked never removes it.
+ * entries join the desired package set. Unchecking an installed entry plans its
+ * removal, like any other package outside the preset.
  *
  * Deliberately absent: `npm:pi-playwright`. Chrome DevTools covers the same
  * navigate / evaluate / screenshot needs against a real browser without

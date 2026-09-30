@@ -55,7 +55,9 @@ test("jsonEquals compares arrays and objects structurally, not by reference", ()
 test("the background-tasks package ships and every patch target has a distinct id", () => {
 	assert.ok(REQUIRED_PACKAGES.includes("npm:pi-patty-bg-tasks"));
 	assert.ok(REQUIRED_PACKAGES.includes("npm:pi-context-view"));
-	assert.ok(REQUIRED_PACKAGES.includes("npm:pi-btw"));
+	assert.ok(REQUIRED_PACKAGES.includes("npm:@narumitw/pi-btw"));
+	// pi-btw and @narumitw/pi-btw both register /btw; the old one is no longer shipped.
+	assert.ok(!REQUIRED_PACKAGES.includes("npm:pi-btw"));
 	assert.ok(REQUIRED_PACKAGES.includes("npm:pi-web-search"));
 	// pi-web-access registers the same tool names as pi-web-search; pi treats
 	// that as a fatal load error, so the pair must never be declared together.
