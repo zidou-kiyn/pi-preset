@@ -237,6 +237,8 @@ To keep the emacs binding and live with the warning, restore `"tui.editor.cursor
 | `run_in_background: true` | unchanged |
 | a command starting with `sleep` | unchanged: patty **kills** those at the timeout instead of backgrounding them |
 
+The rewrite happens on the finalized assistant message (`message_end`), which pi shares between the tool row, the tool loop, and the saved transcript, so the row reads `(timeout 60s)` rather than the model's original number, and the recorded call shows 60 too. So that the model doesn't take the rewritten argument for its own mistake, the extension adds one bullet to the bash guidelines in the system prompt, and capped results end with a single `[pi-preset] bash timeout capped: 150s -> 60s` line. A `tool_call` hook caps the executed copy as well, covering calls that never pass through an assistant message (codemode scripts).
+
 Nothing gets killed because of this: a capped build keeps running in the background and reports when it ends. While the model waits on it with `jobs attach`, Esc only stops the waiting; the job keeps going. Set either variable to `off` to disable the extension.
 
 It only acts when the registered `bash` tool comes from `pi-patty-bg-tasks` (checked through the tool's `sourceInfo.path`). With pi's built-in `bash`, `timeout` **is** a kill deadline, and capping it would kill long builds. It also stays out of print/json modes, where patty ignores the timeout anyway.
