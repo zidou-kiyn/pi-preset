@@ -116,6 +116,7 @@ Skills execute as model instructions with Pi's agent permissions. Review the two
 | `extensions/vibrant-footer.ts` | The status bar. Toggle with `/vibrant-footer` |
 | `extensions/pi-preset.ts` | The `/pi-preset` control panel: sync, skills, and model wizard in one TUI menu |
 | `extensions/headless-keepalive.ts` | Keeps headless `pi -p` children alive during tool calls (works around a `pi-patty-bg-tasks` bug, see below). No command, no UI |
+| `extensions/bash-bg-cap.ts` | Moves stuck foreground `bash` commands to the background after 30s (no timeout given) or at most 60s, instead of the model's multi-minute timeouts (see below). No command, no UI |
 | `extensions/inherit-model.ts` | `/new` keeps the model and thinking level you were just using instead of falling back to `defaultModel` (see below). No command, no UI |
 
 ### Reading the status bar
@@ -226,9 +227,23 @@ To keep the emacs binding and live with the warning, restore `"tui.editor.cursor
 
 **3. Headless children die on the first `bash` call.** This one is why `extensions/headless-keepalive.ts` ships. `pi-patty-bg-tasks` spawns its foreground `bash` with `detached: true` + `proc.unref()` and `unref()`s every timer. In the TUI the terminal keeps Node's event loop alive, so nothing is noticed. In a headless `pi -p` process (Trellis `trellis_subagent` workers, pi-patty's own `agent_bg`, anything driving `--mode json|text`) the loop is empty once stdin is drained and the LLM stream ends, so Node exits **0** mid tool-call: no `tool_execution_end`, no `agent_end`, empty or first-turn-only output. Verified on 1.1.6: `pi -p --no-extensions -e …/pi-patty-bg-tasks` reproduces it, built-in bash does not.
 
+**4. Models hold the session with huge `bash` timeouts.** This is why `extensions/bash-bg-cap.ts` ships. Under `pi-patty-bg-tasks`, `bash`'s `timeout` is when a foreground command slides into the background (the model then gets `job_decide`: keep / kill / check), not when it is killed. Models read it as a kill deadline and pass hundreds of seconds to protect long builds, so a hung command holds the session for minutes. The extension rewrites each `bash` call before it runs:
+
+| Model passed | Runs with |
+|---|---|
+| no `timeout` | 30s (`PI_PRESET_BASH_BG_DEFAULT`) |
+| `timeout` above 60s | 60s (`PI_PRESET_BASH_BG_CAP`) |
+| `timeout` at or below 60s | unchanged, never raised |
+| `run_in_background: true` | unchanged |
+| a command starting with `sleep` | unchanged: patty **kills** those at the timeout instead of backgrounding them |
+
+Nothing gets killed because of this: a capped build keeps running in the background and reports when it ends. While the model waits on it with `jobs attach`, Esc only stops the waiting; the job keeps going. Set either variable to `off` to disable the extension.
+
+It only acts when the registered `bash` tool comes from `pi-patty-bg-tasks` (checked through the tool's `sourceInfo.path`). With pi's built-in `bash`, `timeout` **is** a kill deadline, and capping it would kill long builds. It also stays out of print/json modes, where patty ignores the timeout anyway.
+
 The keepalive extension holds one ref'd `setInterval` per in-flight tool call (`tool_execution_start` → `tool_execution_end`) and releases everything on `agent_end` / `session_shutdown`. It registers no tool and no command, so it never appears in the footer's package count. Drop it once upstream stops unref'ing the foreground child.
 
-`settings.json` `packages[]` is **append-only**: entries are deduplicated by pi's own identity rule (npm compares the package name, git compares the repository URL without its ref), and packages you added yourself are never reordered or removed.
+`settings.json` `packages[]` is a **whitelist**: entries are matched by pi's own identity rule (npm compares the package name, git compares the repository URL without its ref), missing preset packages are appended, existing entries are never reordered, and a package outside the preset is removed only when you left it unchecked in the sync checklist and confirmed the plan (see [Packages outside the preset](#packages-outside-the-preset)).
 
 ## Font
 
