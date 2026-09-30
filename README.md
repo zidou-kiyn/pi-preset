@@ -118,6 +118,22 @@ Skills execute as model instructions with Pi's agent permissions. Review the two
 | `extensions/headless-keepalive.ts` | Keeps headless `pi -p` children alive during tool calls (works around a `pi-patty-bg-tasks` bug, see below). No command, no UI |
 | `extensions/inherit-model.ts` | `/new` keeps the model and thinking level you were just using instead of falling back to `defaultModel` (see below). No command, no UI |
 
+### Reading the status bar
+
+```
+✧ ~/project · ⎇ main
+▰▱▱▱▱▱ 58k/272k 21% · ↑ in 48k ↓ out 38k · ▤ cache r 1.1M ↻ w 90k ◎ hit 93% · ◈ $0.410      provider · π model · ◆ high
+⬡ pkg 12 · ⧉ mcp 2·14 cm ts · ☑ 1/3 · ▸ current task
+```
+
+- **Context**: the meter plus `used/window percent` of the current context. Its color turns warning above 70% and error above 90%.
+- **in / out**: input and output tokens summed over the whole session, not the current context.
+- **cache r / w / hit**: session totals of cache-read and cache-write tokens, and the latest turn's cache hit rate.
+- **◈**: session cost as `$0.410` (`sub` when the model runs on an OAuth subscription), or `Σ` total tokens when the provider reports no price.
+- **mcp servers·tools**: MCP servers connected through pi's built-in MCP support and their callable tools. Servers that failed or need a sign-in are not counted; pi reports them after startup and in `/mcp`. A dim `mcp 0` means MCP support is loaded but no server is connected. `cm` / `ts` mark the built-in `codemode` / `tool_search` tools while they are active. The segment is hidden only when the built-in MCP extension is disabled.
+
+Word labels are shown whenever the stats fit in two lines, and dropped otherwise; the icons stay.
+
 ### `/new` inherits the current model
 
 pi rebuilds every `/new` session from `settings.json` (`defaultModel`, `defaultThinkingLevel`) or the CLI flags it was started with, so a model picked with `/model` or ctrl+p is dropped the moment you start a fresh session. `/resume` and `/fork` restore the target session's own model and are not affected.

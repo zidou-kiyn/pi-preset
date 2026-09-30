@@ -22,9 +22,20 @@
  * stays hidden when there is nothing to report, preserving the "quiet when
  * empty" philosophy.
  *
- * Deliberately NOT shown: MCP server count. pi has no MCP support at all
- * (README: "**No MCP.** Build CLI tools with READMEs"), so such a segment can
- * only ever read zero. The slot carries the loaded package count instead.
+ * MCP (pi 0.99+ ships it built in): the aux line shows connected servers and
+ * their tools as `mcp 2·14`, derived from the `mcp__<server>__<tool>` tools
+ * the built-in extension registers, or a dim `mcp 0` while none is connected.
+ * Extensions cannot read connection state, so failed or signed-out servers are
+ * not counted; pi reports those itself after startup and in /mcp. Small
+ * `cm` / `ts` tags mark the built-in `codemode` / `tool_search` tools while
+ * they are active. The segment is hidden only when MCP support is disabled.
+ *
+ * Stats line legend (labels drop only when two lines cannot hold them):
+ *   meter 58k/272k 21%   current context: used / window, percent
+ *   in / out             session-cumulative input and output tokens
+ *   cache r / w / hit    session-cumulative cache read and cache write tokens,
+ *                        and the latest turn's cache hit rate
+ *   $ / Σ                session cost, or total tokens when no price is known
  *
  * Runtime: pi-preset/extensions/vibrant-footer.ts
  * Toggle:  /vibrant-footer
@@ -59,6 +70,7 @@ type IconSet = {
     model: string;
     thinking: string;
     pkg: string;
+    mcp: string;
     todo: string;
     todoActive: string;
 };
@@ -84,6 +96,7 @@ const NERD_ICONS: IconSet = {
     model: "\u{f0768}", // nf-md-atom
     thinking: "\u{f09d1}", // nf-md-brain
     pkg: "\u{f03d7}", // nf-md-package_variant_closed
+    mcp: "\u{f06a5}", // nf-md-power_plug
     todo: "\u{f0756}", // nf-md-format_list_checks
     todoActive: "\u{f0995}", // nf-md-progress_check
 };
@@ -103,6 +116,7 @@ const UNICODE_ICONS: IconSet = {
     model: "π",
     thinking: "◆",
     pkg: "⬡",
+    mcp: "⧉",
     todo: "☑",
     todoActive: "▸",
 };
@@ -211,6 +225,17 @@ function seg(t: ThemeLike, glyph: string, glyphColor: string, value: string, val
     return g + t.fg(valueColor, value);
 }
 
+/** Like seg(), with a dim word label between glyph and value when `showLabel` is set. */
+function lseg(t: ThemeLike, glyph: string, color: string, label: string, value: string, showLabel: boolean): string {
+    const g = glyph ? t.fg(color, glyph) + " " : "";
+    const l = showLabel ? t.fg("dim", `${label} `) : "";
+    return g + l + t.fg(color, value);
+}
+
+function formatPercent(percent: number): string {
+    return percent < 10 ? `${percent.toFixed(1)}%` : `${percent.toFixed(0)}%`;
+}
+
 function contextTone(percent: number | null): "success" | "warning" | "error" {
     if (percent === null) return "success";
     if (percent > 90) return "error";
@@ -293,6 +318,47 @@ function packageCount(pi: ExtensionAPI): number {
     return sources.size;
 }
 
+type McpSummary = { available: boolean; servers: number; tools: number; codemode: boolean; toolSearch: boolean };
+
+const MCP_PREFIX = "mcp__";
+
+/**
+ * Connected MCP servers and their callable tools, plus whether the built-in
+ * codemode / tool_search tools are active. MCP tools are named
+ * `mcp__<server>__<tool>` and grouped under the `mcp__<server>` namespace; the
+ * namespace is preferred because server names may themselves contain `_`.
+ * Hidden tools are registered but uncallable, so they are not counted.
+ */
+function mcpSummary(pi: ExtensionAPI): McpSummary {
+    const servers = new Set<string>();
+    let tools = 0;
+    let active: string[] = [];
+    let available = false;
+    try {
+        // The built-in (or a replacing) MCP extension owns /mcp; without it MCP is off.
+        available = pi.getCommands().some((command) => command.name === "mcp");
+        for (const tool of pi.getAllTools()) {
+            if (!tool.name.startsWith(MCP_PREFIX) || tool.exposure === "hidden") continue;
+            const namespace = tool.namespace?.name;
+            const server = namespace?.startsWith(MCP_PREFIX)
+                ? namespace.slice(MCP_PREFIX.length)
+                : tool.name.slice(MCP_PREFIX.length).split("__")[0];
+            if (server) servers.add(server);
+            tools++;
+        }
+        active = pi.getActiveTools();
+    } catch {
+        // Tool registry unavailable (e.g. mid-reload): report nothing.
+    }
+    return {
+        available,
+        servers: servers.size,
+        tools,
+        codemode: active.includes("codemode"),
+        toolSearch: active.includes("tool_search"),
+    };
+}
+
 /** Latest todo snapshot on the active branch (rpiv-todo writes details.tasks). */
 function latestTodos(ctx: ExtensionContext): TodoTask[] {
     let tasks: TodoTask[] = [];
@@ -342,31 +408,44 @@ function rampMeter(t: ThemeLike, percent: number | null, cells: number): string 
 
 // ── layout: overflow later segments onto a second stats line ────────────────
 
-function layoutSegments(segments: string[], separator: string, width: number): string[] {
-    if (segments.length === 0) return [];
+type Layout = { lines: string[]; fits: boolean };
+
+/**
+ * Greedy two-line layout. The first line shares the row with the right
+ * cluster (`firstWidth`); the overflow line has the full terminal width
+ * (`restWidth`). `fits` is false when anything had to be truncated.
+ */
+function layoutSegments(segments: string[], separator: string, firstWidth: number, restWidth: number): Layout {
+    if (segments.length === 0) return { lines: [], fits: true };
 
     const sepW = visibleWidth(separator);
     const lines: string[][] = [[]];
-    let lineWidth = 0;
+    const widths = [0];
 
     for (const segment of segments) {
         const w = visibleWidth(segment);
-        const current = lines[lines.length - 1]!;
+        const index = lines.length - 1;
+        const current = lines[index]!;
+        const limit = index === 0 ? firstWidth : restWidth;
         const needed = w + (current.length > 0 ? sepW : 0);
 
-        if (current.length > 0 && lineWidth + needed > width && lines.length < 2) {
+        if (current.length > 0 && widths[index]! + needed > limit && lines.length < 2) {
             lines.push([segment]);
-            lineWidth = w;
+            widths.push(w);
             continue;
         }
 
         current.push(segment);
-        lineWidth += needed;
+        widths[index] = widths[index]! + needed;
     }
 
-    return lines
-        .filter((parts) => parts.length > 0)
-        .map((parts) => truncateToWidth(parts.join(separator), width, "…"));
+    const fits = widths.every((w, i) => w <= (i === 0 ? firstWidth : restWidth));
+    return {
+        fits,
+        lines: lines
+            .filter((parts) => parts.length > 0)
+            .map((parts, i) => truncateToWidth(parts.join(separator), i === 0 ? firstWidth : restWidth, "…")),
+    };
 }
 
 // ── render lines ────────────────────────────────────────────────────────────
@@ -406,70 +485,80 @@ function renderStatsLines(
     const context = ctx.getContextUsage();
     const contextWindow = context?.contextWindow ?? ctx.model?.contextWindow ?? 0;
     const percentValue = context?.percent ?? null;
+    const usedTokens = context?.tokens ?? null;
     const tone = contextTone(percentValue);
     const sep = softSep(t);
 
-    const segments: string[] = [];
+    // Built twice: with word labels (in/out/cache r/w/hit) and without. The
+    // labeled variant wins whenever it fits in two lines; icons always stay.
+    const buildSegments = (labels: boolean): string[] => {
+        const segments: string[] = [];
 
-    // Context first — the ramp meter is the anchor of the line.
-    const meterCells = width >= 100 ? 6 : width >= 72 ? 5 : 0;
-    const percentLabel = percentValue !== null ? `${percentValue.toFixed(1)}%` : "?";
-    const windowLabel = t.fg("dim", `/${formatTokens(contextWindow)}`);
-    const contextText = t.fg(tone, percentLabel) + windowLabel;
-    if (meterCells > 0) {
-        segments.push(`${rampMeter(t, percentValue, meterCells)} ${contextText}`);
-    } else {
-        segments.push(seg(t, icons.context, tone, "") + contextText);
-    }
-
-    // Traffic: ↑in ↓out — icon AND value wear the segment hue; a single colored
-    // glyph next to gray digits doesn't register at terminal sizes.
-    if (usage.input || usage.output) {
-        const parts: string[] = [];
-        if (usage.input) parts.push(seg(t, icons.input, "mdLink", formatTokens(usage.input), "mdLink"));
-        if (usage.output) parts.push(seg(t, icons.output, "success", formatTokens(usage.output), "success"));
-        segments.push(parts.join(" "));
-    }
-
-    // Cache: read, write, hit rate (hit tone shifts as it degrades)
-    if (usage.cacheRead || usage.cacheWrite) {
-        const parts: string[] = [];
-        if (usage.cacheRead)
-            parts.push(seg(t, icons.cacheRead, "syntaxOperator", formatTokens(usage.cacheRead), "syntaxOperator"));
-        if (usage.cacheWrite)
-            parts.push(seg(t, icons.cacheWrite, "syntaxType", formatTokens(usage.cacheWrite), "syntaxType"));
-        if (usage.cacheHitRate !== undefined) {
-            const hit = usage.cacheHitRate;
-            const hitTone = cacheTone(hit);
-            parts.push(seg(t, icons.cacheHit, hitTone, `${hit.toFixed(0)}%`, hitTone));
+        // Context first — the ramp meter is the anchor of the line, followed by the
+        // absolute count ("58k/272k") so the meter never has to be read on its own.
+        const meterCells = width >= 100 ? 6 : width >= 72 ? 5 : 0;
+        const usedLabel = usedTokens !== null ? formatTokens(usedTokens) : "?";
+        const windowLabel = t.fg("dim", `/${formatTokens(contextWindow)}`);
+        const percentLabel = percentValue !== null ? " " + t.fg(tone, formatPercent(percentValue)) : "";
+        const contextText = t.fg(tone, usedLabel) + windowLabel + percentLabel;
+        if (meterCells > 0) {
+            segments.push(`${rampMeter(t, percentValue, meterCells)} ${contextText}`);
+        } else {
+            segments.push(seg(t, icons.context, tone, "") + contextText);
         }
-        segments.push(parts.join(" "));
-    }
 
-    // Cost — or, when the provider reports no price (proxies and most OAuth
-    // subscriptions send cost.total = 0), the cumulative token volume, so the
-    // slot always carries a real number instead of silently vanishing.
-    if (usage.cost > 0) {
-        let usingOAuth = false;
-        try {
-            usingOAuth = ctx.model ? ctx.modelRegistry.isUsingOAuth(ctx.model) : false;
-        } catch {
-            usingOAuth = false;
+        // Traffic: session-cumulative in/out — icon AND value wear the segment hue;
+        // a single colored glyph next to gray digits doesn't register at terminal sizes.
+        if (usage.input || usage.output) {
+            const parts: string[] = [];
+            if (usage.input) parts.push(lseg(t, icons.input, "mdLink", "in", formatTokens(usage.input), labels));
+            if (usage.output) parts.push(lseg(t, icons.output, "success", "out", formatTokens(usage.output), labels));
+            segments.push(parts.join(" "));
         }
-        const amount = usingOAuth ? `${usage.cost.toFixed(3)} sub` : usage.cost.toFixed(3);
-        segments.push(seg(t, icons.cost, "warning", amount, "warning"));
-    } else {
-        const totalTokens = usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
-        if (totalTokens > 0) {
-            segments.push(seg(t, icons.cost, "warning", formatTokens(totalTokens), "warning"));
-        }
-    }
 
-    // Session elapsed (only after ≥5s so empty sessions stay quiet)
-    const elapsed = Date.now() - sessionStartMs;
-    if (elapsed >= 5000) {
-        segments.push(seg(t, icons.time, "dim", formatDuration(elapsed), "dim"));
-    }
+        // Cache: read, write, hit rate (hit tone shifts as it degrades)
+        if (usage.cacheRead || usage.cacheWrite) {
+            const parts: string[] = [];
+            if (usage.cacheRead)
+                parts.push(lseg(t, icons.cacheRead, "syntaxOperator", "cache r", formatTokens(usage.cacheRead), labels));
+            if (usage.cacheWrite) {
+                const label = usage.cacheRead ? "w" : "cache w";
+                parts.push(lseg(t, icons.cacheWrite, "syntaxType", label, formatTokens(usage.cacheWrite), labels));
+            }
+            if (usage.cacheHitRate !== undefined) {
+                const hit = usage.cacheHitRate;
+                parts.push(lseg(t, icons.cacheHit, cacheTone(hit), "hit", `${hit.toFixed(0)}%`, labels));
+            }
+            segments.push(parts.join(" "));
+        }
+
+        // Cost — or, when the provider reports no price (proxies and most OAuth
+        // subscriptions send cost.total = 0), the cumulative token volume, so the
+        // slot always carries a real number instead of silently vanishing.
+        if (usage.cost > 0) {
+            let usingOAuth = false;
+            try {
+                usingOAuth = ctx.model ? ctx.modelRegistry.isUsingOAuth(ctx.model) : false;
+            } catch {
+                usingOAuth = false;
+            }
+            const amount = usingOAuth ? `$${usage.cost.toFixed(3)} sub` : `$${usage.cost.toFixed(3)}`;
+            segments.push(seg(t, icons.cost, "warning", amount, "warning"));
+        } else {
+            // Σ marks a token total, so it is never mistaken for a price.
+            const totalTokens = usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
+            if (totalTokens > 0) {
+                segments.push(seg(t, icons.cost, "warning", `Σ${formatTokens(totalTokens)}`, "warning"));
+            }
+        }
+
+        // Session elapsed (only after ≥5s so empty sessions stay quiet)
+        const elapsed = Date.now() - sessionStartMs;
+        if (elapsed >= 5000) {
+            segments.push(seg(t, icons.time, "dim", formatDuration(elapsed), "dim"));
+        }
+        return segments;
+    };
 
     // Right cluster: provider · model · thinking — model is the line's one accent.
     const modelId = ctx.model?.id ?? "no-model";
@@ -490,7 +579,8 @@ function renderStatsLines(
     const rightW = visibleWidth(right);
     const leftBudget = rightW > 0 ? Math.max(20, width - rightW - 2) : width;
 
-    const leftLines = layoutSegments(segments, sep, leftBudget);
+    const labeled = layoutSegments(buildSegments(true), sep, leftBudget, width);
+    const leftLines = labeled.fits ? labeled.lines : layoutSegments(buildSegments(false), sep, leftBudget, width).lines;
     if (leftLines.length === 0) {
         return [truncateToWidth(right, width, t.fg("dim", "…"))];
     }
@@ -514,7 +604,7 @@ function renderStatsLines(
 }
 
 /**
- * Aux line: loaded packages + todo progress. Returns null when there is nothing
+ * Aux line: loaded packages, MCP, and todo progress. Returns null when there is nothing
  * to say, so a plain session keeps the bar at two lines.
  */
 function renderAuxLine(
@@ -529,6 +619,17 @@ function renderAuxLine(
     const packages = packageCount(pi);
     if (packages > 0) {
         parts.push(seg(t, icons.pkg, "syntaxKeyword", `pkg ${packages}`, "syntaxKeyword"));
+    }
+
+    // MCP: always shown while MCP support is loaded. "mcp 0" (dim) means no
+    // server is connected; "mcp 2·14" is servers·tools. Dim cm/ts tags mark
+    // codemode / tool_search while active.
+    const mcp = mcpSummary(pi);
+    if (mcp.available || mcp.servers > 0 || mcp.codemode || mcp.toolSearch) {
+        const tone = mcp.servers > 0 ? "syntaxFunction" : "dim";
+        const count = mcp.servers > 0 ? `mcp ${mcp.servers}${DOT}${mcp.tools}` : "mcp 0";
+        const tags = join([mcp.codemode ? "cm" : null, mcp.toolSearch ? "ts" : null], " ");
+        parts.push(t.fg(tone, `${icons.mcp} ${count}`) + (tags ? t.fg("dim", ` ${tags}`) : ""));
     }
 
     const tasks = latestTodos(ctx);
