@@ -160,6 +160,8 @@ Every step is idempotent. A second run reports "already in sync" and touches not
 | `npm:pi-context-view` | `npm:@juicesharp/rpiv-ask-user-question` |
 | `npm:pi-btw` | `npm:pi-patty-bg-tasks` |
 
+`pi-apply-patch` stays required: pi has no built-in `apply_patch`. Its Codex Lark grammar only reaches the model once the tool declares it through pi's `constrainedSampling` API ([code-yeongyu/pi-apply-patch#43](https://github.com/code-yeongyu/pi-apply-patch/pull/43)). Until that lands, it goes out as a plain function tool even though the OpenAI bundle enables `supportsOpenAIGrammarTools`. The flag is harmless in the meantime and takes effect after an update.
+
 Web search is `pi-web-search` only. It uses the selected model provider's native search (Gemini grounding, xAI, OpenAI Responses, Anthropic), so no separate search API key is needed. `pi-web-access` was dropped because it registers the same tool names; pi treats a duplicate tool name as a fatal load error, so the two cannot coexist.
 
 ### The optional extension
@@ -252,6 +254,7 @@ pi only reconciles a git source to its *configured* ref and never advances it on
 - **No automatic `pi install`.** The sync flow only writes `packages[]` and lets pi install on its next start.
 
   > **Restart pi after a sync that changed `packages[]`.** Extensions get no access to pi's settings manager, so the write goes straight to the file while the running session still holds the array it loaded at startup. If you use `/config` or `pi install` in that same session afterwards, pi persists its stale snapshot and the newly added entries disappear. Re-running the sync restores them; nothing else is lost.
+- **MCP, codemode, and tool search are left to pi.** Since 0.99, pi ships them as built-in extensions: servers live in `~/.pi/agent/mcp.json` and are managed with `/mcp`, while `codemode` and `tool_search` switch on by themselves when an MCP server needs them. The preset writes no `mcp.json` and no `defaultTools`. MCP servers carry credentials and differ per person, and codemode is not worth keeping on without MCP, because the models already call tools in parallel natively. None of the required extensions collide with the built-ins. The footer shows what is connected.
 - **No runtime dependencies.** Zip extraction uses system tools instead of adding a supply-chain layer.
 - **`pi-startup-redraw-fix` is not included.** It rewrites `ESC[3J ESC[2J ESC[H` into `ESC[H ESC[2J ESC[3J`, but pi's alternate-screen renderer emits `ESC[2J ESC[H ESC[3J`, which never matches its trigger. The patch cannot fire.
 
