@@ -6,15 +6,20 @@ test("all supported families expose the fixed APIs and compatibility flags", () 
 	assert.deepEqual(FAMILY_ORDER, ["anthropic", "openai", "deepseek"]);
 	assert.equal(FAMILY_TEMPLATES.anthropic.api, "anthropic-messages");
 	assert.deepEqual(FAMILY_TEMPLATES.anthropic.compat, {
-		supportsEagerToolInputStreaming: false,
+		supportsEagerToolInputStreaming: true,
 		supportsLongCacheRetention: true,
 		forceAdaptiveThinking: true,
 		supportsStrictTools: true,
+		supportsMidConvoEffort: true,
+		supportsMidConvoSystemMessages: true,
+		supportsMidConvoToolChanges: true,
 	});
 	assert.equal(FAMILY_TEMPLATES.openai.api, "openai-responses");
 	assert.deepEqual(FAMILY_TEMPLATES.openai.compat, {
 		supportsDeveloperRole: true,
 		supportsStrictMode: true,
+		supportsOpenAIGrammarTools: true,
+		supportsMidConvoSystemMessages: true,
 	});
 	assert.equal(FAMILY_TEMPLATES.deepseek.api, "openai-responses");
 	assert.deepEqual(FAMILY_TEMPLATES.deepseek.compat, {
@@ -68,10 +73,11 @@ test("Anthropic templates exactly preserve current local credential-free metadat
 	]);
 });
 
-test("OpenAI templates exactly preserve Astra, Sol, and Luna metadata and tiers", () => {
+test("OpenAI templates exactly preserve Astra, 6.1 Sol, and Luna metadata and tiers", () => {
+	// ChatGPT-subscription mapping: "minimal" is served as "low".
 	const thinkingLevelMap = {
 		off: "none",
-		minimal: null,
+		minimal: "low",
 		low: "low",
 		medium: "medium",
 		high: "high",
@@ -97,8 +103,8 @@ test("OpenAI templates exactly preserve Astra, Sol, and Luna metadata and tiers"
 			thinkingLevelMap: { ...thinkingLevelMap, off: null },
 		},
 		{
-			id: "gpt-6-sol",
-			name: "GPT-6 Sol",
+			id: "gpt-6.1-sol",
+			name: "GPT-6.1 Sol",
 			reasoning: true,
 			input: ["text", "image"],
 			contextWindow: 272_000,
@@ -106,11 +112,12 @@ test("OpenAI templates exactly preserve Astra, Sol, and Luna metadata and tiers"
 			cost: {
 				input: 2,
 				output: 10,
-				cacheRead: 0.2,
+				cacheRead: 0.1,
 				cacheWrite: 2.5,
-				tiers: [{ inputTokensAbove: 272_000, input: 4, output: 15, cacheRead: 0.4, cacheWrite: 5 }],
+				tiers: [{ inputTokensAbove: 272_000, input: 4, output: 15, cacheRead: 0.2, cacheWrite: 5 }],
 			},
-			thinkingLevelMap,
+			// 6.1 Sol, like Astra, cannot disable reasoning.
+			thinkingLevelMap: { ...thinkingLevelMap, off: null },
 		},
 		{
 			id: "gpt-6-luna",

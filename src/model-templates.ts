@@ -58,9 +58,10 @@ const ANTHROPIC_THINKING: ThinkingLevelMap = {
 	max: "max",
 };
 
+// Mirrors the ChatGPT-subscription (openai-codex) catalog: "minimal" is served as "low".
 const OPENAI_THINKING: ThinkingLevelMap = {
 	off: "none",
-	minimal: null,
+	minimal: "low",
 	low: "low",
 	medium: "medium",
 	high: "high",
@@ -90,10 +91,13 @@ export const FAMILY_TEMPLATES: Readonly<Record<FamilyId, FamilyTemplate>> = deep
 		label: "Anthropic",
 		api: "anthropic-messages",
 		compat: {
-			supportsEagerToolInputStreaming: false,
+			supportsEagerToolInputStreaming: true,
 			supportsLongCacheRetention: true,
 			forceAdaptiveThinking: true,
 			supportsStrictTools: true,
+			supportsMidConvoEffort: true,
+			supportsMidConvoSystemMessages: true,
+			supportsMidConvoToolChanges: true,
 		},
 		models: [
 			{
@@ -135,6 +139,8 @@ export const FAMILY_TEMPLATES: Readonly<Record<FamilyId, FamilyTemplate>> = deep
 		compat: {
 			supportsDeveloperRole: true,
 			supportsStrictMode: true,
+			supportsOpenAIGrammarTools: true,
+			supportsMidConvoSystemMessages: true,
 		},
 		models: [
 			{
@@ -155,8 +161,8 @@ export const FAMILY_TEMPLATES: Readonly<Record<FamilyId, FamilyTemplate>> = deep
 				thinkingLevelMap: { ...OPENAI_THINKING, off: null },
 			},
 			{
-				id: "gpt-6-sol",
-				name: "GPT-6 Sol",
+				id: "gpt-6.1-sol",
+				name: "GPT-6.1 Sol",
 				reasoning: true,
 				input: ["text", "image"],
 				contextWindow: 272_000,
@@ -164,11 +170,12 @@ export const FAMILY_TEMPLATES: Readonly<Record<FamilyId, FamilyTemplate>> = deep
 				cost: {
 					input: 2,
 					output: 10,
-					cacheRead: 0.2,
+					cacheRead: 0.1,
 					cacheWrite: 2.5,
-					tiers: [{ inputTokensAbove: 272_000, input: 4, output: 15, cacheRead: 0.4, cacheWrite: 5 }],
+					tiers: [{ inputTokensAbove: 272_000, input: 4, output: 15, cacheRead: 0.2, cacheWrite: 5 }],
 				},
-				thinkingLevelMap: { ...OPENAI_THINKING },
+				// Like Astra, 6.1 Sol's reasoning cannot be disabled.
+				thinkingLevelMap: { ...OPENAI_THINKING, off: null },
 			},
 			{
 				id: "gpt-6-luna",
@@ -307,6 +314,30 @@ export const COMPAT_FLAG_OPTIONS: readonly CompatFlagOption[] = deepFreeze([
 			"Provider accepts per-tool eager_input_streaming. Disable for relays that reject that field (a legacy beta header is used instead).",
 	},
 	{
+		key: "supportsOpenAIGrammarTools",
+		apis: ["openai-responses"],
+		description:
+			"Send grammar-constrained tools (Lark/regex) as native OpenAI custom tools. Disable if the relay rejects custom tool types; such tools then fall back to plain function tools.",
+	},
+	{
+		key: "supportsMidConvoSystemMessages",
+		apis: ["openai-responses", "anthropic-messages"],
+		description:
+			"Keep system/developer messages that arrive mid-conversation in place instead of folding them into the leading system prompt, so the cached prefix survives. Disable if the relay rejects them.",
+	},
+	{
+		key: "supportsMidConvoEffort",
+		apis: ["anthropic-messages"],
+		description:
+			"Switch thinking effort mid-conversation without invalidating the cache, and bind thinking blocks so prefix mismatches are dropped instead of failing with 400. Disable if the relay rejects the extra beta features.",
+	},
+	{
+		key: "supportsMidConvoToolChanges",
+		apis: ["anthropic-messages"],
+		description:
+			"Add or remove tools mid-conversation with tool_addition/tool_removal blocks instead of rewriting the tool list. Requires supportsMidConvoSystemMessages.",
+	},
+	{
 		key: "supportsStrictTools",
 		apis: ["anthropic-messages"],
 		description: "Advertise strict tool schemas to the provider. Disable if tool calls start failing schema validation.",
@@ -343,7 +374,7 @@ export const THINKING_PRESETS: readonly ThinkingPresetOption[] = deepFreeze([
 		id: "openai",
 		label: "OpenAI-style efforts",
 		description:
-			'Maps off/low/medium/high/xhigh/max to reasoning efforts, with "off" sent as "none". Matches the bundled OpenAI preset.',
+			'Maps off/minimal/low/medium/high/xhigh/max to reasoning efforts, with "off" sent as "none" and "minimal" served as "low" (the ChatGPT-subscription mapping). Matches the bundled OpenAI preset.',
 		reasoning: true,
 		map: { ...OPENAI_THINKING },
 	},

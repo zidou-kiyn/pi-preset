@@ -11,6 +11,7 @@ import {
 	COMPAT_FLAG_OPTIONS,
 	compatFlagsForApi,
 	CUSTOM_API_OPTIONS,
+	FAMILY_TEMPLATES,
 	THINKING_LEVELS,
 	THINKING_PRESETS,
 	type ThinkingLevelMap,
@@ -83,6 +84,15 @@ test("every custom API option and compat flag carries a non-empty description", 
 	}
 	for (const api of CUSTOM_API_OPTIONS) {
 		assert.equal(compatFlagsForApi(api.id).length > 0, true, api.id);
+	}
+});
+
+test("every compat flag a bundled family sets is also toggleable for that API in the custom channel", () => {
+	for (const family of Object.values(FAMILY_TEMPLATES)) {
+		const toggleable = new Set(compatFlagsForApi(family.api).map((flag) => flag.key));
+		for (const key of Object.keys(family.compat)) {
+			assert.equal(toggleable.has(key), true, `${family.id}: ${key}`);
+		}
 	}
 });
 

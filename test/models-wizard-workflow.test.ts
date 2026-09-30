@@ -64,7 +64,7 @@ function makeDependencies(
 	return {
 		getModelsPath: () => path,
 		selectFamily: async () => "openai",
-		selectModels: async () => options.selectedModels ?? ["gpt-6-sol"],
+		selectModels: async () => options.selectedModels ?? ["gpt-6.1-sol"],
 		input: async (_ctx, title) =>
 			title === "Provider identifier"
 				? (options.providerId ?? "provider-id")
@@ -221,7 +221,7 @@ test("successful workflow writes the selected bundle and never reports the API k
 		assert.equal(parsed.providers["provider-id"].api, "openai-responses");
 		assert.deepEqual(
 			parsed.providers["provider-id"].models.map((model: { id: string }) => model.id),
-			["gpt-6-sol"],
+			["gpt-6.1-sol"],
 		);
 		assert.equal(parsed.providers["provider-id"].apiKey, key);
 		assertModeOnPosix(path, 0o600);
@@ -246,7 +246,7 @@ test("simulated Windows first add writes the selected provider", async () => {
 		assert.equal(parsed.providers["provider-id"].api, "openai-responses");
 		assert.deepEqual(
 			parsed.providers["provider-id"].models.map((model: { id: string }) => model.id),
-			["gpt-6-sol"],
+			["gpt-6.1-sol"],
 		);
 		assert.equal(parsed.providers["provider-id"].apiKey, key);
 		assert.equal(existsSync(`${path}.preset-bak`), false);
@@ -478,7 +478,7 @@ test("already configured workflow skips confirmation and apply", async () => {
 	try {
 		const path = join(home, "models.json");
 		const key = runtimeKey();
-		const provider = buildProviderCandidate("openai", ["gpt-6-sol"], "https://api.example.invalid/v1", key);
+		const provider = buildProviderCandidate("openai", ["gpt-6.1-sol"], "https://api.example.invalid/v1", key);
 		secureWrite(path, JSON.stringify({ providers: { "provider-id": provider } }));
 		let confirms = 0;
 		let applies = 0;

@@ -61,7 +61,7 @@ test("add preserves unrelated top-level fields and sibling providers", () => {
 				providers: { sibling: { keep: true, models: ["outside-catalog"] } },
 			}),
 		);
-		const provider = candidate("openai", ["gpt-6-sol", "gpt-6-luna"]);
+		const provider = candidate("openai", ["gpt-6.1-sol", "gpt-6-luna"]);
 		const before = readModelsDocument(path);
 		const plan = planProviderUpsert(before.data, "provider-id", provider, before.targetPath);
 		assert.equal(plan.status, "add");
@@ -72,7 +72,7 @@ test("add preserves unrelated top-level fields and sibling providers", () => {
 		assert.deepEqual(after.providers.sibling, { keep: true, models: ["outside-catalog"] });
 		assert.deepEqual(
 			after.providers["provider-id"].models.map((model: { id: string }) => model.id),
-			["gpt-6-sol", "gpt-6-luna"],
+			["gpt-6.1-sol", "gpt-6-luna"],
 		);
 	} finally {
 		cleanup(home);
@@ -140,7 +140,7 @@ test("provider target TOCTOU conflict aborts without changing the latest file", 
 			candidate("deepseek", ["deepseek-flash"]),
 			before.targetPath,
 		);
-		const concurrent = candidate("openai", ["gpt-6-sol"]);
+		const concurrent = candidate("openai", ["gpt-6.1-sol"]);
 		secureWrite(path, JSON.stringify({ providers: { "provider-id": concurrent, sibling: { keep: true } } }));
 		assert.throws(() => applyProviderPlan(readyPlan(plan), path), /changed after preview/);
 		const after = JSON.parse(readFileSync(path, "utf8"));

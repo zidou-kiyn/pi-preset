@@ -37,11 +37,20 @@ The **Add model provider** menu entry is a deterministic, TUI-only wizard for th
 | Family | Models | Fixed API mode |
 |---|---|---|
 | Anthropic | Claude Fable 5.1, Claude Opus 5.5, Claude Sonnet 5.5 | `anthropic-messages` |
-| OpenAI | GPT-6 Astra, GPT-6 Sol, GPT-6 Luna | `openai-responses` |
+| OpenAI | GPT-6 Astra, GPT-6.1 Sol, GPT-6 Luna | `openai-responses` |
 | DeepSeek | DeepSeek V4.1 Flash | `openai-responses` |
 | Custom | user-defined | `openai-completions`, `openai-responses`, or `anthropic-messages` |
 
 Choose a family, explicitly select one or more models, then enter a provider identifier, base URL, and API key. For the three preset families, the catalog metadata, compatibility flags, thinking-level maps, context limits, modalities, and pricing tiers are bundled in the package; the wizard never asks for those schema details.
+
+The bundles target subscription relays (a ChatGPT or Claude subscription exposed as an API by a relay), so their parameters follow the subscription catalogs rather than the pay-as-you-go API ones:
+
+- **OpenAI** thinking levels use the ChatGPT-subscription (`openai-codex`) mapping: `minimal` is served as `low`. GPT-6 Astra and GPT-6.1 Sol cannot disable reasoning, so `off` is unavailable for them. Context stays at the subscription's 272k.
+- **Compatibility flags** mirror what pi's bundled catalog enables for these models and were verified end to end through two different subscription relays:
+  - OpenAI: `supportsOpenAIGrammarTools` (grammar-constrained tools go out as native OpenAI custom tools) and `supportsMidConvoSystemMessages` (mid-conversation developer messages stay in place instead of being folded into the leading system prompt, which would break the cached prefix).
+  - Anthropic: `supportsMidConvoEffort` (changing the thinking level mid-session keeps the prompt cache and binds thinking blocks), `supportsMidConvoSystemMessages`, `supportsMidConvoToolChanges`, and `supportsEagerToolInputStreaming`.
+
+  `supportsAdditionalTools` and `supportsToolSearch` are left off: they only matter for MCP tools loaded through `tool_search` and have not been verified through a relay yet. If your relay rejects one of the enabled flags, add the provider through the **Custom** channel instead, where every one of these flags can be set to `false`.
 
 The **Custom** entry is a generic channel for any OpenAI- or Anthropic-compatible endpoint (one-api/new-api relays, OpenRouter, vLLM, Ollama, Claude proxies, ...). Every step explains its options on screen before you choose:
 
