@@ -64,7 +64,7 @@ test("the background-tasks package ships and every patch target has a distinct i
 	assert.ok(!REQUIRED_PACKAGES.includes("npm:pi-web-access"));
 	const ids = JSON_PATCHES.map((target) => target.id);
 	assert.equal(new Set(ids).size, ids.length);
-	assert.deepEqual(ids, ["pi-tool-display/config.json", "keybindings.json"]);
+	assert.deepEqual(ids, ["pi-tool-display/config.json", "keybindings.json", "settings.json"]);
 });
 
 test("optional packages stay out of the default plan and join only when checked", async () => {
@@ -129,6 +129,11 @@ test("existing configs are patched per leaf, keep unrelated keys and modes, and 
 			keybindingsPath,
 			JSON.stringify({ "tui.editor.cursorLeft": ["left", "ctrl+b"], "app.exit": ["ctrl+q"] }),
 		);
+		const settingsPath = join(agentDir, "settings.json");
+		writeFileSync(
+			settingsPath,
+			JSON.stringify({ packages: ["npm:pi-wtf"], theme: "dark", tuiMode: "regular", fullscreenCopyOnSelect: false }),
+		);
 		chmodSync(toolDisplayPath, 0o640);
 		chmodSync(keybindingsPath, 0o640);
 
@@ -136,10 +141,15 @@ test("existing configs are patched per leaf, keep unrelated keys and modes, and 
 		const steps = patchSteps(first.steps);
 		assert.deepEqual(
 			steps.map((step) => step.targetId),
-			["pi-tool-display/config.json", "keybindings.json"],
+			["pi-tool-display/config.json", "keybindings.json", "settings.json"],
 		);
 		assert.deepEqual(steps[0]?.changes, [
 			{ key: "registerToolOverrides.bash", path: ["registerToolOverrides", "bash"], from: true, to: false },
+		]);
+		// Leaves that already match are not rewritten.
+		assert.deepEqual(steps[2]?.changes, [
+			{ key: "tuiMode", path: ["tuiMode"], from: "regular", to: "fullscreen" },
+			{ key: "fullscreenWheelScrollLines", path: ["fullscreenWheelScrollLines"], from: undefined, to: "auto" },
 		]);
 		assert.deepEqual(steps[1]?.changes, [
 			{
@@ -154,7 +164,7 @@ test("existing configs are patched per leaf, keep unrelated keys and modes, and 
 		assert.equal(result.ok, true);
 		assert.deepEqual(
 			result.results.map((entry) => entry.targetId),
-			["pi-tool-display/config.json", "keybindings.json"],
+			["pi-tool-display/config.json", "keybindings.json", "settings.json"],
 		);
 
 		const toolDisplay = JSON.parse(readFileSync(toolDisplayPath, "utf8"));
@@ -165,6 +175,13 @@ test("existing configs are patched per leaf, keep unrelated keys and modes, and 
 		const keybindings = JSON.parse(readFileSync(keybindingsPath, "utf8"));
 		assert.deepEqual(keybindings["tui.editor.cursorLeft"], ["left"]);
 		assert.deepEqual(keybindings["app.exit"], ["ctrl+q"]);
+		assert.deepEqual(JSON.parse(readFileSync(settingsPath, "utf8")), {
+			packages: ["npm:pi-wtf"],
+			theme: "dark",
+			tuiMode: "fullscreen",
+			fullscreenCopyOnSelect: false,
+			fullscreenWheelScrollLines: "auto",
+		});
 		assertModeOnPosix(toolDisplayPath, 0o640);
 		assertModeOnPosix(keybindingsPath, 0o640);
 
@@ -184,7 +201,7 @@ test("absent targets are created holding only the preset's keys", async () => {
 		const steps = patchSteps(first.steps);
 		assert.deepEqual(
 			steps.map((step) => step.targetId),
-			["pi-tool-display/config.json", "keybindings.json"],
+			["pi-tool-display/config.json", "keybindings.json", "settings.json"],
 		);
 		assert.deepEqual(steps[0]?.changes, [
 			{ key: "registerToolOverrides.bash", path: ["registerToolOverrides", "bash"], from: undefined, to: false },
@@ -196,6 +213,11 @@ test("absent targets are created holding only the preset's keys", async () => {
 		});
 		assert.deepEqual(JSON.parse(readFileSync(join(agentDir, "keybindings.json"), "utf8")), {
 			"tui.editor.cursorLeft": ["left"],
+		});
+		assert.deepEqual(JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf8")), {
+			tuiMode: "fullscreen",
+			fullscreenWheelScrollLines: "auto",
+			fullscreenCopyOnSelect: false,
 		});
 
 		assert.deepEqual(patchSteps((await planIn(agentDir)).steps), []);
@@ -214,7 +236,7 @@ test("an unreadable target blocks only its own step", async () => {
 		assert.match(result.blockers[0] ?? "", /^keybindings\.json: .*not valid JSON/);
 		assert.deepEqual(
 			patchSteps(result.steps).map((step) => step.targetId),
-			["pi-tool-display/config.json"],
+			["pi-tool-display/config.json", "settings.json"],
 		);
 	} finally {
 		cleanup(agentDir);

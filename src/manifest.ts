@@ -8,7 +8,7 @@
  */
 
 import type { JsonObject } from "./json-merge.ts";
-import { getKeybindingsPath, getToolDisplayConfigPath } from "./paths.ts";
+import { getKeybindingsPath, getSettingsPath, getToolDisplayConfigPath } from "./paths.ts";
 
 /**
  * Extensions that must be present in settings.json `packages[]`.
@@ -136,6 +136,21 @@ export const JSON_PATCHES: readonly JsonPatchTarget[] = [
 		resolvePath: getKeybindingsPath,
 		patch: { "tui.editor.cursorLeft": ["left"] },
 		why: "drops the emacs-style ctrl+b cursor-left binding so pi stops warning about the pi-patty-bg-tasks shortcut",
+	},
+	{
+		// pi's fullscreen TUI (docs/settings.md). Only these three leaves are
+		// merged; packages[] in the same file is handled by its own step, and
+		// applyJsonPatch re-reads the file so that step's write survives.
+		// fullscreenCopyOnSelect: false keeps the clipboard untouched while
+		// selecting; ctrl+x (app.message.copy) copies the selection instead.
+		id: "settings.json",
+		resolvePath: getSettingsPath,
+		patch: {
+			tuiMode: "fullscreen",
+			fullscreenWheelScrollLines: "auto",
+			fullscreenCopyOnSelect: false,
+		},
+		why: "fullscreen TUI with adaptive wheel scrolling; selection is copied with ctrl+x instead of on select",
 	},
 ];
 

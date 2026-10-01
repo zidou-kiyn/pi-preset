@@ -144,7 +144,7 @@ pi rebuilds every `/new` session from `settings.json` (`defaultModel`, `defaultT
 ## What Sync preset does
 
 1. **Declares 12 required extensions** (plus any checked optional ones) in `~/.pi/agent/settings.json` `packages[]`, and **removes every other entry you did not check to keep** (see [Packages outside the preset](#packages-outside-the-preset)).
-2. **Sets 2 config keys** across two JSON files (see below).
+2. **Sets 5 config keys** across three JSON files (see below).
 3. **Moves a local `extensions/vibrant-footer/`** into `extensions-disabled/` if one exists, so the footer does not load twice.
 4. **Installs the font** when it is missing.
 
@@ -188,7 +188,7 @@ It appears as an unchecked box at the start of every sync. Checking it adds it t
 
 They are declared as **independent `packages[]` entries**, not bundled inside this package. That is deliberate: `pi update --extensions` only iterates sources listed in `settings.json`, so bundling them would freeze their versions forever. As independent entries, each one keeps its native update behavior.
 
-### The 2 config keys
+### The 5 config keys
 
 Written to `extensions/pi-tool-display/config.json`:
 
@@ -202,9 +202,21 @@ Written to `keybindings.json`:
 { "tui.editor.cursorLeft": ["left"] }
 ```
 
+Written to `settings.json`, next to `packages[]`:
+
+```json
+{
+  "tuiMode": "fullscreen",
+  "fullscreenWheelScrollLines": "auto",
+  "fullscreenCopyOnSelect": false
+}
+```
+
+This turns on pi's fullscreen TUI. `"auto"` adapts wheel speed to the terminal (one line per event on local macOS, accelerated up to 6 elsewhere and over SSH). With copy-on-select off, selecting text no longer overwrites the clipboard; press `ctrl+x` (`app.message.copy`) to copy the active selection. Like any `settings.json` change made by the sync, it takes effect after a restart.
+
 Nothing else is written. Every consumer falls back per key to its own defaults, so a partial file is valid and no upstream default can be frozen by a stale snapshot.
 
-Writes to both files are a deep merge of exactly those leaf keys — never a whole-file overwrite. If a file does not parse as JSON, only that step aborts, rather than starting from `{}` and erasing your hand-tuned settings. The previous content is copied to `<file>.preset-bak` before every write, and the write itself is a tmp-file rename so an interrupted run cannot truncate it.
+Writes to all three files are a deep merge of exactly those leaf keys — never a whole-file overwrite. If a file does not parse as JSON, only that step aborts, rather than starting from `{}` and erasing your hand-tuned settings. The previous content is copied to `<file>.preset-bak` before every write, and the write itself is a tmp-file rename so an interrupted run cannot truncate it.
 
 #### Why these keys exist: `pi-patty-bg-tasks`
 
@@ -279,7 +291,7 @@ pi only reconciles a git source to its *configured* ref and never advances it on
 
 ## Design notes
 
-- **No preferences are shipped.** No `theme`, no `defaultProvider`, no `defaultModel`, no `defaultThinkingLevel`, no `AGENTS.md`. Those are personal and belong on the machine, not in a package.
+- **No personal preferences are shipped.** The fullscreen TUI keys above are the only `settings.json` keys besides `packages[]`. No `theme`, no `defaultProvider`, no `defaultModel`, no `defaultThinkingLevel`, no `AGENTS.md`. Those are personal and belong on the machine, not in a package.
 - **No credentials, ever.** `scripts/scan-secrets.sh` scans the working tree and the full git history before every push.
 - **No automatic `pi install`.** The sync flow only writes `packages[]` and lets pi install on its next start. (Removals are the exception: they run `pi remove` so the installed files go too.)
 
