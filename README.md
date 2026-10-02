@@ -154,7 +154,7 @@ Every step is idempotent. A second run reports "already in sync" and touches not
 
 | Package | |
 |---|---|
-| `npm:pi-wtf` | `npm:@lll9p/pi-better-compaction` |
+| `npm:pi-wtf` | `git:github.com/zidou-kiyn/pi-better-compaction` |
 | `npm:pi-workspace-history` | `npm:pi-web-search` |
 | `npm:@ff-labs/pi-fff` | `git:github.com/code-yeongyu/pi-apply-patch` |
 | `npm:pi-tool-display` | `npm:@juicesharp/rpiv-todo` |
@@ -164,6 +164,20 @@ Every step is idempotent. A second run reports "already in sync" and touches not
 `pi-apply-patch` stays required: pi has no built-in `apply_patch`. Its Codex Lark grammar only reaches the model once the tool declares it through pi's `constrainedSampling` API ([code-yeongyu/pi-apply-patch#43](https://github.com/code-yeongyu/pi-apply-patch/pull/43)). Until that lands, it goes out as a plain function tool even though the OpenAI bundle enables `supportsOpenAIGrammarTools`. The flag is harmless in the meantime and takes effect after an update.
 
 Web search is `pi-web-search` only. It uses the selected model provider's native search (Gemini grounding, xAI, OpenAI Responses, Anthropic), so no separate search API key is needed. `pi-web-access` was dropped because it registers the same tool names; pi treats a duplicate tool name as a fatal load error, so the two cannot coexist.
+
+### Native compaction
+
+`pi-better-compaction` replaces pi's text summary with the provider's own server-side compaction where the API offers one, and falls back to pi's compaction whenever that fails:
+
+- **OpenAI Responses** (`openai-responses`): native `/responses/compact`. The result is an opaque window that replays only for the provider and model that produced it.
+- **Anthropic Messages** (`anthropic-messages`): on-demand compaction (beta `compact-2026-09-04`, Claude Sonnet 4.6 / Opus 4.6 and newer, not Haiku). The signed block replays for the same model; its text also becomes pi's summary, so other models can still read it.
+- Everything else keeps pi's compaction.
+
+Whether native compaction actually runs depends on the relay. CLIProxyAPI (verified on 8.0.8) passes the beta through but adds `context_management` to every thinking request, which Anthropic refuses next to `compaction`. pi always sends thinking for the preset's Anthropic models, so with the upstream package every Anthropic compaction through CLIProxyAPI fell back to pi's. **The preset temporarily installs a fork** that retries that one rejected request without thinking (thinking blocks already in the history are kept; later turns keep your thinking level). It goes back to `npm:@lll9p/pi-better-compaction` once the fix ([lll9p/pi-better-compaction#9](https://github.com/lll9p/pi-better-compaction/pull/9)) is released. When switching, leave the old npm entry unchecked under *Packages not in the preset*: pi identifies git packages by URL, so both copies would otherwise load and both handle compaction.
+
+**Switching models after an OpenAI native compaction.** The new model cannot read the opaque window and continues from the kept messages only. The fork warns when this happens ([#10](https://github.com/lll9p/pi-better-compaction/pull/10)). To give the new model the full history, use `/tree` to branch from the entry just before that compaction; pi rebuilds the context from the original messages and compacts again with the new model if it does not fit. Switching away from an Anthropic compaction is safe.
+
+To check what happened, run `/compact` and look at the session's compaction entry: `details.strategy` is `anthropic-native-compact-v1` or `openai-native-compact-v*` for native compaction, and absent for pi's own. For the reason behind a fallback, set `"debug": true` in `~/.pi/agent/extensions/pi-better-compaction/config.json`.
 
 ### Packages outside the preset
 
