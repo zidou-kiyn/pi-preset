@@ -265,7 +265,8 @@ export default function idleKeepwarm(pi: ExtensionAPI): void {
 		lastTouch = Date.now();
 		lastRealRequest = lastTouch;
 		warms = 0;
-		if (!running) schedule();
+		if (running) render();
+		else schedule();
 		return undefined;
 	});
 
