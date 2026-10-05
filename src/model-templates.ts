@@ -29,6 +29,16 @@ export interface ModelCost {
 	tiers?: readonly ModelCostTier[];
 }
 
+/**
+ * Best-effort prompt-cache lifetime in seconds per retention tier (pi docs/models.md).
+ * Pi's cache warming only runs for models that declare the tier the request used;
+ * PI_CACHE_RETENTION=long selects `long`.
+ */
+export interface PromptCacheLifetime {
+	short?: number;
+	long?: number;
+}
+
 export interface ModelTemplate {
 	id: string;
 	name: string;
@@ -37,6 +47,7 @@ export interface ModelTemplate {
 	contextWindow: number;
 	maxTokens: number;
 	cost: ModelCost;
+	promptCache?: PromptCacheLifetime;
 	thinkingLevelMap: ThinkingLevelMap;
 }
 
@@ -79,6 +90,9 @@ const DEEPSEEK_THINKING: ThinkingLevelMap = {
 	max: "max",
 };
 
+// Anthropic cache_control TTLs: 5m default, 1h with long retention.
+const ANTHROPIC_PROMPT_CACHE: PromptCacheLifetime = { short: 300, long: 3600 };
+
 function deepFreeze<T>(value: T): T {
 	if (typeof value !== "object" || value === null || Object.isFrozen(value)) return value;
 	for (const child of Object.values(value)) deepFreeze(child);
@@ -99,6 +113,9 @@ export const FAMILY_TEMPLATES: Readonly<Record<FamilyId, FamilyTemplate>> = deep
 			supportsMidConvoSystemMessages: true,
 			supportsMidConvoToolChanges: true,
 		},
+		// cacheRead is 0: through a Claude subscription gateway (CLIProxyAPI and
+		// similar) cache reads are not billed, so Pi's cost display and its
+		// cache-warming economics should treat a refresh as free.
 		models: [
 			{
 				id: "claude-fable-5-1",
@@ -107,7 +124,8 @@ export const FAMILY_TEMPLATES: Readonly<Record<FamilyId, FamilyTemplate>> = deep
 				input: ["text", "image"],
 				contextWindow: 1_000_000,
 				maxTokens: 128_000,
-				cost: { input: 10, output: 50, cacheRead: 0.25, cacheWrite: 12.5 },
+				cost: { input: 10, output: 50, cacheRead: 0, cacheWrite: 12.5 },
+				promptCache: { ...ANTHROPIC_PROMPT_CACHE },
 				thinkingLevelMap: { ...ANTHROPIC_THINKING },
 			},
 			{
@@ -117,7 +135,8 @@ export const FAMILY_TEMPLATES: Readonly<Record<FamilyId, FamilyTemplate>> = deep
 				input: ["text", "image"],
 				contextWindow: 1_000_000,
 				maxTokens: 128_000,
-				cost: { input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 },
+				cost: { input: 4, output: 20, cacheRead: 0, cacheWrite: 5 },
+				promptCache: { ...ANTHROPIC_PROMPT_CACHE },
 				thinkingLevelMap: { ...ANTHROPIC_THINKING },
 			},
 			{
@@ -127,7 +146,8 @@ export const FAMILY_TEMPLATES: Readonly<Record<FamilyId, FamilyTemplate>> = deep
 				input: ["text", "image"],
 				contextWindow: 1_000_000,
 				maxTokens: 128_000,
-				cost: { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 },
+				cost: { input: 2, output: 10, cacheRead: 0, cacheWrite: 2.5 },
+				promptCache: { ...ANTHROPIC_PROMPT_CACHE },
 				thinkingLevelMap: { ...ANTHROPIC_THINKING },
 			},
 		],

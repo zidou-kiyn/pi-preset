@@ -39,6 +39,7 @@ test("Anthropic templates exactly preserve current local credential-free metadat
 		xhigh: "xhigh",
 		max: "max",
 	};
+	const promptCache = { short: 300, long: 3600 };
 	assert.deepEqual(FAMILY_TEMPLATES.anthropic.models, [
 		{
 			id: "claude-fable-5-1",
@@ -47,7 +48,8 @@ test("Anthropic templates exactly preserve current local credential-free metadat
 			input: ["text", "image"],
 			contextWindow: 1_000_000,
 			maxTokens: 128_000,
-			cost: { input: 10, output: 50, cacheRead: 0.25, cacheWrite: 12.5 },
+			cost: { input: 10, output: 50, cacheRead: 0, cacheWrite: 12.5 },
+			promptCache,
 			thinkingLevelMap,
 		},
 		{
@@ -57,7 +59,8 @@ test("Anthropic templates exactly preserve current local credential-free metadat
 			input: ["text", "image"],
 			contextWindow: 1_000_000,
 			maxTokens: 128_000,
-			cost: { input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5 },
+			cost: { input: 4, output: 20, cacheRead: 0, cacheWrite: 5 },
+			promptCache,
 			thinkingLevelMap,
 		},
 		{
@@ -67,7 +70,8 @@ test("Anthropic templates exactly preserve current local credential-free metadat
 			input: ["text", "image"],
 			contextWindow: 1_000_000,
 			maxTokens: 128_000,
-			cost: { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 },
+			cost: { input: 2, output: 10, cacheRead: 0, cacheWrite: 2.5 },
+			promptCache,
 			thinkingLevelMap,
 		},
 	]);

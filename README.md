@@ -117,23 +117,41 @@ Skills execute as model instructions with Pi's agent permissions. Review the two
 | `extensions/pi-preset.ts` | The `/pi-preset` control panel: sync, skills, and model wizard in one TUI menu |
 | `extensions/headless-keepalive.ts` | Keeps headless `pi -p` children alive during tool calls (works around a `pi-patty-bg-tasks` bug, see below). No command, no UI |
 | `extensions/bash-bg-cap.ts` | Moves stuck foreground `bash` commands to the background after 30s (no timeout given) or at most 60s, instead of the model's multi-minute timeouts (see below). No command, no UI |
+| `extensions/cache-retention.ts` | Defaults `PI_CACHE_RETENTION` to `long` inside pi (1h Anthropic cache TTL, 24h OpenAI Responses retention) so it applies even in shells that never sourced your rc file. An explicit value in the environment wins. No command, no UI |
+| `extensions/idle-keepwarm.ts` | Keeps the Anthropic prompt cache warm while pi's UI stays open and idle, past pi's own 30-minute idle limit (see below). Status bar segment `keepwarm`, no command |
 | `extensions/inherit-model.ts` | `/new` keeps the model and thinking level you were just using instead of falling back to `defaultModel` (see below). No command, no UI |
 
 ### Reading the status bar
 
 ```
 ✧ ~/project · ⎇ main
-▰▱▱▱▱▱ 58k/272k 21% · ↑ in 48k ↓ out 38k · ▤ cache r 1.1M ↻ w 90k ◎ hit 93% · ◈ $0.410      provider · π model · ◆ high
-⬡ pkg 12 · ⧉ mcp 2·14 cm ts · ☑ 1/3 · ▸ current task
+▰▱▱▱▱▱ 58k/272k 21% · ↑ 48k ↓ 38k · ▤ 1.1M ↻ 90k ◎ 93% · ⧗ 47m ♨ 21:43 ×2      provider · π model · ◆ high
+◈ $0.410 · ◷ 36m52s
+⬡ 12 · ⧉ 2·14 cm ts · ☑ 1/3 · ▸ current task
 ```
+
+Segments show icons only. Set `PI_PRESET_FOOTER_LABELS=1` to bring back the word labels (`in`, `out`, `cache r`, `w`, `hit`, `ttl`, `warm`, `pkg`, `mcp`); they are then shown whenever the stats fit in two lines. The list below uses those label names.
 
 - **Context**: the meter plus `used/window percent` of the current context. Its color turns warning above 70% and error above 90%.
 - **in / out**: input and output tokens summed over the whole session, not the current context.
 - **cache r / w / hit**: session totals of cache-read and cache-write tokens, and the latest turn's cache hit rate.
+- **ttl / warm**: time left before the prompt-cache entry expires (warning-toned in the last 5 minutes), and when `idle-keepwarm` refreshes it next, with the number of refreshes since your last message. A dim note replaces both while warming is paused.
 - **◈**: session cost as `$0.410` (`sub` when the model runs on an OAuth subscription), or `Σ` total tokens when the provider reports no price.
 - **mcp servers·tools**: MCP servers connected through pi's built-in MCP support and their callable tools. Servers that failed or need a sign-in are not counted; pi reports them after startup and in `/mcp`. A dim `mcp 0` means MCP support is loaded but no server is connected. `cm` / `ts` mark the built-in `codemode` / `tool_search` tools while they are active. The segment is hidden only when the built-in MCP extension is disabled.
 
-Word labels are shown whenever the stats fit in two lines, and dropped otherwise; the icons stay.
+
+### Prompt cache kept warm while idle
+
+pi's own cache warmer (`cacheWarming`, default `"streaming"`) only refreshes during runs, and its `"idle"` mode stops 30 minutes after the last real request — before a 1h cache entry would first be refreshed at 54 minutes. `extensions/cache-retention.ts` turns on the 1h TTL, and `extensions/idle-keepwarm.ts` covers the idle gap:
+
+- Every real Anthropic request is captured. While the agent is idle, at 90% of the TTL the same payload is re-sent with `max_tokens: 1`. Nothing enters the conversation; each refresh is a `pi-preset-keepwarm` custom entry in the session file, and the status bar shows the remaining TTL and the next refresh time (see [Reading the status bar](#reading-the-status-bar)).
+- The TTL comes from the model's `promptCache` (the Anthropic templates declare `{ "short": 300, "long": 3600 }`) and the request's `cache_control` TTL.
+- A refresh that would fire within 5s of expiry (after sleep) is skipped, and one that misses the cache stops warming with a warning: on a Claude subscription the cache write is the billed part. Model switch, compaction, and `/tree` navigation pause warming; the next message re-arms it.
+- `PI_PRESET_KEEPWARM=off` disables it; `PI_PRESET_KEEPWARM_MAX_IDLE=3h` stops after that long without a real request (default: no limit). Only interactive sessions are warmed.
+
+Behind a gateway that load-balances several accounts, enable session stickiness, or every refresh lands on an account without the entry and the miss guard stops warming.
+
+The Anthropic templates set `cacheRead` to `0`, because Claude subscription gateways do not bill cache reads.
 
 ### `/new` inherits the current model
 

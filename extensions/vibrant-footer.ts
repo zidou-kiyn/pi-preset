@@ -30,12 +30,17 @@
  * `cm` / `ts` tags mark the built-in `codemode` / `tool_search` tools while
  * they are active. The segment is hidden only when MCP support is disabled.
  *
- * Stats line legend (labels drop only when two lines cannot hold them):
+ * Icons only by default; PI_PRESET_FOOTER_LABELS=1 restores the word labels
+ * (in/out/cache r/w/hit/ttl/warm/pkg/mcp) whenever they fit in two lines.
+ *
+ * Stats line legend:
  *   meter 58k/272k 21%   current context: used / window, percent
  *   in / out             session-cumulative input and output tokens
  *   cache r / w / hit    session-cumulative cache read and cache write tokens,
  *                        and the latest turn's cache hit rate
  *   $ / Σ                session cost, or total tokens when no price is known
+ *   ttl / warm           time left on the tracked prompt-cache entry and the
+ *                        next idle refresh, from extensions/idle-keepwarm.ts
  *
  * Runtime: pi-preset/extensions/vibrant-footer.ts
  * Toggle:  /vibrant-footer
@@ -45,6 +50,7 @@ import { basename, isAbsolute, relative, resolve, sep as pathSep } from "node:pa
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { formatClock, formatRemaining, type KeepwarmSnapshot, readSnapshot } from "../src/idle-keepwarm.ts";
 
 // ── theme shim ──────────────────────────────────────────────────────────────
 
@@ -64,6 +70,8 @@ type IconSet = {
     cacheRead: string;
     cacheWrite: string;
     cacheHit: string;
+    cacheTtl: string;
+    cacheWarm: string;
     cost: string;
     context: string;
     time: string;
@@ -90,6 +98,8 @@ const NERD_ICONS: IconSet = {
     cacheRead: "\u{f035b}", // nf-md-memory
     cacheWrite: "\u{f02fa}", // nf-md-import
     cacheHit: "\u{f04fe}", // nf-md-target
+    cacheTtl: "\u{f0150}", // nf-md-clock_outline
+    cacheWarm: "\u{f0238}", // nf-md-fire
     cost: "\u{f01c8}", // nf-md-diamond_stone
     context: "\u{f029a}", // nf-md-gauge
     time: "\u{f051f}", // nf-md-timer_sand
@@ -110,6 +120,8 @@ const UNICODE_ICONS: IconSet = {
     cacheRead: "▤",
     cacheWrite: "↻",
     cacheHit: "◎",
+    cacheTtl: "⧗",
+    cacheWarm: "♨",
     cost: "◈",
     context: "▣",
     time: "◷",
@@ -120,6 +132,11 @@ const UNICODE_ICONS: IconSet = {
     todo: "☑",
     todoActive: "▸",
 };
+
+/** Word labels next to the icons are opt-in; the icons carry the meaning on their own. */
+function showWordLabels(): boolean {
+    return process.env.PI_PRESET_FOOTER_LABELS === "1";
+}
 
 function hasNerdFonts(): boolean {
     if (process.env.POWERLINE_NERD_FONTS === "0") return false;
@@ -473,6 +490,29 @@ function renderPathLine(
     return truncateToWidth(line, width, t.fg("dim", "…"));
 }
 
+/**
+ * Prompt-cache lifetime and the next idle refresh, from idle-keepwarm's
+ * snapshot. The countdown is coarse (whole minutes) because the bar repaints
+ * every 30s; it turns warning-toned in the last 5 minutes.
+ */
+function keepwarmSegment(t: ThemeLike, state: KeepwarmSnapshot | undefined, icons: IconSet, labels: boolean): string | null {
+    if (!state) return null;
+    if (state.note) return seg(t, icons.cacheWarm, "dim", state.note, "dim");
+    const parts: string[] = [];
+    if (state.expiresAt !== undefined) {
+        const left = state.expiresAt - Date.now();
+        if (left <= 0) parts.push(lseg(t, icons.cacheTtl, "error", "cache", "expired", labels));
+        else parts.push(lseg(t, icons.cacheTtl, left < 5 * 60_000 ? "warning" : "syntaxOperator", "ttl", formatRemaining(left), labels));
+    }
+    if (state.warming) {
+        parts.push(lseg(t, icons.cacheWarm, "syntaxType", "warm", "now", labels));
+    } else if (state.nextWarmAt !== undefined) {
+        const count = state.warms > 0 ? t.fg("dim", ` ×${state.warms}`) : "";
+        parts.push(lseg(t, icons.cacheWarm, "syntaxType", "warm", formatClock(state.nextWarmAt), labels) + count);
+    }
+    return parts.length > 0 ? parts.join(" ") : null;
+}
+
 function renderStatsLines(
     t: ThemeLike,
     ctx: ExtensionContext,
@@ -489,8 +529,8 @@ function renderStatsLines(
     const tone = contextTone(percentValue);
     const sep = softSep(t);
 
-    // Built twice: with word labels (in/out/cache r/w/hit) and without. The
-    // labeled variant wins whenever it fits in two lines; icons always stay.
+    // Built without word labels unless PI_PRESET_FOOTER_LABELS=1; then the
+    // labeled variant wins whenever it fits in two lines. Icons always stay.
     const buildSegments = (labels: boolean): string[] => {
         const segments: string[] = [];
 
@@ -531,6 +571,9 @@ function renderStatsLines(
             }
             segments.push(parts.join(" "));
         }
+
+        const keepwarm = keepwarmSegment(t, readSnapshot(), icons, labels);
+        if (keepwarm) segments.push(keepwarm);
 
         // Cost — or, when the provider reports no price (proxies and most OAuth
         // subscriptions send cost.total = 0), the cumulative token volume, so the
@@ -579,8 +622,8 @@ function renderStatsLines(
     const rightW = visibleWidth(right);
     const leftBudget = rightW > 0 ? Math.max(20, width - rightW - 2) : width;
 
-    const labeled = layoutSegments(buildSegments(true), sep, leftBudget, width);
-    const leftLines = labeled.fits ? labeled.lines : layoutSegments(buildSegments(false), sep, leftBudget, width).lines;
+    const labeled = showWordLabels() ? layoutSegments(buildSegments(true), sep, leftBudget, width) : undefined;
+    const leftLines = labeled?.fits ? labeled.lines : layoutSegments(buildSegments(false), sep, leftBudget, width).lines;
     if (leftLines.length === 0) {
         return [truncateToWidth(right, width, t.fg("dim", "…"))];
     }
@@ -618,7 +661,8 @@ function renderAuxLine(
 
     const packages = packageCount(pi);
     if (packages > 0) {
-        parts.push(seg(t, icons.pkg, "syntaxKeyword", `pkg ${packages}`, "syntaxKeyword"));
+        const label = showWordLabels() ? "pkg " : "";
+        parts.push(seg(t, icons.pkg, "syntaxKeyword", `${label}${packages}`, "syntaxKeyword"));
     }
 
     // MCP: always shown while MCP support is loaded. "mcp 0" (dim) means no
@@ -627,7 +671,8 @@ function renderAuxLine(
     const mcp = mcpSummary(pi);
     if (mcp.available || mcp.servers > 0 || mcp.codemode || mcp.toolSearch) {
         const tone = mcp.servers > 0 ? "syntaxFunction" : "dim";
-        const count = mcp.servers > 0 ? `mcp ${mcp.servers}${DOT}${mcp.tools}` : "mcp 0";
+        const label = showWordLabels() ? "mcp " : "";
+        const count = mcp.servers > 0 ? `${label}${mcp.servers}${DOT}${mcp.tools}` : `${label}0`;
         const tags = join([mcp.codemode ? "cm" : null, mcp.toolSearch ? "ts" : null], " ");
         parts.push(t.fg(tone, `${icons.mcp} ${count}`) + (tags ? t.fg("dim", ` ${tags}`) : ""));
     }
@@ -705,6 +750,9 @@ export default function (pi: ExtensionAPI) {
                     const extensionStatuses = footerData.getExtensionStatuses();
                     if (extensionStatuses.size > 0) {
                         const sorted = Array.from(extensionStatuses.entries())
+                            // idle-keepwarm's plain status is for pi's default footer;
+                            // this bar renders the same state as a stats segment.
+                            .filter(([key]) => key !== "keepwarm")
                             .sort(([a], [b]) => a.localeCompare(b))
                             .map(([, text]) => sanitizeStatusText(text))
                             .filter(Boolean);
