@@ -35,24 +35,20 @@ import { getKeybindingsPath, getSettingsPath, getToolDisplayConfigPath } from ".
  * uses the current model provider's native search (Gemini grounding, xAI,
  * OpenAI Responses, Anthropic) instead of a separate Exa/Brave-style API key.
  *
- * TEMPORARY: `git:github.com/zidou-kiyn/pi-better-compaction` stands in for
- * `npm:@lll9p/pi-better-compaction`. Through CLIProxyAPI with a Claude
- * subscription every Anthropic server compaction failed, because the gateway
- * injects `context_management` into thinking requests and Anthropic refuses it
- * next to `compaction`; the fork retries without thinking
- * (lll9p/pi-better-compaction#9). It also warns when a model switch makes an
- * OpenAI native checkpoint unreadable (#10). Switch back to the npm source once
- * #9 is released on npm; #10 is not a blocker. The fork's main only receives
- * tested merges, so it is tracked without a ref. pi identifies git packages by
- * URL, so the old npm entry is a different package: the sync lists it as
- * outside the preset and must remove it, or both copies hook compaction.
+ * `npm:@lll9p/pi-better-compaction` needs 0.7.3 or newer for CLIProxyAPI: the
+ * gateway injects `context_management` into thinking requests and Anthropic
+ * refuses it next to `compaction`; 0.7.3 retries without thinking
+ * (lll9p/pi-better-compaction#9). Earlier installs used the
+ * `git:github.com/zidou-kiyn/pi-better-compaction` fork. pi identifies git
+ * packages by URL, so that entry is a different package: the sync lists it as
+ * outside the preset and it must be removed, or both copies hook compaction.
  */
 export const REQUIRED_PACKAGES: readonly string[] = [
 	"npm:pi-wtf",
 	"npm:pi-workspace-history",
 	"npm:@ff-labs/pi-fff",
 	"npm:pi-tool-display",
-	"git:github.com/zidou-kiyn/pi-better-compaction",
+	"npm:@lll9p/pi-better-compaction",
 	"npm:pi-web-search",
 	"git:github.com/code-yeongyu/pi-apply-patch",
 	"npm:@juicesharp/rpiv-todo",
