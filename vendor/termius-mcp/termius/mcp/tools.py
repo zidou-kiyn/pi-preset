@@ -92,8 +92,9 @@ TOOLS = [
         (
             'Show Termius login state, last cloud sync time, whether the '
             'local vault cache is stale, whether the vault password is '
-            'remembered, and inventory counts. Does not sync. Call this '
-            'first when you do not know if the user is signed in.'
+            'remembered, and inventory counts. Pulls only when signed in '
+            'but never synced. Call this first when you do not know if the '
+            'user is signed in.'
         ),
         _input_schema(),
         _READ,
@@ -346,6 +347,11 @@ def _matches_query(row, query):
 
 def handle_status(runtime, arguments):
     data = status_payload(runtime)
+    # Signed in but never synced (e.g. signed in with the CLI): pull once, so
+    # status does not report an empty inventory that is merely not loaded.
+    if data['logged_in'] and not data['last_synced'] and data['vault_remembered']:
+        sync = _auto_sync(runtime, ttl=HOST_PULL_TTL, allow_stale=True)
+        data = _apply_sync_state(status_payload(runtime), sync)
     return data, _status_summary(data)
 
 

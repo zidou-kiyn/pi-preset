@@ -44,6 +44,25 @@ class ToolsTest(unittest.TestCase):
         self.assertFalse(data['logged_in'])
         self.assertIn('Not signed in', summary)
 
+    def test_status_pulls_once_when_signed_in_but_never_synced(self):
+        self._sign_in()
+        with patch('termius.mcp.tools.status_payload', side_effect=[
+            {'logged_in': True, 'username': 'u', 'last_synced': '', 'vault_remembered': True, 'stale': True, 'hosts': 0},
+            {'logged_in': True, 'username': 'u', 'last_synced': 'now', 'vault_remembered': True, 'stale': False, 'hosts': 5},
+        ]), patch('termius.mcp.tools.ensure_fresh', return_value={'pulled': True}) as sync:
+            data, summary = call_tool(self.runtime, 'status', {})
+        self.assertEqual(sync.call_count, 1)
+        self.assertEqual(data['hosts'], 5)
+        self.assertIn('5 hosts', summary)
+
+    def test_status_does_not_pull_after_a_sync(self):
+        self._sign_in()
+        self.runtime.config.set('CloudSynchronization', 'last_synced', '2026-10-10T00:00:00Z')
+        self.runtime.config.write()
+        with patch('termius.mcp.tools.ensure_fresh') as sync:
+            call_tool(self.runtime, 'status', {})
+        sync.assert_not_called()
+
     def test_hosts_requires_login(self):
         with self.assertRaises(ToolError) as caught:
             call_tool(self.runtime, 'hosts', {})

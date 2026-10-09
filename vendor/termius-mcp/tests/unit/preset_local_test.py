@@ -137,13 +137,44 @@ class JsonLoginTest(unittest.TestCase):
             response = handle({'action': 'email', 'username': 'a', 'password': 'p'}, self.factory)
         self.assertEqual(response['code'], 'approve_required')
 
-    def test_success_and_status(self):
-        with patch('termius.session.login_email', return_value={'username': 'a@b.c', 'vault_remembered': True}):
+    def test_success_pulls_the_inventory_and_status(self):
+        with patch('termius.session.login_email', return_value={'username': 'a@b.c', 'vault_remembered': True}), \
+                patch('termius.sync.pull', return_value={'ok': True, 'hosts': 7, 'last_synced': '2026-10-10T00:00:00Z'}) as pull:
             response = handle({'action': 'email', 'username': 'a@b.c', 'password': 'p'}, self.factory)
-        self.assertEqual(response, {'ok': True, 'username': 'a@b.c', 'vault_remembered': True})
+        self.assertEqual(pull.call_args[0][1], 'p')
+        self.assertEqual(response, {
+            'ok': True, 'username': 'a@b.c', 'vault_remembered': True,
+            'synced': True, 'hosts': 7, 'last_synced': '2026-10-10T00:00:00Z',
+        })
         status = handle({'action': 'status'}, self.factory)
         self.assertTrue(status['ok'])
         self.assertIn('logged_in', status)
+
+    def test_a_failed_first_pull_does_not_fail_the_sign_in(self):
+        with patch('termius.session.login_email', return_value={'username': 'a', 'vault_remembered': True}), \
+                patch('termius.sync.pull', side_effect=RuntimeError('network down for p4ss')):
+            response = handle({'action': 'email', 'username': 'a', 'password': 'p4ss'}, self.factory)
+        self.assertTrue(response['ok'])
+        self.assertFalse(response['synced'])
+        self.assertIn('network down', response['sync_error'])
+        self.assertNotIn('p4ss', response['sync_error'])
+
+    def test_sync_action(self):
+        self.assertEqual(handle({'action': 'sync'}, self.factory)['code'], 'not_signed_in')
+        runtime = self.factory()
+        runtime.config.set('User', 'username', 'a@b.c')
+        runtime.config.set('User', 'apikey', 'token')
+        runtime.config.write()
+        with patch('termius.vault.resolve', return_value=None):
+            self.assertEqual(handle({'action': 'sync'}, self.factory)['code'], 'vault_password_required')
+        with patch('termius.vault.resolve', return_value='vault'), \
+                patch('termius.sync.pull', return_value={'hosts': 3, 'last_synced': 'x'}) as pull:
+            response = handle({'action': 'sync'}, self.factory)
+        self.assertEqual(response, {'ok': True, 'synced': True, 'hosts': 3, 'last_synced': 'x'})
+        self.assertEqual(pull.call_args[0][1], 'vault')
+        with patch('termius.vault.resolve', return_value='vault'), \
+                patch('termius.sync.pull', side_effect=RuntimeError('boom')):
+            self.assertEqual(handle({'action': 'sync'}, self.factory)['code'], 'sync_failed')
 
     def test_main_reads_stdin_and_writes_one_line(self):
         out = io.StringIO()

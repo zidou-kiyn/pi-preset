@@ -12,11 +12,19 @@ Request::
     {"action": "google", "callback_url": "termius://...", "password": "...", "otp": "..."}
     {"action": "logout"}
     {"action": "status"}
+    {"action": "sync"}
+
+A successful sign-in also pulls the inventory with the password it was given,
+so the host list is there at once; a failed pull does not fail the sign-in
+(the response carries ``synced: false`` and ``sync_error``). ``sync`` pulls
+with the remembered vault password.
 
 Response: ``{"ok": true, ...}`` or ``{"ok": false, "code": ..., "error": ...}``
 with code ``otp_required`` (retry with an authenticator code),
 ``approve_required`` (approve the login in the Termius app, then retry),
-``invalid_request``, or ``login_failed``. Error text never echoes the request.
+``invalid_request``, ``login_failed``, ``not_signed_in``,
+``vault_password_required``, or ``sync_failed``. Error text never echoes the
+request.
 """
 from __future__ import unicode_literals
 
@@ -38,6 +46,16 @@ def _classify(exc):
     if 'needs approval' in lowered:
         return 'approve_required'
     return 'login_failed'
+
+
+def _pull(runtime, password, secrets=()):
+    """Pull the inventory; return the sync fields of a response."""
+    from .sync import pull
+    try:
+        data = pull(runtime, password)
+    except Exception as exc:  # pylint: disable=broad-except
+        return {'synced': False, 'sync_error': redact_text(str(exc), list(secrets))}
+    return {'synced': True, 'hosts': data.get('hosts', 0), 'last_synced': data.get('last_synced') or ''}
 
 
 def handle(request, runtime_factory):
@@ -62,6 +80,18 @@ def handle(request, runtime_factory):
     if action == 'logout':
         from .session import logout
         return logout(runtime)
+    if action == 'sync':
+        from .sync import is_signed_in
+        from .vault import resolve
+        if not is_signed_in(runtime.config):
+            return _fail('not_signed_in', 'Not signed in; run /termius login.')
+        password = resolve(runtime)
+        if not password:
+            return _fail('vault_password_required', 'The vault password is not remembered; run /termius login again.')
+        result = _pull(runtime, password, [password])
+        if not result['synced']:
+            return _fail('sync_failed', 'Cloud pull failed: {}'.format(result['sync_error']))
+        return dict(result, ok=True)
 
     from .session import login_email, login_google_complete
     otp = request.get('otp') or None
@@ -80,11 +110,13 @@ def handle(request, runtime_factory):
             return _fail('invalid_request', 'Unknown action: {}'.format(action))
     except Exception as exc:  # pylint: disable=broad-except
         return _fail(_classify(exc), str(exc), secrets)
-    return {
+    response = {
         'ok': True,
         'username': data.get('username'),
         'vault_remembered': bool(data.get('vault_remembered')),
     }
+    response.update(_pull(runtime, request.get('password'), secrets))
+    return response
 
 
 def main(stdin=None, stdout=None, runtime_factory=None):

@@ -140,13 +140,14 @@ Google's [chrome-devtools-mcp](https://github.com/ChromeDevTools/chrome-devtools
 /termius setup     install the server (one step; installs uv first if neither uv nor Python 3.9+ is there)
 /termius login     sign in: email + password, or Google; asks for the 2FA code / app approval when Termius wants one
 /termius mode      review | auto | dangerously
+/termius sync      pull the host list from Termius Cloud now (sign-in already does this once)
 /termius status    install state, account, host count, last sync, mode
 /termius logout    sign out and wipe the local host cache
 ```
 
 **Setup.** The server goes into its own environment under `~/.pi/agent/termius-mcp/venv`, built with [uv](https://docs.astral.sh/uv/) (which also fetches a Python when there is none) or a local Python 3.9+. It works the same on Linux, macOS, and Windows. When a preset update changes the vendored code, the next session reinstalls it.
 
-**Sign-in.** `/termius login` asks in pi's own masked prompts and hands the answers to the server process on stdin (`termius login-json`). They never pass through the model, the MCP protocol, the command line, or the environment. Two-factor accounts are asked for the authenticator code; a "approve this device" request waits until you approve it in the Termius app. The vault password is remembered in the OS keychain (an encrypted file where there is none), so later sessions sync on their own.
+**Sign-in.** `/termius login` asks in pi's own masked prompts and hands the answers to the server process on stdin (`termius login-json`). They never pass through the model, the MCP protocol, the command line, or the environment. Two-factor accounts are asked for the authenticator code; a "approve this device" request waits until you approve it in the Termius app. The vault password is remembered in the OS keychain (an encrypted file where there is none), so later sessions sync on their own. Signing in also pulls the host list right away, so `/termius status` and the agent see your hosts at once; if that first pull fails, the sign-in still stands and `/termius sync` retries it.
 
 **What the model gets.** Seven tools: `status`, `sync`, `hosts`, `host`, `exec`, `files` (SFTP list/stat/read/get/put/write/mkdir/rm/rename), `inventory`. Compared with upstream:
 

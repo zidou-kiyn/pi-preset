@@ -218,7 +218,7 @@ Call `status` first.
 
 | Tool | Purpose |
 | --- | --- |
-| `status` | Login state, last sync, stale flag, vault remembered, counts. Does not pull. |
+| `status` | Login state, last sync, stale flag, vault remembered, counts. Pulls only when signed in but never synced. |
 | `login` | `method=email` with username + password, or `method=google` to get an SSO URL |
 | `login_complete` | Finish Google SSO with `callback_url` + vault password |
 | `logout` | Clear the session, remembered password, and local inventory |

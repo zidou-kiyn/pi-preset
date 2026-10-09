@@ -227,7 +227,14 @@ export async function installUv(): Promise<void> {
 
 export interface LoginResponse {
 	ok: boolean;
-	code?: "otp_required" | "approve_required" | "invalid_request" | "login_failed";
+	code?:
+		| "otp_required"
+		| "approve_required"
+		| "invalid_request"
+		| "login_failed"
+		| "not_signed_in"
+		| "vault_password_required"
+		| "sync_failed";
 	error?: string;
 	[key: string]: unknown;
 }

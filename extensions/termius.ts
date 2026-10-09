@@ -8,7 +8,7 @@
  *
  * This extension:
  *   - registers the server (codemode exposure) once it is installed,
- *   - /termius setup | login | status | mode | logout,
+ *   - /termius setup | login | sync | status | mode | logout,
  *   - gates exec/files by the approval mode (review / auto / dangerously),
  *   - blocks other tools from reading ~/.termius, the keychain entry, or
  *     process memory (src/termius/guard.ts).
@@ -137,7 +137,16 @@ export default function termiusExtension(pi: ExtensionAPI): void {
 	// ── /termius ────────────────────────────────────────────────────────────
 	const notifyLogin = (ctx: ExtensionCommandContext, response: LoginResponse) => {
 		if (response.ok) {
-			ctx.ui.notify(`termius: signed in as ${String(response.username ?? "?")}; vault password remembered in the OS keychain.`, "info");
+			// login-json pulls the inventory right after signing in; a failed
+			// pull leaves the sign-in valid and is retried with /termius sync.
+			const synced =
+				response.synced === true
+					? `${String(response.hosts ?? 0)} host(s) synced`
+					: `the first sync failed (${String(response.sync_error ?? "unknown error")}); retry with /termius sync`;
+			ctx.ui.notify(
+				`termius: signed in as ${String(response.username ?? "?")}; ${synced}. Vault password remembered in the OS keychain.`,
+				response.synced === true ? "info" : "warning",
+			);
 			register();
 		} else {
 			ctx.ui.notify(`termius: sign-in failed. ${response.error ?? response.code}`, "error");
@@ -217,6 +226,26 @@ export default function termiusExtension(pi: ExtensionAPI): void {
 		ctx.ui.notify("termius: next, sign in with /termius login.", "info");
 	};
 
+	const sync = async (ctx: ExtensionCommandContext) => {
+		if (installState() === "missing") {
+			ctx.ui.notify("termius: run /termius setup first.", "warning");
+			return;
+		}
+		ctx.ui.setStatus("termius", "termius: syncing…");
+		try {
+			const response = await loginJson({ action: "sync" });
+			if (response.ok) {
+				ctx.ui.notify(`termius: ${String(response.hosts ?? 0)} host(s) synced.`, "info");
+				// Restart the server so it reads the refreshed cache.
+				register();
+			} else {
+				ctx.ui.notify(`termius: sync failed. ${response.error ?? response.code}`, "error");
+			}
+		} finally {
+			ctx.ui.setStatus("termius", undefined);
+		}
+	};
+
 	const status = async (ctx: ExtensionCommandContext) => {
 		const state = installState();
 		const lines = [`install: ${state}${state === "missing" ? " (run /termius setup)" : ""}`, `mode: ${config.mode} (${MODE_HELP[config.mode]})`];
@@ -225,7 +254,7 @@ export default function termiusExtension(pi: ExtensionAPI): void {
 			if (data.ok) {
 				lines.push(
 					data.logged_in ? `signed in as ${String(data.username)}` : "not signed in (run /termius login)",
-					`hosts: ${String(data.hosts ?? 0)}, last sync: ${String(data.last_synced || "never")}, vault password remembered: ${data.vault_remembered ? "yes" : "no"}`,
+					`hosts: ${String(data.hosts ?? 0)}, last sync: ${String(data.last_synced || "never (run /termius sync)")}, vault password remembered: ${data.vault_remembered ? "yes" : "no"}`,
 				);
 			} else {
 				lines.push(`status failed: ${data.error ?? data.code}`);
@@ -261,10 +290,10 @@ export default function termiusExtension(pi: ExtensionAPI): void {
 		register();
 	};
 
-	const SUBCOMMANDS = ["setup", "login", "status", "mode", "logout"] as const;
+	const SUBCOMMANDS = ["setup", "login", "sync", "status", "mode", "logout"] as const;
 
 	pi.registerCommand("termius", {
-		description: "Termius SSH via MCP: setup, login, status, mode (review|auto|dangerously), logout",
+		description: "Termius SSH via MCP: setup, login, sync, status, mode (review|auto|dangerously), logout",
 		getArgumentCompletions: (prefix) => {
 			const [first, second] = prefix.trimStart().split(/\s+/);
 			if (first === "mode" && second !== undefined) {
@@ -284,6 +313,8 @@ export default function termiusExtension(pi: ExtensionAPI): void {
 						return await setup(ctx);
 					case "login":
 						return await login(ctx);
+					case "sync":
+						return await sync(ctx);
 					case "status":
 						return await status(ctx);
 					case "mode":

@@ -278,7 +278,8 @@
 				"core/ssh_exec.py: host keys are pinned on first use in ~/.termius/known_hosts (TERMIUS_KNOWN_HOSTS); a changed key is refused. Upstream used AutoAddPolicy.",
 				"json_login.py (new) + main.py: `termius login-json` reads one JSON request on stdin (email / google / status / logout) and answers otp_required / approve_required, so pi can drive sign-in without argv, env, or the model.",
 				"mcp/server.py, sync.py, vault.py: messages point at /termius login instead of the removed login tool.",
-				"tests/unit: login-tool tests replaced; preset_local_test.py (new) covers the changes above."
+				"tests/unit: login-tool tests replaced; preset_local_test.py (new) covers the changes above.",
+				"json_login.py: a successful sign-in pulls the inventory with the password it was given (a failed pull is reported, not fatal); new `sync` action pulls with the remembered vault password. mcp/tools.py: `status` pulls once when signed in but never synced. Upstream signed in without syncing, so status showed 0 hosts until a host tool ran."
 			]
 		}
 	}
