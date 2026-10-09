@@ -36,6 +36,16 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { readTrellisConfig } from "../src/trellis-lite/config.ts";
 import { detectLegacy, findProjectRoot } from "../src/trellis-lite/root.ts";
 import { buildSnapshot, SECTION_NAME } from "../src/trellis-lite/snapshot.ts";
+import {
+	buildInjection,
+	contextToolTexts,
+	type Injected,
+	isTrellisPath,
+	readMarkers,
+	repoRelative,
+	SpecIndex,
+	touchedPaths,
+} from "../src/trellis-lite/spec-inject.ts";
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const RESOURCES = join(PACKAGE_ROOT, "trellis-lite");
@@ -67,6 +77,14 @@ export default function trellisLite(pi: ExtensionAPI): void {
 
 	let snapshot: string | undefined;
 	let legacyNotified = false;
+	let specIndex: SpecIndex | undefined;
+	// Specs already in the model's context; undefined = re-derive from the session.
+	let injected: Map<string, Injected> | undefined;
+	const forget = () => {
+		injected = undefined;
+	};
+	pi.on("session_tree", forget);
+	pi.on("session_compact", forget);
 
 	pi.on("resources_discover", (event) => {
 		if (!active(event.cwd)) return;
@@ -74,6 +92,7 @@ export default function trellisLite(pi: ExtensionAPI): void {
 	});
 
 	pi.on("session_start", (_event, ctx: ExtensionContext) => {
+		forget();
 		const found = project(ctx.cwd);
 		if (!found || found.legacy.length === 0 || legacyNotified || !ctx.hasUI) return;
 		legacyNotified = true;
@@ -92,6 +111,35 @@ export default function trellisLite(pi: ExtensionAPI): void {
 		event.systemPromptOptions.sections[SECTION_NAME] = snapshot;
 	});
 
+	pi.on("tool_result", (event, ctx) => {
+		if (!config.specInjection || event.isError || event.parentToolCallId) return;
+		const paths = touchedPaths(event.toolName, event.input);
+		if (paths.length === 0) return;
+		const found = active(ctx.cwd);
+		if (!found) return;
+		if (specIndex?.root !== found.root) specIndex = new SpecIndex(found.root);
+		if (!injected) {
+			const manager = ctx.sessionManager;
+			injected = readMarkers(contextToolTexts(manager.buildContextEntries?.() ?? manager.getBranch()));
+		}
+		const texts: string[] = [];
+		for (const path of paths) {
+			const file = repoRelative(found.root, ctx.cwd, path);
+			if (!file || isTrellisPath(file)) continue;
+			const rules = specIndex.match(file);
+			if (rules.length === 0) continue;
+			const result = buildInjection({ root: found.root, file, rules, state: injected });
+			if (!result) continue;
+			texts.push(result.text);
+			for (const [spec, entry] of result.added) injected.set(spec, entry);
+		}
+		if (texts.length === 0) return;
+		return {
+			content: [...event.content, { type: "text" as const, text: texts.join("\n\n") }],
+			structuredContent: event.structuredContent,
+		};
+	});
+
 	pi.registerCommand("trellis-lite", {
 		description: "trellis-lite: status (default), init, migrate",
 		handler: async (args, ctx) => {
@@ -108,6 +156,12 @@ export default function trellisLite(pi: ExtensionAPI): void {
 				} else {
 					const text = snapshot ?? buildSnapshot(found.root, { specInjection: config.specInjection });
 					lines.push(`project-memory section (${text.length} chars):`, text);
+					const { rules, problems } = (specIndex?.root === found.root ? specIndex : new SpecIndex(found.root)).scan();
+					lines.push(`path-scoped specs: ${rules.length}${config.specInjection ? "" : " (injection off)"}`);
+					for (const problem of problems) lines.push(`  ! ${problem.path}: ${problem.message}`);
+					if (injected?.size) {
+						lines.push(`in context this session: ${[...injected.keys()].join(", ")}`);
+					}
 				}
 				ctx.ui.notify(lines.join("\n"), "info");
 				return;
