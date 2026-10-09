@@ -95,10 +95,18 @@ function makePlan(home: string, state: string) {
 	return createSkillSyncPlan({ home, xdgStateHome: state, runner: makeRunner() });
 }
 
-function writeValidPair(home: string, state: string, includeUnrelated = false): SkillSyncPaths {
+type SkillRoot = "pi" | "agents";
+
+/** A valid pair; "agents" is the skills 1.7.1+ layout, "pi" the earlier one. */
+function writeValidPair(
+	home: string,
+	state: string,
+	includeUnrelated = false,
+	root: SkillRoot = "agents",
+): SkillSyncPaths {
 	const paths = getSkillSyncPaths(home, state);
-	writeSkill(paths.skillPaths["grill-me"].pi, "grill-me", "original grill-me\n");
-	writeSkill(paths.skillPaths.grilling.pi, "grilling", "original grilling\n");
+	writeSkill(paths.skillPaths["grill-me"][root], "grill-me", "original grill-me\n");
+	writeSkill(paths.skillPaths.grilling[root], "grilling", "original grilling\n");
 	writeLock(paths.lockPath, includeUnrelated);
 	return paths;
 }
@@ -122,10 +130,16 @@ function successResult(changed: boolean): Awaited<ReturnType<typeof applySkillSy
 	};
 }
 
-function fakeInstall(paths: SkillSyncPaths, includeUnrelated = false): CommandRunner {
+/** Mimics the skills CLI; 1.7.1+ writes ~/.agents/skills, earlier versions ~/.pi/agent/skills. */
+function fakeInstall(
+	paths: SkillSyncPaths,
+	includeUnrelated = false,
+	root: SkillRoot = "agents",
+	content = "installed",
+): CommandRunner {
 	return async (_command, _args, _options): Promise<CommandRunResult> => {
-		writeSkill(paths.skillPaths["grill-me"].pi, "grill-me", "installed grill-me\n");
-		writeSkill(paths.skillPaths.grilling.pi, "grilling", "installed grilling\n");
+		writeSkill(paths.skillPaths["grill-me"][root], "grill-me", `${content} grill-me\n`);
+		writeSkill(paths.skillPaths.grilling[root], "grilling", `${content} grilling\n`);
 		writeLock(paths.lockPath, includeUnrelated);
 		return { code: 0, killed: false, stdout: "Installation complete", stderr: "" };
 	};
@@ -157,7 +171,8 @@ test("successful install uses the exact argv and privacy environment", async () 
 		assert.equal(calls[0]?.env.DO_NOT_TRACK, "1");
 		assert.equal(calls[0]?.env.npm_config_ignore_scripts, "true");
 		assert.equal(calls[0]?.args.includes("--metadata"), false);
-		assert.deepEqual(readdirSync(paths.piSkillsRoot).sort(), ["grill-me", "grilling"]);
+		assert.deepEqual(readdirSync(paths.agentsSkillsRoot).sort(), ["grill-me", "grilling"]);
+		assert.equal(existsSync(paths.piSkillsRoot), false);
 	} finally {
 		cleanup(home);
 	}
@@ -173,15 +188,16 @@ test("no-change refresh still uses filtered add and reports current content", as
 	const home = makeHome();
 	try {
 		const state = join(home, "state");
-		writeValidPair(home, state);
+		const paths = writeValidPair(home, state);
 		const plan = makePlan(home, state);
 		let calls = 0;
+		const rewrite = fakeInstall(paths, false, "agents", "original");
 		const result = await applySkillSync(plan, {
 			cwd: home,
 			tempBaseDir: home,
-			run: async () => {
+			run: async (command, args, options) => {
 				calls++;
-				return { code: 0, killed: false, stdout: "Already current", stderr: "" };
+				return rewrite(command, args, options);
 			},
 		});
 		assert.equal(calls, 1);
@@ -201,7 +217,7 @@ test("process failure restores tracked state without deleting untracked root ent
 	const home = makeHome();
 	try {
 		const state = join(home, "state");
-		const paths = writeValidPair(home, state, true);
+		const paths = writeValidPair(home, state, true, "pi");
 		chmodSync(paths.skillPaths["grill-me"].pi, 0o750);
 		chmodSync(`${paths.skillPaths["grill-me"].pi}/SKILL.md`, 0o640);
 		chmodSync(paths.lockPath, 0o600);
@@ -275,7 +291,8 @@ test("unrelated lock entries survive a successful refresh", async () => {
 		const result = await applySkillSync(plan, {
 			cwd: home,
 			tempBaseDir: home,
-			run: async () => {
+			run: async (command, args, options) => {
+				await fakeInstall(paths, true)(command, args, options);
 				const lock = readLock(paths.lockPath);
 				const skills = lock.skills as Record<string, unknown>;
 				skills["grill-me"] = lockEntry("grill-me");
@@ -316,25 +333,76 @@ test("unrelated lock mutations invalidate the transaction", async () => {
 	}
 });
 
-test("duplicate resources are rejected before the runner is called", async () => {
+test("a pre-1.7.1 copy is moved: skills 1.7.1+ writes ~/.agents/skills and the old copy goes", async () => {
 	const home = makeHome();
 	try {
 		const state = join(home, "state");
-		const paths = getSkillSyncPaths(home, state);
-		writeSkill(paths.skillPaths["grill-me"].pi, "grill-me");
-		writeSkill(paths.skillPaths["grill-me"].agents, "grill-me");
+		// The Windows report: pair in ~/.pi/agent/skills from an older CLI, plus an
+		// unrelated skill that must survive.
+		const paths = writeValidPair(home, state, true, "pi");
+		writeSkill(join(paths.piSkillsRoot, "officecli"), "officecli");
 		const plan = makePlan(home, state);
-		let calls = 0;
+		assert.deepEqual(plan.blockers, []);
 		const result = await applySkillSync(plan, {
 			tempBaseDir: home,
-			run: async () => {
-				calls++;
-				return { code: 0, killed: false, stdout: "", stderr: "" };
+			run: fakeInstall(paths, true, "agents", "original"),
+		});
+		assert.equal(result.ok, true, result.error ?? "");
+		assert.equal(result.changed, true);
+		assert.deepEqual(
+			result.statuses.map((entry) => entry.status),
+			["moved", "moved"],
+		);
+		assert.match(renderSkillSyncApplyResult(result), /grill-me: moved to .*\.agents/);
+		assert.deepEqual(readdirSync(paths.piSkillsRoot), ["officecli"]);
+		assert.deepEqual(readdirSync(paths.agentsSkillsRoot).sort(), ["grill-me", "grilling"]);
+	} finally {
+		cleanup(home);
+	}
+});
+
+test("copies in both roots are replaced by the single copy the CLI writes", async () => {
+	const home = makeHome();
+	try {
+		const state = join(home, "state");
+		const paths = writeValidPair(home, state, false, "pi");
+		writeSkill(paths.skillPaths["grill-me"].agents, "grill-me", "independent copy\n");
+		writeSkill(paths.skillPaths.grilling.agents, "grilling", "independent copy\n");
+		const plan = makePlan(home, state);
+		assert.deepEqual(plan.blockers, []);
+		for (const root of ["agents", "pi"] as const) {
+			const result = await applySkillSync(makePlan(home, state), {
+				tempBaseDir: home,
+				run: fakeInstall(paths, false, root),
+			});
+			assert.equal(result.ok, true, result.error ?? "");
+			const other = root === "agents" ? "pi" : "agents";
+			assert.equal(existsSync(paths.skillPaths["grill-me"][other]), false);
+			assert.equal(existsSync(paths.skillPaths["grill-me"][root]), true);
+		}
+	} finally {
+		cleanup(home);
+	}
+});
+
+test("a CLI that writes both roots fails validation and restores both copies", async () => {
+	const home = makeHome();
+	try {
+		const state = join(home, "state");
+		const paths = writeValidPair(home, state, false, "pi");
+		const before = readFileSync(`${paths.skillPaths["grill-me"].pi}/SKILL.md`, "utf8");
+		const result = await applySkillSync(makePlan(home, state), {
+			tempBaseDir: home,
+			run: async (command, args, options) => {
+				await fakeInstall(paths, false, "pi")(command, args, options);
+				return fakeInstall(paths, false, "agents")(command, args, options);
 			},
 		});
-		assert.equal(calls, 0);
 		assert.equal(result.ok, false);
-		assert.equal(result.rolledBack, false);
+		assert.equal(result.rolledBack, true);
+		assert.match(result.error ?? "", /independent same-name skills/);
+		assert.equal(readFileSync(`${paths.skillPaths["grill-me"].pi}/SKILL.md`, "utf8"), before);
+		assert.equal(existsSync(paths.skillPaths["grill-me"].agents), false);
 	} finally {
 		cleanup(home);
 	}

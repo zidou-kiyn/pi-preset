@@ -19,7 +19,7 @@ Restart pi, then run:
 `/pi-preset` is the preset's single visual control panel — a TUI menu with four entries:
 
 1. **Sync preset** — packages, config keys, and footer. Starts with a package checklist (optional extensions, plus every installed package that is not part of the preset — unchecked, i.e. removed, by default), then shows a diff of everything it would change and writes nothing until you confirm.
-2. **Install / refresh grilling skills** — the optional upstream grilling workflow.
+2. **Install / refresh grilling skills** — the optional upstream grilling workflow; every run pulls the newest upstream version.
 3. **Apply models.json template** — replaces `~/.pi/agent/models.json` with the preset's providers and sets the default provider and model (see [models.json template](#modelsjson-template)).
 4. **Install the Maple Mono NF CN font (ask pi)** — sends a font-install prompt to the current model (see [Font](#font)).
 
@@ -93,14 +93,15 @@ npm exec --yes --package=skills@latest -- skills add mattpocock/skills \
 
 Node.js 22.20 or newer and npm are required. Network, npm, or GitHub failures are reported without changing the previous pair. The command snapshots the two target entries in both skill roots and the complete global lock before invoking the installer; a non-zero exit or invalid post-install state restores that snapshot and prints a safe recovery command. Concurrent preset-managed runs are serialized with a short-lived lock next to the global skill lock, and a stale lock from a dead process is recovered automatically. Installer diagnostics are control-sequence stripped, credential-redacted, and bounded before display.
 
-Do not use `--all`, install the Claude plugin, install the whole Matt repository as a pi package, or copy individual files into the skill roots. Those paths can load unrelated skills or create duplicate names. If the command finds two independent copies of the same skill, it stops and reports the paths; it never deletes an intentional third-party copy automatically.
+Do not use `--all`, install the Claude plugin, install the whole Matt repository as a pi package, or copy individual files into the skill roots. Those paths can load unrelated skills or create duplicate names.
+
+**Where the skills land changed in skills 1.7.1.** Earlier CLI versions installed pi's global skills into `~/.pi/agent/skills/`; 1.7.1 and newer use the Agent Skills location `~/.agents/skills/`. pi loads both roots, so a refresh that added a 1.7.1 copy next to an older one used to fail with *independent same-name skills found at ...* and roll back. Each run now removes the existing `grill-me` / `grilling` copies from both roots inside its snapshot, lets the CLI write its fresh copy, and requires exactly one copy per skill afterwards. An older install is therefore moved to `~/.agents/skills/` on the next run, and reported as `moved`. Only these two names are touched; other skills in either root stay. Anything unusable at one of those paths (a file, a directory without `SKILL.md`) still stops the run before anything is removed.
 
 The official CLI invocations disable its optional telemetry and npm lifecycle scripts. The preset stores no credentials, passes no CLI metadata, and adds no provider configuration. The child inherits the user’s normal process environment so existing npm, GitHub, proxy, and CA configuration keeps working; displayed diagnostics redact common credential forms. In TUI and RPC modes, a successful content change reloads Pi resources before the command returns. A restart is a fallback if reload is unavailable. Print (`-p`) and JSON modes only render the plan to the appropriate diagnostic stream; they never ask for consent, invoke npm, or write files.
 
 Installed state is kept in these global locations:
 
-- Pi targets: `~/.pi/agent/skills/grill-me/` and `~/.pi/agent/skills/grilling/`
-- Duplicate-check root: `~/.agents/skills/`
+- Skills: `~/.agents/skills/grill-me/` and `~/.agents/skills/grilling/` (skills CLI 1.7.1+; older versions: `~/.pi/agent/skills/`)
 - Lock: `~/.agents/.skill-lock.json`, or `$XDG_STATE_HOME/skills/.skill-lock.json` when `XDG_STATE_HOME` is set
 
 Skills execute as model instructions with Pi's agent permissions. Review the two upstream `SKILL.md` files before enabling them, just as you would review any extension or package with system access.

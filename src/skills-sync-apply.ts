@@ -23,6 +23,7 @@ import { MAX_CAPTURED_OUTPUT_CHARS, redactSensitiveText, sanitizeTerminalText } 
 import {
 	formatRunnerCommand,
 	inspectSkillState,
+	installedLocation,
 	REQUIRED_SKILLS,
 	runnerSpawnArgs,
 	runnerUsesFixedContract,
@@ -434,11 +435,13 @@ function releaseSkillSyncLease(lease: SkillSyncLease): void {
 	}
 }
 
-export type SkillSyncStatus = "installed" | "updated" | "already-current";
+export type SkillSyncStatus = "installed" | "updated" | "moved" | "already-current";
 
 export interface SkillSyncStatusEntry {
 	name: SkillName;
 	status: SkillSyncStatus;
+	/** Where the skill now lives; reported for "moved". */
+	path?: string;
 }
 
 export interface SkillSyncApplyResult {
@@ -468,10 +471,15 @@ function summarizeOutput(result: CommandRunResult): string {
 }
 
 function statusFor(name: SkillName, before: SkillState, after: SkillState): SkillSyncStatusEntry {
-	const beforeLocation = before.locations[name].pi;
-	const afterLocation = after.locations[name].pi;
-	if (!beforeLocation.present || !beforeLocation.skillFileExists) return { name, status: "installed" };
-	if (beforeLocation.folderHash !== afterLocation.folderHash) return { name, status: "updated" };
+	const beforeLocation = installedLocation(before, name);
+	const afterLocation = installedLocation(after, name);
+	if (!beforeLocation) return { name, status: "installed" };
+	if (beforeLocation.folderHash !== afterLocation?.folderHash) return { name, status: "updated" };
+	// Same content in a different root: pi still has the old path loaded.
+	if (beforeLocation.path !== afterLocation?.path) return { name, status: "moved", path: afterLocation?.path };
+	// The old layout also had a second copy that is now gone.
+	const beforeCopies = [before.locations[name].pi, before.locations[name].agents].filter((entry) => entry.present);
+	if (beforeCopies.length > 1) return { name, status: "moved", path: afterLocation?.path };
 	return { name, status: "already-current" };
 }
 
@@ -554,18 +562,25 @@ export async function applySkillSync(
 	}
 
 	try {
-		const duplicateIssues = validateSkillState(plan.paths).issues.filter(
-			(issue) => issue.code === "duplicate" || issue.code === "invalid-resource",
-		);
-		if (duplicateIssues.length > 0) {
+		const unusableIssues = validateSkillState(plan.paths).issues.filter((issue) => issue.code === "invalid-resource");
+		if (unusableIssues.length > 0) {
 			return failureResult(
 				plan,
-				duplicateIssues.map((issue) => issue.message).join("; "),
+				unusableIssues.map((issue) => issue.message).join("; "),
 				"not run",
 				false,
 				undefined,
 				false,
 			);
+		}
+
+		// Clear both roots' copies (snapshotted above) so the CLI's fresh copy is
+		// the only one, whichever root this CLI version writes to. Without this a
+		// skills 1.7.1+ install next to a pre-1.7.1 copy leaves two same-name
+		// skills, which pi loads as a collision.
+		for (const name of REQUIRED_SKILLS) {
+			removeResource(plan.paths.skillPaths[name].pi);
+			removeResource(plan.paths.skillPaths[name].agents);
 		}
 
 		const runner = options.run ?? runExternalCommand;
@@ -635,6 +650,12 @@ export function renderSkillSyncApplyResult(result: SkillSyncApplyResult): string
 		return lines.join("\n");
 	}
 
-	const statuses = result.statuses.map((entry) => `${entry.name}: ${entry.status}`).join(", ");
-	return `pi-preset skills: ${statuses.replaceAll("already-current", "already current")}`;
+	const statuses = result.statuses
+		.map((entry) => {
+			if (entry.status === "already-current") return `${entry.name}: already current`;
+			if (entry.status === "moved") return `${entry.name}: moved to ${sanitizeCliOutput(entry.path ?? "the new location")}`;
+			return `${entry.name}: ${entry.status}`;
+		})
+		.join(", ");
+	return `pi-preset skills: ${statuses}`;
 }

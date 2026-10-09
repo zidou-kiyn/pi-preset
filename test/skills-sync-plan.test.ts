@@ -134,7 +134,7 @@ test("runner discovery falls back from npx to npm and reports no runner", () => 
 	}
 });
 
-test("independent same-name resources are a blocker", () => {
+test("copies in both roots are not a blocker; the plan lists them as replaced", () => {
 	const home = makeHome();
 	try {
 		const state = join(home, "state");
@@ -142,10 +142,36 @@ test("independent same-name resources are a blocker", () => {
 		writeSkill(paths.skillPaths["grill-me"].pi, "grill-me");
 		writeSkill(paths.skillPaths["grill-me"].agents, "grill-me");
 		const plan = createSkillSyncPlan({ home, xdgStateHome: state, runner });
+		assert.deepEqual(plan.blockers, []);
+		const rendered = renderSkillSyncPlan(plan);
+		assert.match(rendered, /replaces: .*\.pi.*grill-me.*\.agents.*grill-me/);
+		assert.match(rendered, /target: .*\.agents/);
+	} finally {
+		cleanup(home);
+	}
+});
+
+test("a valid pair in the pre-1.7.1 location is a refresh, not a repair", () => {
+	const home = makeHome();
+	try {
+		const state = join(home, "state");
+		validInstall(home, state);
+		assert.equal(createSkillSyncPlan({ home, xdgStateHome: state, runner }).operation, "refresh");
+	} finally {
+		cleanup(home);
+	}
+});
+
+test("something unusable at a skill path still blocks", () => {
+	const home = makeHome();
+	try {
+		const state = join(home, "state");
+		const paths = getSkillSyncPaths(home, state);
+		mkdirSync(paths.agentsSkillsRoot, { recursive: true });
+		writeFileSync(paths.skillPaths.grilling.agents, "not a directory");
+		const plan = createSkillSyncPlan({ home, xdgStateHome: state, runner });
 		assert.equal(plan.blockers.length, 1);
-		const blocker = plan.blockers[0];
-		assert.ok(blocker);
-		assert.match(blocker, /independent same-name skills/);
+		assert.match(plan.blockers[0] ?? "", /not a usable skill directory/);
 	} finally {
 		cleanup(home);
 	}

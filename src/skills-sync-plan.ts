@@ -27,9 +27,19 @@ export const UPSTREAM_SKILL_PATHS: Record<SkillName, string> = {
 	grilling: "skills/productivity/grilling/SKILL.md",
 };
 
+/**
+ * Where the skills CLI puts pi's global skills moved in skills 1.7.1: earlier
+ * versions wrote ~/.pi/agent/skills, 1.7.1+ writes the Agent Skills location
+ * ~/.agents/skills. pi loads both, so a copy in each is a name collision. The
+ * sync therefore tracks both roots, clears both copies inside its transaction
+ * before the CLI runs, and requires exactly one copy afterwards — wherever the
+ * CLI version in use put it.
+ */
 export interface SkillSyncPaths {
 	home: string;
+	/** ~/.pi/agent/skills: target of skills CLI < 1.7.1. */
 	piSkillsRoot: string;
+	/** ~/.agents/skills: target of skills CLI 1.7.1+. */
 	agentsSkillsRoot: string;
 	lockPath: string;
 	skillPaths: Record<SkillName, { pi: string; agents: string }>;
@@ -450,11 +460,8 @@ function addIssue(issues: ValidationIssue[], code: ValidationIssueCode, message:
 	issues.push({ code, message });
 }
 
-function validateRootLocation(issues: ValidationIssue[], location: SkillLocationState, required: boolean): void {
-	if (!location.present) {
-		if (required) addIssue(issues, "missing-target", `${location.name}: missing Pi target ${location.path}`);
-		return;
-	}
+function validateRootLocation(issues: ValidationIssue[], location: SkillLocationState): void {
+	if (!location.present) return;
 	if (!location.isDirectory || !location.skillFileExists || location.error) {
 		addIssue(
 			issues,
@@ -592,14 +599,26 @@ export function validateSkillState(paths: SkillSyncPaths, baseline?: SkillState)
 	const issues: ValidationIssue[] = [];
 
 	for (const name of REQUIRED_SKILLS) {
-		validateRootLocation(issues, state.locations[name].pi, true);
-		validateRootLocation(issues, state.locations[name].agents, false);
+		const { pi, agents } = state.locations[name];
+		if (!pi.present && !agents.present) {
+			addIssue(issues, "missing-target", `${name}: not installed in ${agents.path} or ${pi.path}`);
+		}
+		validateRootLocation(issues, pi);
+		validateRootLocation(issues, agents);
 	}
 	validateLock(issues, state);
 	validateDuplicates(issues, state);
 	validateNewEntries(issues, baseline, state);
 
 	return { valid: issues.length === 0, issues, state };
+}
+
+/** The copy pi effectively uses: the Agent Skills root first, then the legacy pi root. */
+export function installedLocation(state: SkillState, name: SkillName): SkillLocationState | undefined {
+	const { pi, agents } = state.locations[name];
+	if (agents.skillFileExists) return agents;
+	if (pi.skillFileExists) return pi;
+	return undefined;
 }
 
 export type SyncOperation = "install" | "repair" | "refresh";
@@ -627,9 +646,10 @@ export function createSkillSyncPlan(options: CreateSkillSyncPlanOptions = {}): S
 	const before = inspectSkillState(paths);
 	const current = validateSkillState(paths);
 	const runner = options.runner ?? discoverRunner(options.env, options.platform);
-	const blockers = current.issues
-		.filter((issue) => issue.code === "duplicate" || issue.code === "invalid-resource")
-		.map((issue) => issue.message);
+	// A copy in both roots is not a blocker: apply() replaces both with the one
+	// copy the CLI writes. Something unusable at a skill path (a file, a
+	// directory without SKILL.md) might be the user's own data, so that blocks.
+	const blockers = current.issues.filter((issue) => issue.code === "invalid-resource").map((issue) => issue.message);
 	for (const root of [paths.piSkillsRoot, paths.agentsSkillsRoot]) {
 		const error = rootUsabilityError(root);
 		if (error) blockers.push(error);
@@ -659,12 +679,19 @@ export function renderSkillSyncPlan(plan: SkillSyncPlan): string {
 		`source: ${UPSTREAM_SOURCE} (Matt Pocock, MIT)`,
 		"skills: grill-me, grilling",
 		`runner: ${plan.runner ? display(formatRunnerCommand(plan.runner)) : "unavailable"}`,
-		`Pi targets: ${display(plan.paths.piSkillsRoot)}`,
-		`duplicate-check root: ${display(plan.paths.agentsSkillsRoot)}`,
+		`target: ${display(plan.paths.agentsSkillsRoot)} (skills CLI 1.7.1+; older versions used ${display(plan.paths.piSkillsRoot)})`,
 		`lock: ${display(plan.paths.lockPath)}`,
 		"action: the filtered official skills CLI will use network access and write only after confirmation",
 	];
 
+	const existing = REQUIRED_SKILLS.flatMap((name) =>
+		[plan.before.locations[name].pi, plan.before.locations[name].agents].filter((location) => location.present),
+	);
+	if (existing.length > 0) {
+		lines.push(
+			`replaces: ${existing.map((location) => display(location.path)).join(", ")} (one copy per skill remains; restored if anything fails)`,
+		);
+	}
 	for (const blocker of plan.blockers) lines.push(`BLOCKED: ${display(blocker)}`);
 	if (plan.blockers.length === 0) {
 		lines.push(
