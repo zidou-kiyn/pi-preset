@@ -125,7 +125,7 @@ Skills execute as model instructions with Pi's agent permissions. Review the two
 ✧ ~/project · ⎇ main
 ▰▱▱▱▱▱ 58k/272k 21% · ↑ 48k ↓ 38k · ▤ 1.1M ↻ 90k ◎ 93% · ⧗ 47m ♨ 21:43 ×2      provider · π model · ◆ high
 ◈ $0.410 · ◷ 36m52s
-⬡ 12 · ⧉ 2·14 cm ts · ☑ 1/3 · ▸ current task
+⟲ · ⬡ 12 · ⧉ 2·14 cm ts · ☑ 1/3 · ▸ current task
 ```
 
 Segments show icons only. Set `PI_PRESET_FOOTER_LABELS=1` to bring back the word labels (`in`, `out`, `cache r`, `w`, `hit`, `ttl`, `warm`, `pkg`, `mcp`); they are then shown whenever the stats fit in two lines. The list below uses those label names.
@@ -135,6 +135,7 @@ Segments show icons only. Set `PI_PRESET_FOOTER_LABELS=1` to bring back the word
 - **cache r / w / hit**: session totals of cache-read and cache-write tokens, and the latest turn's cache hit rate.
 - **ttl / warm**: time left before the prompt-cache entry expires (warning-toned in the last 5 minutes), and when `idle-keepwarm` refreshes it next, with the number of refreshes since your last message. A dim note replaces both while warming is paused.
 - **◈**: session cost as `$0.410` (`sub` when the model runs on an OAuth subscription), or `Σ` total tokens when the provider reports no price.
+- **⟲**: [pi-workspace-history](https://www.npmjs.com/package/pi-workspace-history) is active (`/undo` works). The footer draws its `⟲ history` status itself; it turns into an error-toned `snapshot failed` when snapshots break (see `/history-status`). Hidden when the extension is not installed or `workspaceHistory.showStatus` is `false`.
 - **mcp servers·tools**: MCP servers connected through pi's built-in MCP support and their callable tools. Servers that failed or need a sign-in are not counted; pi reports them after startup and in `/mcp`. A dim `mcp 0` means MCP support is loaded but no server is connected. `cm` / `ts` mark the built-in `codemode` / `tool_search` tools while they are active. The segment is hidden only when the built-in MCP extension is disabled.
 
 

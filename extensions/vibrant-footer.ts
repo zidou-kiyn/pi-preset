@@ -30,6 +30,10 @@
  * `cm` / `ts` tags mark the built-in `codemode` / `tool_search` tools while
  * they are active. The segment is hidden only when MCP support is disabled.
  *
+ * pi-workspace-history: its plain `⟲ history` status is taken over and drawn
+ * on the aux line as a history glyph (error-toned `snapshot failed` when its
+ * snapshots break), instead of on the generic extension-status line.
+ *
  * Icons only by default; PI_PRESET_FOOTER_LABELS=1 restores the word labels
  * (in/out/cache r/w/hit/ttl/warm/pkg/mcp) whenever they fit in two lines.
  *
@@ -81,6 +85,7 @@ type IconSet = {
     mcp: string;
     todo: string;
     todoActive: string;
+    history: string;
 };
 
 /**
@@ -109,6 +114,7 @@ const NERD_ICONS: IconSet = {
     mcp: "\u{f06a5}", // nf-md-power_plug
     todo: "\u{f0756}", // nf-md-format_list_checks
     todoActive: "\u{f0995}", // nf-md-progress_check
+    history: "\u{f02da}", // nf-md-history
 };
 
 const UNICODE_ICONS: IconSet = {
@@ -131,6 +137,7 @@ const UNICODE_ICONS: IconSet = {
     mcp: "⧉",
     todo: "☑",
     todoActive: "▸",
+    history: "⟲",
 };
 
 /** Word labels next to the icons are opt-in; the icons carry the meaning on their own. */
@@ -395,6 +402,25 @@ function latestTodos(ctx: ExtensionContext): TodoTask[] {
     return tasks.filter((task) => task.status !== "deleted");
 }
 
+/** Status key pi-workspace-history publishes through ctx.ui.setStatus(). */
+const HISTORY_STATUS_KEY = "workspace-history";
+
+/**
+ * pi-workspace-history's status, restyled: a quiet glyph while snapshots are
+ * healthy, an error-toned "snapshot failed" when they are not. Unknown texts
+ * from future versions are shown verbatim rather than dropped.
+ */
+function historySegment(t: ThemeLike, status: string | undefined, icons: IconSet): string | null {
+    if (status === undefined) return null;
+    const text = sanitizeStatusText(status);
+    if (!text) return null;
+    if (/fail/i.test(text)) return seg(t, icons.history, "error", "snapshot failed", "error");
+    if (/^⟲\s*history$/.test(text)) {
+        return showWordLabels() ? seg(t, icons.history, "syntaxString", "history", "dim") : t.fg("syntaxString", icons.history);
+    }
+    return seg(t, icons.history, "syntaxString", text.replace(/^⟲\s*/, ""), "dim");
+}
+
 // ── the signature: ramp meter ───────────────────────────────────────────────
 
 /**
@@ -656,8 +682,12 @@ function renderAuxLine(
     ctx: ExtensionContext,
     icons: IconSet,
     width: number,
+    historyStatus: string | undefined,
 ): string | null {
     const parts: string[] = [];
+
+    const history = historySegment(t, historyStatus, icons);
+    if (history) parts.push(history);
 
     const packages = packageCount(pi);
     if (packages > 0) {
@@ -744,15 +774,16 @@ export default function (pi: ExtensionAPI) {
                         ),
                     ];
 
-                    const aux = renderAuxLine(t, pi, ctx, icons, width);
+                    const extensionStatuses = footerData.getExtensionStatuses();
+                    const aux = renderAuxLine(t, pi, ctx, icons, width, extensionStatuses.get(HISTORY_STATUS_KEY));
                     if (aux) lines.push(aux);
 
-                    const extensionStatuses = footerData.getExtensionStatuses();
                     if (extensionStatuses.size > 0) {
                         const sorted = Array.from(extensionStatuses.entries())
                             // idle-keepwarm's plain status is for pi's default footer;
                             // this bar renders the same state as a stats segment.
-                            .filter(([key]) => key !== "keepwarm")
+                            // workspace-history is drawn on the aux line instead.
+                            .filter(([key]) => key !== "keepwarm" && key !== HISTORY_STATUS_KEY)
                             .sort(([a], [b]) => a.localeCompare(b))
                             .map(([, text]) => sanitizeStatusText(text))
                             .filter(Boolean);
