@@ -9,6 +9,7 @@ import {
 } from "../src/termius/approval.ts";
 import { guardToolCall } from "../src/termius/guard.ts";
 import { sourceHash, VENDOR_DIR } from "../src/termius/install.ts";
+import { describeProxy, proxyServerEnv, proxyUrlError, redactProxyUrl } from "../src/termius/proxy.ts";
 
 test("read-only commands are recognised", () => {
 	for (const command of [
@@ -125,4 +126,38 @@ test("the vendored server hash is stable and covers the Python source", () => {
 	const first = sourceHash(VENDOR_DIR);
 	assert.match(first, /^[0-9a-f]{64}$/);
 	assert.equal(sourceHash(VENDOR_DIR), first);
+});
+
+// ── proxy settings ──────────────────────────────────────────────────────────
+
+
+test("proxy: a configured URL goes to the server; bypass only when set", () => {
+	assert.deepEqual(proxyServerEnv({ proxy: "socks5://127.0.0.1:7890" }, {}), {
+		TERMIUS_MCP_PROXY: "socks5://127.0.0.1:7890",
+		TERMIUS_MCP_PROXY_SOURCE: "/termius proxy",
+	});
+	assert.equal(proxyServerEnv({ proxy: "http://p:3128", proxyBypass: ["a.example", "10.0.0.0/8"] }, {}).TERMIUS_MCP_NO_PROXY, "a.example,10.0.0.0/8");
+	assert.deepEqual(proxyServerEnv({ proxy: "off" }, { ALL_PROXY: "socks5://x:1" }), { TERMIUS_MCP_PROXY: "off" });
+});
+
+test("proxy: unset follows pi's system variables, passed explicitly", () => {
+	assert.deepEqual(proxyServerEnv({}, { https_proxy: "http://127.0.0.1:7890", NO_PROXY: "corp.example, 10.0.0.0/8" }), {
+		TERMIUS_MCP_PROXY: "http://127.0.0.1:7890",
+		TERMIUS_MCP_PROXY_SOURCE: "https_proxy",
+		TERMIUS_MCP_NO_PROXY: "corp.example,10.0.0.0/8,localhost,127.0.0.0/8,::1",
+	});
+	assert.equal(proxyServerEnv({}, { ALL_PROXY: "socks5://a:1", HTTPS_PROXY: "http://b:2" }).TERMIUS_MCP_PROXY, "socks5://a:1");
+	assert.deepEqual(proxyServerEnv({}, {}), { TERMIUS_MCP_PROXY: "off" });
+});
+
+test("proxy: URLs are validated and never shown with credentials", () => {
+	assert.equal(proxyUrlError("socks5://user:pw@127.0.0.1:1080"), undefined);
+	assert.match(proxyUrlError("ftp://x:1") ?? "", /unsupported scheme ftp/u);
+	assert.match(proxyUrlError("127.0.0.1:7890") ?? "", /unsupported scheme|not a URL/u);
+	assert.equal(redactProxyUrl("socks5://user:pw@127.0.0.1:1080"), "socks5://***@127.0.0.1:1080");
+	const text = describeProxy({ proxy: "socks5://user:pw@127.0.0.1:1080" }, {});
+	assert.ok(!text.includes("pw"), text);
+	assert.match(describeProxy({}, { ALL_PROXY: "socks5://u:secret@h:1" }), /system ALL_PROXY/u);
+	assert.ok(!describeProxy({}, { ALL_PROXY: "socks5://u:secret@h:1" }).includes("secret"));
+	assert.equal(describeProxy({}, {}), "direct (no system proxy variables)");
 });

@@ -106,6 +106,9 @@ class BulkEntryTransformer(GetPrimaryKeyTransformerMixin,
         for field, mapping in model.fields.items():
             self.serialize_field(payload, model, field, mapping)
         payload['local_id'] = model.id
+        # pi-preset: fields kept only locally (derived on pull) are not sent.
+        for field in getattr(type(model), 'local_only_fields', ()):
+            payload.pop(field, None)
         return payload
 
     def serialize_field(self, payload, model, field, mapping):

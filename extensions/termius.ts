@@ -8,7 +8,7 @@
  *
  * This extension:
  *   - registers the server (codemode exposure) once it is installed,
- *   - /termius setup | login | sync | status | mode | logout,
+ *   - /termius setup | login | sync | status | mode | proxy | logout,
  *   - gates exec/files by the approval mode (review / auto / dangerously),
  *   - blocks other tools from reading ~/.termius, the keychain entry, or
  *     process memory (src/termius/guard.ts).
@@ -32,6 +32,7 @@ import {
 	needsApproval,
 } from "../src/termius/approval.ts";
 import { guardToolCall } from "../src/termius/guard.ts";
+import { describeProxy, proxyServerEnv, proxyUrlError } from "../src/termius/proxy.ts";
 import {
 	findPython,
 	findUv,
@@ -65,6 +66,7 @@ export default function termiusExtension(pi: ExtensionAPI): void {
 		pi.registerMcpServer(SERVER, {
 			command: serverBinary(),
 			args: [],
+			env: proxyServerEnv(config),
 			exposure: "codemode",
 			description:
 				"SSH into the user's Termius hosts: list hosts, run remote commands, SFTP files. Credentials stay in the server; output has vault secrets redacted.",
@@ -248,7 +250,11 @@ export default function termiusExtension(pi: ExtensionAPI): void {
 
 	const status = async (ctx: ExtensionCommandContext) => {
 		const state = installState();
-		const lines = [`install: ${state}${state === "missing" ? " (run /termius setup)" : ""}`, `mode: ${config.mode} (${MODE_HELP[config.mode]})`];
+		const lines = [
+			`install: ${state}${state === "missing" ? " (run /termius setup)" : ""}`,
+			`mode: ${config.mode} (${MODE_HELP[config.mode]})`,
+			`proxy: ${describeProxy(config)}; hosts with a Termius jump host chain always connect to the first jump host directly`,
+		];
 		if (state !== "missing") {
 			const data = await loginJson({ action: "status" });
 			if (data.ok) {
@@ -282,6 +288,47 @@ export default function termiusExtension(pi: ExtensionAPI): void {
 		ctx.ui.notify(`termius: approval mode ${mode} (${MODE_HELP[mode]})`, mode === "dangerously" ? "warning" : "info");
 	};
 
+	const setProxy = async (ctx: ExtensionCommandContext, requested: string | undefined) => {
+		let value = requested?.trim();
+		if (!value && ctx.hasUI) {
+			const system = "Follow the system proxy variables (ALL_PROXY / HTTPS_PROXY / HTTP_PROXY, NO_PROXY)";
+			const url = "Use a proxy URL…";
+			const direct = "Direct: no proxy";
+			const choice = await ctx.ui.select(`termius proxy (now: ${describeProxy(config)})`, [system, url, direct]);
+			if (!choice) return;
+			if (choice === system) value = "system";
+			else if (choice === direct) value = "off";
+			else {
+				const entered = await promptMaskedWithUi(ctx, "termius: proxy URL", "socks5://127.0.0.1:7890  (user:password@ allowed)");
+				if (!entered) return;
+				value = entered.trim();
+			}
+		}
+		if (!value) {
+			ctx.ui.notify(`termius: proxy is ${describeProxy(config)}. Use /termius proxy <url> | system | off.`, "info");
+			return;
+		}
+		const next = { ...config };
+		if (value === "system") {
+			delete next.proxy;
+			delete next.proxyBypass;
+		} else if (value === "off" || value === "direct") {
+			next.proxy = "off";
+			delete next.proxyBypass;
+		} else {
+			const error = proxyUrlError(value);
+			if (error) {
+				ctx.ui.notify(`termius: ${error}`, "warning");
+				return;
+			}
+			next.proxy = value;
+		}
+		config = next;
+		writeConfig(config);
+		if (installState() !== "missing") register();
+		ctx.ui.notify(`termius: proxy ${describeProxy(config)}. Applies to hosts without a jump host chain.`, "info");
+	};
+
 	const logout = async (ctx: ExtensionCommandContext) => {
 		if (installState() === "missing") return;
 		if (ctx.hasUI && !(await ctx.ui.confirm("termius: sign out?", "Removes the session, the remembered vault password, and the local host cache."))) return;
@@ -290,10 +337,10 @@ export default function termiusExtension(pi: ExtensionAPI): void {
 		register();
 	};
 
-	const SUBCOMMANDS = ["setup", "login", "sync", "status", "mode", "logout"] as const;
+	const SUBCOMMANDS = ["setup", "login", "sync", "status", "mode", "proxy", "logout"] as const;
 
 	pi.registerCommand("termius", {
-		description: "Termius SSH via MCP: setup, login, sync, status, mode (review|auto|dangerously), logout",
+		description: "Termius SSH via MCP: setup, login, sync, status, mode (review|auto|dangerously), proxy, logout",
 		getArgumentCompletions: (prefix) => {
 			const [first, second] = prefix.trimStart().split(/\s+/);
 			if (first === "mode" && second !== undefined) {
@@ -319,6 +366,8 @@ export default function termiusExtension(pi: ExtensionAPI): void {
 						return await status(ctx);
 					case "mode":
 						return await setMode(ctx, value);
+					case "proxy":
+						return await setProxy(ctx, value);
 					case "logout":
 						return await logout(ctx);
 					case undefined:

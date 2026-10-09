@@ -126,7 +126,32 @@ class BulkTransformer(CryptoChildTransformerCreatorMixin,
         models['deleted_sets'] = self.deleted_sets_transformer.to_model(deleted)
         self.delete_list(bad_encrypted_models)
         self.apply_sshconfig_identities(payload)
+        self.apply_host_chains(payload)
         return models
+
+    def apply_host_chains(self, payload):
+        """Store Termius host chains (jump hosts) on their ssh_config rows.
+
+        A ``hostchain_set`` row links an ssh_config (of a host or a group)
+        to the hosts to jump through, in order. The pull is a full snapshot,
+        so chains missing from it are cleared.
+        """
+        chains = {}
+        for row in payload.get('hostchain_set') or []:
+            plain = self.crypto_controller.decrypt_payload(row)
+            ssh_id = _ref_id(plain.get('ssh_config'))
+            hops = [_ref_id(item) for item in plain.get('hosts_chain') or []]
+            hops = [str(item) for item in hops if item is not None]
+            if ssh_id and hops:
+                chains[ssh_id] = ','.join(hops)
+        for ssh_config in self.storage.get_all(SshConfig):
+            remote = ssh_config.remote_instance
+            wanted = chains.get(remote.id) if remote else None
+            if (ssh_config.get('host_chain') or None) != wanted:
+                ssh_config.host_chain = wanted
+                self.storage.save(ssh_config)
+        if chains:
+            self.logger.info('Linked %s host chains', len(chains))
 
     def apply_sshconfig_identities(self, payload):
         """Attach team/shared identities onto ssh_config rows.

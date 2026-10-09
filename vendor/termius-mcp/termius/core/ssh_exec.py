@@ -7,6 +7,7 @@ import os
 import paramiko
 
 from .exceptions import TermiusException
+from .proxy import ProxyError, open_via_proxy, proxy_for
 
 MAX_OUTPUT = 200000
 
@@ -93,13 +94,79 @@ def _auth_from_config(host, ssh_config):
     return username, password, pkey, port
 
 
-def connect_host(host, ssh_config, timeout=60):
+class RoutedSSHClient(paramiko.SSHClient):
+    """An SSH client that also closes the jump-host clients it rides on."""
+
+    def __init__(self):
+        super(RoutedSSHClient, self).__init__()
+        self.via = []
+        self.route = []
+
+    def close(self):
+        super(RoutedSSHClient, self).close()
+        for jump in reversed(self.via):
+            close_quiet(jump)
+        self.via = []
+
+
+def _label(host):
+    return host.label or host.address
+
+
+def connect_host(host, ssh_config, timeout=60, route=None):
     """Open an SSH client. The caller must close it.
 
-    Returns ``(client, username)``.
+    ``route`` is the Termius jump host chain from ``get_jump_route``: each
+    hop is an SSH connection of its own (own credentials, own pinned host
+    key), and the next hop runs through a direct-tcpip channel of the one
+    before. A host without a chain may go through the configured proxy
+    (``proxy.py``). Returns ``(client, username)``; ``client.route`` lists
+    how it was reached.
     """
+    route = list(route or [])
+    jumps = []
+    sock = None
+    description = []
+    try:
+        if not route:
+            port = int(ssh_config.port or 22) if ssh_config else 22
+            try:
+                proxy = proxy_for(host.address)
+                if proxy is not None:
+                    sock = open_via_proxy(proxy, host.address, port, timeout)
+                    description.append('proxy {}'.format(proxy.describe()))
+            except ProxyError as exc:
+                raise SshExecError('SSH to {} failed: {}'.format(host.address, exc))
+        targets = [hop for hop, _ in route[1:]] + [host]
+        configs = [cfg for _, cfg in route[1:]] + [ssh_config]
+        for (hop, hop_config), next_host, next_config in zip(route, targets, configs):
+            jump, _ = _connect_single(hop, hop_config, timeout, sock, 'jump host ')
+            jumps.append(jump)
+            description.append('jump host {} ({})'.format(_label(hop), hop.address))
+            next_port = int(next_config.port or 22) if next_config else 22
+            try:
+                sock = jump.get_transport().open_channel(
+                    'direct-tcpip', (next_host.address, next_port), ('127.0.0.1', 0),
+                    timeout=timeout,
+                )
+            except Exception as exc:
+                raise SshExecError('Jump host {} could not reach {}:{}: {}'.format(
+                    _label(hop), next_host.address, next_port, exc,
+                ))
+        client, username = _connect_single(host, ssh_config, timeout, sock, '')
+    except Exception:
+        for jump in reversed(jumps):
+            close_quiet(jump)
+        raise
+    client.via = jumps
+    client.route = description
+    return client, username
+
+
+def _connect_single(host, ssh_config, timeout, sock, role):
+    """One SSH connection, over ``sock`` when given."""
     username, password, pkey, port = _auth_from_config(host, ssh_config)
-    client = paramiko.SSHClient()
+    client = RoutedSSHClient()
     path = known_hosts_path()
     if os.path.exists(path):
         client.load_host_keys(path)
@@ -117,21 +184,22 @@ def connect_host(host, ssh_config, timeout=60):
             auth_timeout=timeout,
             allow_agent=use_local_keys,
             look_for_keys=use_local_keys,
+            sock=sock,
         )
     except paramiko.BadHostKeyException as exc:
         close_quiet(client)
         raise SshExecError(
-            'Host key of {} changed since it was pinned ({} {}). Refusing to '
+            'Host key of {}{} changed since it was pinned ({} {}). Refusing to '
             'connect. If the change is expected, the user can remove that '
             'host from {}.'.format(
-                host.address, exc.key.get_name(),
+                role, host.address, exc.key.get_name(),
                 exc.key.get_fingerprint().hex(), path,
             )
         )
     except Exception as exc:
         close_quiet(client)
-        raise SshExecError('SSH to {} failed: {}'.format(
-            host.address, exc,
+        raise SshExecError('SSH to {}{} failed: {}'.format(
+            role, host.address, exc,
         ))
     return client, username
 
@@ -165,6 +233,7 @@ def _exec_command(client, host, username, command, timeout):
         'address': host.address,
         'username': username,
         'command': command,
+        'route': list(getattr(client, 'route', []) or []) or ['direct'],
         'exit_code': code,
         'stdout': out,
         'stderr': err,
@@ -172,11 +241,11 @@ def _exec_command(client, host, username, command, timeout):
     }
 
 
-def run_host_command(host, ssh_config, command, timeout=60):
+def run_host_command(host, ssh_config, command, timeout=60, route=None):
     """Execute ``command`` on ``host`` using merged ssh_config credentials."""
     if not command or not str(command).strip():
         raise SshExecError('Command is empty')
-    client, username = connect_host(host, ssh_config, timeout=timeout)
+    client, username = connect_host(host, ssh_config, timeout=timeout, route=route)
     try:
         return _exec_command(client, host, username, command, timeout)
     finally:

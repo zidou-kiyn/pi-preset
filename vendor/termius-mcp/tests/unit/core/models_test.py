@@ -71,7 +71,7 @@ class ModelsTest(TestCase):
                         'keep_alive_packages', 'is_forward_ports', 'font_size',
                         'color_scheme', 'charset', 'cursor_blink',
                         'agent_forwarding', 'use_mosh', 'mosh_server_command',
-                        'env_variables', 'id', 'remote_instance'],
+                        'env_variables', 'host_chain', 'id', 'remote_instance'],
             PFRule: ['label', 'host', 'pf_type', 'bound_address', 'local_port',
                      'hostname', 'remote_port', 'id', 'remote_instance']
         }

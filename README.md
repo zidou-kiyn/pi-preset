@@ -140,6 +140,7 @@ Google's [chrome-devtools-mcp](https://github.com/ChromeDevTools/chrome-devtools
 /termius setup     install the server (one step; installs uv first if neither uv nor Python 3.9+ is there)
 /termius login     sign in: email + password, or Google; asks for the 2FA code / app approval when Termius wants one
 /termius mode      review | auto | dangerously
+/termius proxy     system | off | socks5://… | http://…  (proxy for hosts without a jump host)
 /termius sync      pull the host list from Termius Cloud now (sign-in already does this once)
 /termius status    install state, account, host count, last sync, mode
 /termius logout    sign out and wipe the local host cache
@@ -154,6 +155,14 @@ Google's [chrome-devtools-mcp](https://github.com/ChromeDevTools/chrome-devtools
 - No tool takes or returns a secret. The `login`, `login_complete`, and `logout` tools, which took the vault password as a model-visible argument, are gone; `sync` has no password argument; snippets are listed by label only, since their scripts can hold credentials.
 - Every result is scrubbed: any identity password, key passphrase, private key, or the vault password in command output or file content becomes `[redacted]`, as does any PEM/OpenSSH private key block.
 - Host keys are pinned on first connection in `~/.termius/known_hosts`; a changed key is refused instead of silently accepted (upstream used paramiko's `AutoAddPolicy`).
+
+**Jump hosts and proxies.** Upstream dropped Termius's host chains when syncing, so every host was dialed directly. The server now keeps them and connects the way Termius does: through each jump host in order, each hop with its own credentials and its own pinned host key. A chain set on a group applies to its hosts, and a jump host that has a chain of its own is reached through that chain first. Hosts without a chain can go through a proxy, chosen with `/termius proxy`:
+
+- `system` (the default): pi's `ALL_PROXY`, `HTTPS_PROXY`, or `HTTP_PROXY` (any case), with `NO_PROXY`;
+- a URL: `socks5://`, `socks5h://`, `socks4://`, `socks4a://`, or `http://` (CONNECT), `user:password@` allowed. Loopback, private, and link-local addresses and `*.local` names stay direct, unless `proxyBypass` in the server's `config.json` (next to its venv) lists other ones;
+- `off`: always direct.
+
+Hosts with a jump host chain reach the first jump host directly, without the proxy. The `host` tool shows the jump hosts, the proxy, and an equivalent `ssh -J …` command, and every `exec` result lists its route.
 
 **Approval modes** (`/termius mode`, saved in `~/.pi/agent/termius-mcp/config.json`, default `auto`):
 

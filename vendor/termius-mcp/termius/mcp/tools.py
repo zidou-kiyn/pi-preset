@@ -11,7 +11,8 @@ from ..core.ssh_command import render_command
 from ..core.ssh_exec import SshExecError, run_host_command
 from ..core.ssh_files import ACTIONS as FILE_ACTIONS
 from ..core.ssh_files import SshFileError, run_file_action
-from ..core.ssh_merge import HostLookupError, find_host, get_merged_ssh_config
+from ..core.proxy import ProxyError, proxy_for
+from ..core.ssh_merge import HostLookupError, find_host, get_jump_route, get_merged_ssh_config
 from ..redact import redact_payload, redact_text, vault_secrets
 from ..sync import (
     ensure_fresh, inventory_counts, last_synced_raw, pull, status_payload,
@@ -416,7 +417,17 @@ def handle_host(runtime, arguments):
     ssh_config['agent_forwarding'] = (
         AccountManager(runtime.config).get_settings().get('agent_forwarding')
     )
+    route = _route(runtime, host)
+    jumps = [
+        '{}@{}{}'.format(
+            (cfg.identity.username if cfg.identity else '') or '', hop.address,
+            ':{}'.format(cfg.port) if cfg.port and int(cfg.port) != 22 else '',
+        ).lstrip('@')
+        for hop, cfg in route
+    ]
     command = render_command(ssh_config, host.address)
+    if jumps:
+        command = command.replace('ssh ', 'ssh -J {} '.format(','.join(jumps)), 1)
     snippet = ssh_config.startup_snippet
     data = {
         'id': host.id,
@@ -433,6 +444,8 @@ def handle_host(runtime, arguments):
         'keep_alive_packages': ssh_config.keep_alive_packages,
         'agent_forwarding': ssh_config.agent_forwarding,
         'startup_snippet': snippet.label if snippet else None,
+        'jump_hosts': [hop.label or hop.address for hop, _ in route],
+        'proxy': _proxy_text(host, route),
         'ssh_command': command,
     }
     _apply_sync_state(data, sync)
@@ -442,6 +455,23 @@ def handle_host(runtime, arguments):
             summary
         )
     return data, summary
+
+
+def _route(runtime, host):
+    try:
+        return get_jump_route(runtime.storage, host)
+    except HostLookupError as exc:
+        raise ToolError(str(exc), code='host_not_found')
+
+
+def _proxy_text(host, route):
+    if route:
+        return None
+    try:
+        proxy = proxy_for(host.address)
+    except ProxyError as exc:
+        return 'invalid proxy setting: {}'.format(exc)
+    return proxy.describe() if proxy else None
 
 
 def handle_exec(runtime, arguments):
@@ -458,6 +488,7 @@ def handle_exec(runtime, arguments):
     try:
         result = run_host_command(
             host, ssh_config, command, timeout=timeout,
+            route=_route(runtime, host),
         )
     except SshExecError as exc:
         raise ToolError(str(exc), code='ssh_failed')
@@ -515,12 +546,13 @@ def _files_extra(arguments):
     }
 
 
-def _invoke_files(host, action, path, timeout, arguments):
+def _invoke_files(runtime, host, action, path, timeout, arguments):
     ssh_config = get_merged_ssh_config(host)
     try:
         result = run_file_action(
             host, ssh_config, action, path,
             timeout=timeout, extra=_files_extra(arguments),
+            route=_route(runtime, host),
         )
     except SshFileError as exc:
         raise ToolError(str(exc), code='file_failed')
@@ -561,7 +593,7 @@ def handle_files(runtime, arguments):
     _auto_sync(runtime)
     action, path, timeout = _files_args(arguments)
     host = _lookup_host(runtime, arguments.get('name'))
-    result = _invoke_files(host, action, path, timeout, arguments)
+    result = _invoke_files(runtime, host, action, path, timeout, arguments)
     return result, _files_summary(result)
 
 

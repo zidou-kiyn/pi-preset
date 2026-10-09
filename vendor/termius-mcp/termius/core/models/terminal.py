@@ -75,6 +75,9 @@ class SshConfig(Model):
         'use_mosh': Field(bool, False, None),
         'mosh_server_command': Field(str, False, None),
         'env_variables': Field(str, False, None),
+        # pi-preset: Termius host chain (jump hosts), as comma-separated
+        # remote host ids in hop order; filled from hostchain_set on pull.
+        'host_chain': Field(str, False, None),
     }
     mergable_fields = {
         'port',
@@ -92,8 +95,10 @@ class SshConfig(Model):
         'cursor_blink',
         'agent_forwarding',
         'use_mosh',
+        'host_chain',
     }
     set_name = 'sshconfig_set'
+    local_only_fields = ('host_chain',)
 
     def get_ssh_key(self):
         """Retrieve ssh key instance."""

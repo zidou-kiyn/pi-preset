@@ -48,6 +48,52 @@ def _identity_merger(ssh_config_merger):
     return Merger(stack, 'identity', Identity())
 
 
+def _chain_hosts(storage, host):
+    chain = get_merged_ssh_config(host).get('host_chain') or ''
+    hops = []
+    for raw in [item for item in chain.split(',') if item.strip()]:
+        try:
+            hops.append(storage.get(Host, **{'remote_instance.id': int(raw)}))
+        except (DoesNotExistException, ValueError):
+            raise HostLookupError(
+                'A jump host of {} is not in the local cache; call sync.'.format(
+                    host.label or host.address
+                )
+            )
+    return hops
+
+
+def get_jump_route(storage, host, _seen=None):
+    """Jump hosts for ``host`` from its Termius host chain, in hop order.
+
+    Returns ``[(jump_host, merged_ssh_config), ...]``; empty when the host
+    (and its groups) has no chain. A chain inherited from a group may list
+    the target itself; the chain then ends before it. The first jump host is
+    reached the way it is reached on its own, so its chain comes first
+    (like ``ProxyJump`` on a jump host in ssh_config); the later hops are
+    reached through the earlier ones. A loop is an error.
+    """
+    seen = set(_seen or ()) | {host.id}
+    hops = []
+    for hop in _chain_hosts(storage, host):
+        if hop.id == host.id:
+            break
+        hops.append(hop)
+    if not hops:
+        return []
+    for hop in hops:
+        if hop.id in seen:
+            raise HostLookupError(
+                'The jump host chain of {} loops through {}.'.format(
+                    host.label or host.address, hop.label or hop.address
+                )
+            )
+    first = hops[0]
+    route = get_jump_route(storage, first, seen)
+    route.extend((hop, get_merged_ssh_config(hop)) for hop in hops)
+    return route
+
+
 def find_host(storage, name):
     """Return one Host by numeric id or exact label."""
     if name is None or str(name).strip() == '':

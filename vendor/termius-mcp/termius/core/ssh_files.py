@@ -320,14 +320,14 @@ def _with_host_meta(payload, host, username, action):
     return payload
 
 
-def run_file_action(host, ssh_config, action, path, timeout=60, extra=None):
+def run_file_action(host, ssh_config, action, path, timeout=60, extra=None, route=None):
     """Run one SFTP action on ``host`` using merged ssh_config credentials."""
     handler = ACTIONS.get(action)
     if handler is None:
         raise SshFileError(
             'Unknown files action: {}'.format(action)
         )
-    client, username = connect_host(host, ssh_config, timeout=timeout)
+    client, username = connect_host(host, ssh_config, timeout=timeout, route=route)
     try:
         payload = _run_sftp(client, handler, path, extra or {})
     finally:
