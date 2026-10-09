@@ -86,6 +86,7 @@ test("existing configs are patched per leaf, keep unrelated keys and modes, and 
 		assert.deepEqual(steps[0]?.changes, [
 			{ key: "tuiMode", path: ["tuiMode"], from: "regular", to: "fullscreen" },
 			{ key: "fullscreenWheelScrollLines", path: ["fullscreenWheelScrollLines"], from: undefined, to: "auto" },
+			{ key: "enableInstallTelemetry", path: ["enableInstallTelemetry"], from: undefined, to: false },
 		]);
 		assert.deepEqual(
 			steps[1]?.changes.map((change) => change.key),
@@ -112,6 +113,7 @@ test("existing configs are patched per leaf, keep unrelated keys and modes, and 
 			tuiMode: "fullscreen",
 			fullscreenCopyOnSelect: false,
 			fullscreenWheelScrollLines: "auto",
+			enableInstallTelemetry: false,
 		});
 		assertModeOnPosix(mcpPath, 0o640);
 
@@ -139,6 +141,7 @@ test("absent targets are created holding only the preset's keys", async () => {
 			tuiMode: "fullscreen",
 			fullscreenWheelScrollLines: "auto",
 			fullscreenCopyOnSelect: false,
+			enableInstallTelemetry: false,
 		});
 		const mcp = JSON.parse(readFileSync(join(agentDir, "mcp.json"), "utf8"));
 		assert.deepEqual(Object.keys(mcp), ["mcpServers"]);

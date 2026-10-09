@@ -118,14 +118,17 @@ export const JSON_PATCHES: readonly JsonPatchTarget[] = [
 		// applyJsonPatch re-reads the file so that step's write survives.
 		// fullscreenCopyOnSelect: false keeps the clipboard untouched while
 		// selecting; ctrl+x (app.message.copy) copies the selection instead.
+		// enableInstallTelemetry: false stops pi's anonymous install/update
+		// reports and provider attribution headers; update checks still run.
 		id: "settings.json",
 		resolvePath: getSettingsPath,
 		patch: {
 			tuiMode: "fullscreen",
 			fullscreenWheelScrollLines: "auto",
 			fullscreenCopyOnSelect: false,
+			enableInstallTelemetry: false,
 		},
-		why: "fullscreen TUI with adaptive wheel scrolling; selection is copied with ctrl+x instead of on select",
+		why: "fullscreen TUI with adaptive wheel scrolling; selection is copied with ctrl+x instead of on select; no install telemetry",
 	},
 	{
 		// Google's chrome-devtools-mcp through pi's built-in MCP support, with

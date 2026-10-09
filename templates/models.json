@@ -165,6 +165,9 @@
         {
           "id": "claude-opus-5-5",
           "name": "Claude Opus 5.5",
+          "compat": {
+            "supportsTemperature": false
+          },
           "reasoning": true,
           "input": [
             "text",
@@ -230,6 +233,9 @@
         {
           "id": "claude-sonnet-5-5",
           "name": "Claude Sonnet 5.5",
+          "compat": {
+            "supportsTemperature": false
+          },
           "reasoning": true,
           "input": [
             "text",
@@ -283,6 +289,31 @@
             "input": 0.3,
             "output": 1.2,
             "cacheRead": 0.006,
+            "cacheWrite": 0
+          },
+          "thinkingLevelMap": {
+            "off": "none",
+            "minimal": null,
+            "low": "low",
+            "medium": null,
+            "high": "high",
+            "xhigh": null,
+            "max": "max"
+          }
+        },
+        {
+          "id": "deepseek-v4-pro",
+          "name": "DeepSeek V4 Pro",
+          "reasoning": true,
+          "input": [
+            "text"
+          ],
+          "contextWindow": 1000000,
+          "maxTokens": 384000,
+          "cost": {
+            "input": 1.32,
+            "output": 3.96,
+            "cacheRead": 0.044,
             "cacheWrite": 0
           },
           "thinkingLevelMap": {

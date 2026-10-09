@@ -22,7 +22,10 @@
 				"Vendored from the unreleased v2.0.0 on main (npm still ships 1.1.6).",
 				"spawn.ts/bash.ts: a foreground command keeps its child ref'd, so headless `pi -p` no longer exits on the first bash call; it is unref'd once it moves to the background.",
 				"timeout-policy.ts (new), bash.ts, bash-params.ts: foreground commands move to the background after 30s by default and at most 60s (PI_PRESET_BASH_BG_DEFAULT / PI_PRESET_BASH_BG_CAP, `off` = upstream timing); the timeout parameter and a bash guideline say it backgrounds rather than kills.",
-				"src/__tests__/preset-local.test.ts (new): tests for both changes, including a headless keepAlive repro."
+				"src/__tests__/preset-local.test.ts (new): tests for both changes, including a headless keepAlive repro.",
+				"tools/{bash,bash-bg,jobs,monitor,agent-bg}.ts: prompt guidelines deduplicated and condensed (sleep / one-vs-per-event / jobs actions were repeated across tools); jobs actions described once in its description.",
+				"tools/bash.ts, output.ts, types.ts: a foreground command reports an empty partial result at once and streams its log from the start every 250ms (upstream: nothing for 2s, then 1s polls), so pi's bash renderer shows the live Elapsed clock and output for quiet commands too.",
+				"registry.ts, spawn.ts, monitor-ws.ts: job logs go to a per-user <tmpdir>/pi-bg-<uid> directory (0700, owner and symlink checked) with 0600 files; upstream used a shared world-readable /tmp/pi-bg that any local user could read or pre-create."
 			]
 		},
 		"pi-workspace-history": {
@@ -108,7 +111,8 @@
 				"LICENSE"
 			],
 			"localChanges": [
-				"Only the TypeScript extension is vendored; the native search library stays an npm dependency (@ff-labs/fff-node, pinned in the root package.json)."
+				"Only the TypeScript extension is vendored; the native search library stays an npm dependency (@ff-labs/fff-node, pinned in the root package.json).",
+				"src/index.ts: grep/find guidelines condensed, shared path/exclude parameter descriptions shortened; multi_grep (off by default) untouched."
 			]
 		},
 		"rpiv-todo": {
@@ -135,7 +139,9 @@
 				"**/*.test.ts",
 				"**/test-fixtures.ts"
 			],
-			"localChanges": []
+			"localChanges": [
+				"todo.ts, tool/types.ts: guidelines condensed from 8 rules to 2 and the description/field texts shortened; behavior unchanged."
+			]
 		},
 		"rpiv-ask-user-question": {
 			"repo": "https://github.com/juicesharp/rpiv-mono",
@@ -161,7 +167,9 @@
 				"**/*.test.ts",
 				"**/test-fixtures.ts"
 			],
-			"localChanges": []
+			"localChanges": [
+				"ask-user-question.ts, tool/types.ts: tool description, guidelines, and schema field descriptions condensed (~1.8k → ~0.4k tokens); the limits stay enforced by the schema and validator."
+			]
 		},
 		"rpiv-config": {
 			"repo": "https://github.com/juicesharp/rpiv-mono",

@@ -7,7 +7,9 @@
  */
 
 import { randomInt } from "node:crypto";
-import { statSync, unlinkSync } from "node:fs";
+import { chmodSync, lstatSync, mkdirSync, statSync, unlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { formatDuration, jobLabel } from "./format.ts";
 import {
     isTerminalStatus,
@@ -47,16 +49,37 @@ export function newJobId(kind: JobKind, reg?: BackgroundRegistry): string {
 
 /** Dedicated log directory. Keeping logs in their own dir (not loose in /tmp)
  *  keeps the stale-log sweep bounded — it lists only our files. */
-export const LOG_DIR = "/tmp/pi-bg";
+// pi-preset: per-user and private. Upstream used a shared world-readable
+// /tmp/pi-bg, so on a multi-user machine any user could read every command's
+// output, or create the directory first and receive it.
+const UID = typeof process.getuid === "function" ? process.getuid() : undefined;
+export const LOG_DIR = join(tmpdir(), UID === undefined ? "pi-bg" : `pi-bg-${UID}`);
+
+/**
+ * Create LOG_DIR (0700) or check that an existing one is a real directory owned
+ * by this user, tightening its mode. Throws instead of writing into a directory
+ * someone else controls.
+ */
+export function ensurePrivateLogDir(dir: string = LOG_DIR): void {
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const info = lstatSync(dir);
+    if (!info.isDirectory() || info.isSymbolicLink()) {
+        throw new Error(`${dir} is not a directory; refusing to write job logs there`);
+    }
+    if (UID !== undefined && info.uid !== UID) {
+        throw new Error(`${dir} belongs to another user; refusing to write job logs there`);
+    }
+    if (UID !== undefined && (info.mode & 0o077) !== 0) chmodSync(dir, 0o700);
+}
 
 export function logPathFor(jobId: string): string {
-    return `${LOG_DIR}/${jobId}.log`;
+    return join(LOG_DIR, `${jobId}.log`);
 }
 
 /** Sibling stderr-capture path for a monitor's split output. Keeps the
  *  `.log`/`.err` naming convention in one place. */
 export function errPathFor(jobId: string): string {
-    return `${LOG_DIR}/${jobId}.err`;
+    return join(LOG_DIR, `${jobId}.err`);
 }
 
 /**

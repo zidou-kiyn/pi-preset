@@ -83,12 +83,9 @@ export function registerAgentBgTool(pi: ExtensionAPI, reg: BackgroundRegistry): 
     pi.registerTool({
         name: "agent_bg",
         label: "Background Agent",
-        description: "Run a separate pi -p process in the background with continuity context.",
+        description: "Run a separate pi -p process in the background with continuity context, for work that can proceed independently. Completion arrives as a background-job notification.",
         promptSnippet: "Delegate work to a background pi -p process",
-        promptGuidelines: [
-            "Use agent_bg for work that can run independently from the current session.",
-            "Completion is reported with a background-job notification.",
-        ],
+        promptGuidelines: [],
         parameters: Type.Object({
             prompt: Type.String({ description: "Task to send to the background agent" }),
             cwd: Type.Optional(Type.String({ description: "Working directory (default: current)" })),

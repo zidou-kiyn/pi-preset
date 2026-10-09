@@ -53,16 +53,12 @@ export { TOOL_NAME } from "./tool/types.js";
 // ---------------------------------------------------------------------------
 
 export const DEFAULT_PROMPT_SNIPPET = "Manage a task list to track multi-step progress";
+// pi-preset: guidance condensed from 8 rules; the state machine, additive
+// blockedBy merge, and cycle checks are enforced by the tool itself.
 export const DEFAULT_PROMPT_GUIDELINES: string[] = [
-	"Use `todo` for complex work with 3+ steps, when the user gives you a list of tasks, or immediately after receiving new instructions to capture requirements. Skip it for single trivial tasks and purely conversational requests.",
-	"When starting a task from the todo list, mark it in_progress BEFORE beginning work. Mark it completed IMMEDIATELY when done — never batch completions. Exactly one task in_progress at a time.",
-	"Never mark a task completed if tests are failing, the implementation is partial, or you hit unresolved errors — keep it in_progress and create a new task for the blocker instead.",
-	"Task status is a 4-state machine: pending → in_progress → completed, plus deleted as a tombstone. Pass activeForm (present-continuous label, e.g. 'researching existing tool') when marking in_progress.",
-	'To change a task\'s status, call update with the task id and the target status, e.g. {"action":"update","id":3,"status":"completed"} or {"action":"update","id":3,"status":"in_progress","activeForm":"writing tests"}. status is the field that changes the task; an update without a mutable field (status or another) is rejected.',
-	"Use blockedBy to express dependencies (A is blocked by B). On create, pass blockedBy as the initial set. On update, use addBlockedBy / removeBlockedBy (additive merge — do not resend the full array). Cycles are rejected.",
-	"list hides tombstoned (deleted) tasks by default; pass includeDeleted:true to see them. Pass status to filter by a single status.",
-	"Subject must be short and imperative (e.g. 'Research existing tool'); description is for long-form detail. activeForm is a present-continuous label shown while in_progress.",
-];
+	"Use `todo` for work with 3+ steps or when the user gives a list of tasks; skip it for trivial or conversational requests. Subjects are short and imperative.",
+	"Keep exactly one task in_progress (with activeForm), set it before starting, and mark it completed as soon as it is done, never in batches. Leave it in_progress while tests fail or work is partial, and add a task for the blocker.",
+]
 
 export function registerTodoTool(pi: ExtensionAPI): void {
 	const guidance = validateGuidanceFields(loadConfig().guidance);
@@ -70,7 +66,7 @@ export function registerTodoTool(pi: ExtensionAPI): void {
 		name: TOOL_NAME,
 		label: TOOL_LABEL,
 		description:
-			"Manage a task list for tracking multi-step progress. Actions: create (new task), update (change status/fields/dependencies), list (all tasks, optionally filtered by status), get (single task details), delete (tombstone), clear (reset all). Status: pending → in_progress → completed, plus deleted tombstone. Use this to plan and track multi-step work like research, design, and implementation.",
+			'Task list for multi-step work. Actions: create, update (status/fields/dependencies), list (deleted hidden unless includeDeleted), get, delete, clear. Status: pending → in_progress → completed, or deleted. Change status with update, e.g. {"action":"update","id":3,"status":"completed"}.',
 		promptSnippet: guidance.promptSnippet ?? DEFAULT_PROMPT_SNIPPET,
 		promptGuidelines: guidance.promptGuidelines ?? DEFAULT_PROMPT_GUIDELINES,
 		parameters: TodoParamsSchema,

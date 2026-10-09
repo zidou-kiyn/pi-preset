@@ -2,6 +2,7 @@
 
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -28,9 +29,29 @@ const scannerFiles = new Set(["scripts/scan-secrets.sh", "scripts/scan-secrets.m
 
 const highConfidencePatterns = [
 	{ label: "OpenAI-style key", pattern: /sk-[A-Za-z0-9_-]{20,}/giu },
-	{ label: "private identifier", pattern: /heixiaohu/giu },
-	{ label: "private host", pattern: /anyrouter|sub2api|127\.0\.0\.1:8317/giu },
+	...loadPrivatePatterns(),
 ];
+
+/**
+ * Personal identifiers (user names, relay hosts, local ports) must not be
+ * written into this public repository, not even as scan patterns. They live in
+ * a local file, one regular expression per line (`#` comments allowed):
+ * $PI_PRESET_SCAN_PRIVATE, else ~/.config/pi-preset/scan-private-patterns.
+ */
+function loadPrivatePatterns() {
+	const path =
+		process.env.PI_PRESET_SCAN_PRIVATE ??
+		join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "pi-preset", "scan-private-patterns");
+	if (!existsSync(path)) {
+		console.error(`note: no private patterns at ${path}; personal identifiers are not checked`);
+		return [];
+	}
+	return readFileSync(path, "utf8")
+		.split("\n")
+		.map((line) => line.trim())
+		.filter((line) => line && !line.startsWith("#"))
+		.map((line) => ({ label: "private identifier", pattern: new RegExp(line, "giu") }));
+}
 
 const credentialAssignmentPattern =
 	/(api[_-]?key|authorization|token|secret|password)["']?\s*[:=]\s*(["'`])((?:\\.|(?!\2)[^\r\n]){20,})\2/giu;

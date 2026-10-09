@@ -28,14 +28,9 @@ export function registerBashBgTool(pi: ExtensionAPI, reg: BackgroundRegistry): v
         label: "Background Bash",
         description:
             "Start a bash command in the background immediately. " +
-            "Output is saved to /tmp/pi-bg/<jobId>.log.",
+            "Output is saved to a private log file named in the result.",
         promptSnippet: "Start long-running commands directly in the background",
-        promptGuidelines: [
-            "Use bash_bg when a command should definitely start in the background.",
-            "bash_bg gives ONE completion notification. For a per-event stream (tail -f | grep, poll loop, file watch, WebSocket feed), use the monitor tool instead.",
-            "Don't background a `sleep N` wait — it just lingers. To wait on an existing job use jobs action='attach'; to wait for a condition use the monitor tool or an `until` loop that exits when ready.",
-            "Give the job a name when it will be easier to track in jobs list.",
-        ],
+        promptGuidelines: [],
         parameters: Type.Object({
             command: Type.String({ description: "Command to run" }),
             name: Type.Optional(Type.String({ description: "Label shown in jobs list" })),

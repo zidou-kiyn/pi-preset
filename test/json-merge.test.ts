@@ -64,6 +64,20 @@ test("new model files use exact 0600 mode and leave no temporary sibling", () =>
 	}
 });
 
+test("a forced mode also applies to the backup of a world-readable credential file", () => {
+	const home = makeHome();
+	try {
+		const path = join(home, "models.json");
+		writeFileSync(path, '{ "providers": { "p": { "apiKey": "k" } } }\n');
+		chmodSync(path, 0o644);
+		writeJsonObjectAtomic(path, { providers: {} }, { newFileMode: 0o600, forceMode: 0o600, rejectDanglingSymlink: true });
+		assertModeOnPosix(path, 0o600);
+		assertModeOnPosix(`${path}.preset-bak`, 0o600);
+	} finally {
+		cleanup(home);
+	}
+});
+
 test("existing owner-only modes and original backup bytes are preserved", () => {
 	const home = makeHome();
 	try {

@@ -28,6 +28,7 @@ import {
 	SUPERSEDED_PACKAGES,
 } from "./manifest.ts";
 import { getDisabledExtensionsDir, getLegacySkillRoots, getSettingsPath, getUserExtensionsDir } from "./paths.ts";
+import { formatMode, type PermissionChange, planPrivatePermissions } from "./permissions.ts";
 import { sanitizeTerminalText } from "./terminal-text.ts";
 
 // ── package source identity ─────────────────────────────────────────────────
@@ -268,7 +269,12 @@ export interface FooterDemoteStep {
 	to: string;
 }
 
-export type Step = PackagesRemoveStep | PackagesAddStep | JsonPatchStep | FooterDemoteStep;
+export interface PermissionsStep {
+	kind: "permissions.private";
+	changes: PermissionChange[];
+}
+
+export type Step = PackagesRemoveStep | PackagesAddStep | JsonPatchStep | FooterDemoteStep | PermissionsStep;
 
 export type NoteLevel = "ok" | "info" | "warn";
 
@@ -463,6 +469,8 @@ export async function plan(options: PlanOptions = {}): Promise<SyncPlan> {
 	planJsonPatches(result);
 	planFooterDemote(result);
 	planLegacySkills(result);
+	const permissions = planPrivatePermissions();
+	if (permissions.length > 0) result.steps.push({ kind: "permissions.private", changes: permissions });
 
 	return result;
 }
@@ -497,6 +505,13 @@ export function renderPlan(syncPlan: SyncPlan): string {
 				lines.push("~ local vibrant-footer would double-load: move it aside");
 				lines.push(`    ${step.from}`);
 				lines.push(`    -> ${step.to}`);
+				break;
+			case "permissions.private":
+				lines.push(`~ permissions: ${step.changes.length} path(s) readable by other users`);
+				for (const change of step.changes) {
+					lines.push(`    ${sanitizeTerminalText(change.path, 300)}  ${formatMode(change.from)} -> ${formatMode(change.to)}`);
+				}
+				lines.push("    (API keys, MCP config, and session transcripts live here)");
 				break;
 		}
 	}

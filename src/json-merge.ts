@@ -248,7 +248,9 @@ export function writeJsonObjectAtomic(
 	let mode: number | undefined;
 	if (existsSync(filePath)) {
 		mode = statSync(filePath).mode & 0o777;
-		writeBackupAtomic(filePath, mode);
+		// A forced mode (credential files) applies to the backup too: it holds
+		// the same secrets as the file it copies.
+		writeBackupAtomic(filePath, options.forceMode ?? mode);
 	}
 
 	const wantedMode = options.forceMode ?? mode ?? options.newFileMode;

@@ -13,6 +13,7 @@ import { dirname } from "node:path";
 import { deepMerge, type JsonObject, type JsonValue, readJsonObject, writeJsonObjectAtomic } from "./json-merge.ts";
 import { packageEntrySource, packageIdentity, type Step, type SyncPlan } from "./plan.ts";
 import { sanitizeTerminalText } from "./terminal-text.ts";
+import { applyPrivatePermissions, formatMode } from "./permissions.ts";
 
 export interface StepResult {
 	kind: Step["kind"];
@@ -215,6 +216,12 @@ async function runStep(step: Step, options: ApplyOptions): Promise<string> {
 			return applyJsonPatch(step);
 		case "footer.demote":
 			return applyFooterDemote(step);
+		case "permissions.private": {
+			const done = applyPrivatePermissions(step.changes);
+			return done.length === 0
+				? "permissions: already private"
+				: `permissions: ${done.map((change) => `${change.path} ${formatMode(change.from)}->${formatMode(change.to)}`).join(", ")}`;
+		}
 	}
 }
 

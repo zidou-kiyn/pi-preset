@@ -37,51 +37,24 @@ export type SentinelLabel = (typeof SENTINEL_LABELS)[SentinelKind];
 export const RESERVED_LABELS = ["Other", ROW_INTENT_META.other.label, ROW_INTENT_META.next.label] as const;
 export type ReservedLabel = (typeof RESERVED_LABELS)[number];
 
+// pi-preset: field descriptions condensed; maxLength / minItems / maxItems
+// still carry the hard limits.
 export const OptionSchema = Type.Object({
-	label: Type.String({
-		maxLength: MAX_LABEL_LENGTH,
-		description: `MAX ${MAX_LABEL_LENGTH} CHARACTERS — hard limit, requests over the limit are rejected. The display text for this option that the user will see and select. Should be concise (1-5 words) and clearly describe the choice.`,
-	}),
-	description: Type.String({
-		description:
-			"Explanation of what this option means or what will happen if chosen. Useful for providing context about trade-offs or implications.",
-	}),
-	preview: Type.Optional(
-		Type.String({
-			description:
-				"Optional preview content rendered when this option is focused. Use for mockups, code snippets, or visual comparisons that help users compare options. See the tool description for the expected content format.",
-		}),
-	),
+	label: Type.String({ maxLength: MAX_LABEL_LENGTH, description: "1-5 words" }),
+	description: Type.String({ description: "What choosing it means; trade-offs" }),
+	preview: Type.Optional(Type.String({ description: "Markdown artifact to compare (single-select only)" })),
 });
 
 export const QuestionSchema = Type.Object({
-	question: Type.String({
-		description:
-			'The complete question to ask the user. Should be clear, specific, and end with a question mark. Example: "Which library should we use for date formatting?" If multiSelect is true, phrase it accordingly, e.g. "Which features do you want to enable?"',
-	}),
-	header: Type.String({
-		maxLength: MAX_HEADER_LENGTH,
-		description: `MAX ${MAX_HEADER_LENGTH} CHARACTERS — hard limit, requests over the limit are rejected. Very short chip/tag shown next to the question. Examples: "Auth method", "Library", "Approach".`,
-	}),
-	options: Type.Array(OptionSchema, {
-		minItems: MIN_OPTIONS,
-		maxItems: MAX_OPTIONS,
-		description:
-			"The available choices for this question. Must have 2-4 options. Each option should be a distinct, mutually exclusive choice (unless multiSelect is enabled). The 'Type something.' row is appended automatically — do NOT author it.",
-	}),
-	multiSelect: Type.Optional(
-		Type.Boolean({
-			default: false,
-			description:
-				"Set to true to allow the user to select multiple options instead of just one. Use when choices are not mutually exclusive.",
-		}),
-	),
+	question: Type.String({ description: "The full question, ending with '?'" }),
+	header: Type.String({ maxLength: MAX_HEADER_LENGTH, description: 'Short chip, e.g. "Auth method"' }),
+	options: Type.Array(OptionSchema, { minItems: MIN_OPTIONS, maxItems: MAX_OPTIONS }),
+	multiSelect: Type.Optional(Type.Boolean({ default: false })),
 });
 
 export const QuestionsSchema = Type.Array(QuestionSchema, {
 	minItems: 1,
 	maxItems: MAX_QUESTIONS,
-	description: "Questions to ask the user (1-4 questions)",
 });
 
 export const QuestionParamsSchema = Type.Object({

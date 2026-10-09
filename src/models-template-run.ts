@@ -7,7 +7,7 @@
  * 2. Choose the default provider and model (the template's are preselected).
  * 3. Review a redacted summary; nothing is written before Enter.
  * 4. models.json is replaced as a whole (backup: models.json.preset-bak) and
- *    defaultProvider/defaultModel are merged into settings.json.
+ *    defaultProvider/defaultModel (and unset template thinking levels) are merged into settings.json.
  *
  * TUI only: the API key prompt is a masked custom component.
  */

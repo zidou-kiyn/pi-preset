@@ -11,8 +11,9 @@
  * an actionable error rather than crashing.
  */
 
-import { closeSync, mkdirSync, openSync, writeSync } from "node:fs";
+import { closeSync, openSync, writeSync } from "node:fs";
 import { dirname } from "node:path";
+import { ensurePrivateLogDir } from "./registry.ts";
 
 export interface WsSpec {
     url: string;
@@ -52,8 +53,8 @@ export function openWsSource(spec: WsSpec, logPath: string): WsSource {
     // the session, so LOG_DIR may not have been created by a spawn yet), then
     // hold one appendable fd open for the socket's lifetime — one writeSync per
     // frame instead of an open/write/close trio.
-    mkdirSync(dirname(logPath), { recursive: true });
-    const logFd = openSync(logPath, "w");
+    ensurePrivateLogDir(dirname(logPath));
+    const logFd = openSync(logPath, "w", 0o600);
     let fdClosed = false;
     const closeFd = (): void => {
         if (fdClosed) return;

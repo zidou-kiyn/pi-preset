@@ -47,14 +47,9 @@ export function registerMonitorTool(pi: ExtensionAPI, reg: BackgroundRegistry): 
         promptSnippet:
             "Stream per-event notifications from a process, log, poll loop, or WebSocket",
         promptGuidelines: [
-            "Pick by notification count: ONE ('tell me when done') → bash run_in_background with an `until` loop that exits; ONE-PER-EVENT → monitor.",
-            "Don't use an unbounded command (tail -f, while true, inotifywait -m) for a single notification — it never exits and stays armed until timeout.",
-            "Every pipe stage must flush per line: grep needs --line-buffered, awk needs fflush(); never pipe to `head` (it buffers until N matches).",
-            "Silence is not success: your filter must match failure signatures too (e.g. grep -E --line-buffered 'done|Traceback|Error|FAILED|Killed|OOM'), or a crash looks identical to 'still running'.",
-            "Only stdout is the event stream; merge stderr with 2>&1 if its failures should notify. Poll remote APIs at 30s+, local checks at 0.5–1s, and guard transient failures with `|| true`.",
-            "Give a specific description — it is shown on every notification.",
-            "Use persistent:true for session-length watches (PR monitoring, log tails); stop it with the jobs tool (action='kill').",
-            "Use the ws source for a WebSocket feed instead of `command: 'websocat …'` — each text frame becomes one event.",
+            "monitor is for ONE-PER-EVENT streams; for a single 'tell me when done' use bash run_in_background with an `until` loop that exits, never an unbounded tail -f / while true.",
+            "Every pipe stage must flush per line (grep --line-buffered, awk fflush(), never `head`), and the filter must match failures too (e.g. 'done|Traceback|Error|FAILED|Killed|OOM'), or a crash looks like silence. Merge stderr with 2>&1 if it matters.",
+            "Poll remote APIs at 30s+, local checks at 0.5–1s, guard transient failures with `|| true`. persistent:true for session-long watches (stop with jobs kill); ws for WebSocket feeds instead of websocat.",
         ],
         parameters: Type.Object({
             command: Type.Optional(

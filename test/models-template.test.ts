@@ -102,6 +102,7 @@ test("the shipped template has only placeholder endpoints and env-var keys, and 
 	}
 	assert.equal(template.defaultProvider, "anthropic-proxy");
 	assert.equal(template.defaultModel, "claude-opus-5-5");
+	assert.deepEqual(template.modelThinkingLevels, { "anthropic-proxy/claude-fable-5-1": "high" });
 });
 
 test("base URLs are validated and trailing slashes dropped", () => {
@@ -150,6 +151,7 @@ test("filling every provider replaces models.json, sets defaults, and never show
 			packages: ["npm:x"],
 			defaultProvider: "openai-proxy",
 			defaultModel: "gpt-6.1-sol",
+			modelThinkingLevels: { "anthropic-proxy/claude-fable-5-1": "high" },
 		});
 
 		// The template's default is offered first, for provider and model alike.
@@ -251,4 +253,48 @@ test("the masked input never renders what was typed", () => {
 	assert.ok(!component.render(80).join("\n").includes(key));
 	component.handleInput("\r");
 	assert.equal(result, key);
+});
+
+test("template thinking levels fill only models without one and never replace the user's", async () => {
+	const dir = makeDir();
+	try {
+		const mine = { "anthropic-proxy/claude-fable-5-1": "xhigh", "openai-proxy/gpt-6-astra": "low" };
+		writeFileSync(join(dir, "settings.json"), JSON.stringify({ modelThinkingLevels: mine }));
+		const first = await run(dir, { selects: ["keep", "anthropic-proxy", "claude-opus-5-5"] });
+		assert.deepEqual(readJson(join(dir, "settings.json")).modelThinkingLevels, mine);
+		assert.ok(!first.recorded.confirmLines.flat().some((line) => line.includes("modelThinkingLevels")));
+
+		writeFileSync(join(dir, "settings.json"), JSON.stringify({ modelThinkingLevels: { "openai-proxy/gpt-6-astra": "low" } }));
+		const second = await run(dir, { selects: ["keep", "anthropic-proxy", "claude-opus-5-5"] });
+		assert.deepEqual(readJson(join(dir, "settings.json")).modelThinkingLevels, {
+			"openai-proxy/gpt-6-astra": "low",
+			"anthropic-proxy/claude-fable-5-1": "high",
+		});
+		assert.ok(
+			second.recorded.confirmLines.flat().some((line) => line.includes('modelThinkingLevels.anthropic-proxy/claude-fable-5-1: unset -> "high"')),
+		);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("a template thinking level the model cannot take is rejected", () => {
+	const dir = makeDir();
+	try {
+		const models = loadModelsTemplate().document;
+		writeFileSync(join(dir, "models.json"), JSON.stringify(models));
+		const write = (levels: Record<string, string>) =>
+			writeFileSync(
+				join(dir, "settings.json"),
+				JSON.stringify({ defaultProvider: "anthropic-proxy", defaultModel: "claude-opus-5-5", modelThinkingLevels: levels }),
+			);
+		write({ "anthropic-proxy/claude-opus-4-6": "xhigh" });
+		assert.throws(() => loadModelsTemplate(dir), /not supported/);
+		write({ "anthropic-proxy/claude-nope": "high" });
+		assert.throws(() => loadModelsTemplate(dir), /no such model/);
+		write({ "anthropic-proxy/claude-fable-5-1": "turbo" });
+		assert.throws(() => loadModelsTemplate(dir), /not a thinking level/);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
 });

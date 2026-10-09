@@ -8,9 +8,10 @@
  * provider and model.
  *
  * Applying the template REPLACES models.json as a whole (the previous file is
- * kept as models.json.preset-bak) and merges only defaultProvider and
- * defaultModel into settings.json. Everything here is read-only except
- * applyModelsTemplate().
+ * kept as models.json.preset-bak) and merges defaultProvider and defaultModel
+ * into settings.json, plus the template's modelThinkingLevels entries for
+ * models that have none yet (a level the user saved is never replaced).
+ * Everything here is read-only except applyModelsTemplate().
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -50,7 +51,11 @@ export interface ModelsTemplate {
 	providers: TemplateProvider[];
 	defaultProvider: string;
 	defaultModel: string;
+	/** Startup thinking levels keyed by `provider/modelId` (official defaults that differ from pi's). */
+	modelThinkingLevels: Record<string, string>;
 }
+
+const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 
 function readTemplateJson(path: string): JsonObject {
 	const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
@@ -91,7 +96,32 @@ export function loadModelsTemplate(dir: string = TEMPLATE_DIR): ModelsTemplate {
 		throw new Error(`template default model "${defaultModel}" is not a model of "${defaultProvider}"`);
 	}
 
-	return { document, providers, defaultProvider, defaultModel };
+	const modelThinkingLevels: Record<string, string> = {};
+	const rawLevels = settings.modelThinkingLevels;
+	if (rawLevels !== undefined) {
+		if (!isPlainObject(rawLevels)) throw new Error("template settings.json modelThinkingLevels is not an object");
+		for (const [key, level] of Object.entries(rawLevels)) {
+			const slash = key.indexOf("/");
+			const providerId = key.slice(0, slash);
+			const modelId = key.slice(slash + 1);
+			const raw = (document.providers as JsonObject)[providerId];
+			const model =
+				slash > 0 && isPlainObject(raw) && Array.isArray(raw.models)
+					? raw.models.find((entry) => isPlainObject(entry) && entry.id === modelId)
+					: undefined;
+			if (!isPlainObject(model)) throw new Error(`template thinking level for "${key}": no such model in models.json`);
+			if (typeof level !== "string" || !THINKING_LEVELS.includes(level)) {
+				throw new Error(`template thinking level for "${key}" is not a thinking level`);
+			}
+			const map = model.thinkingLevelMap;
+			if (isPlainObject(map) && map[level] === null) {
+				throw new Error(`template thinking level "${level}" is not supported by "${key}"`);
+			}
+			modelThinkingLevels[key] = level;
+		}
+	}
+
+	return { document, providers, defaultProvider, defaultModel, modelThinkingLevels };
 }
 
 // ── values ──────────────────────────────────────────────────────────────────
@@ -215,9 +245,20 @@ export function buildModelsDocument(template: ModelsTemplate, values: Readonly<R
 }
 
 export interface SettingsChange {
-	key: "defaultProvider" | "defaultModel";
+	/** `defaultProvider`, `defaultModel`, or `modelThinkingLevels.<provider/model>`. */
+	key: string;
 	from: JsonValue | undefined;
 	to: string;
+}
+
+/** Template thinking levels for models the user has not given one yet. */
+function missingThinkingLevels(settings: JsonObject, levels: Record<string, string>): Record<string, string> {
+	const current = isPlainObject(settings.modelThinkingLevels) ? settings.modelThinkingLevels : {};
+	const missing: Record<string, string> = {};
+	for (const [key, level] of Object.entries(levels)) {
+		if (current[key] === undefined) missing[key] = level;
+	}
+	return missing;
 }
 
 export interface ModelsTemplatePlan {
@@ -227,6 +268,8 @@ export interface ModelsTemplatePlan {
 	modelsChanged: boolean;
 	modelsExisted: boolean;
 	settingsPatch: { defaultProvider: string; defaultModel: string };
+	/** Template thinking levels; only those still unset are written (re-checked at apply time). */
+	thinkingLevels: Record<string, string>;
 	settingsChanges: SettingsChange[];
 	/** Providers still carrying a template placeholder, with the fields involved. */
 	placeholders: { providerId: string; fields: string[] }[];
@@ -282,6 +325,9 @@ export function planModelsTemplate(input: PlanModelsTemplateInput): ModelsTempla
 	for (const key of ["defaultProvider", "defaultModel"] as const) {
 		if (settings[key] !== settingsPatch[key]) settingsChanges.push({ key, from: settings[key], to: settingsPatch[key] });
 	}
+	for (const [key, level] of Object.entries(missingThinkingLevels(settings, template.modelThinkingLevels))) {
+		settingsChanges.push({ key: `modelThinkingLevels.${key}`, from: undefined, to: level });
+	}
 
 	const placeholders: ModelsTemplatePlan["placeholders"] = [];
 	for (const entry of template.providers) {
@@ -335,6 +381,7 @@ export function planModelsTemplate(input: PlanModelsTemplateInput): ModelsTempla
 		modelsChanged,
 		modelsExisted: existing.exists,
 		settingsPatch,
+		thinkingLevels: template.modelThinkingLevels,
 		settingsChanges,
 		placeholders,
 		lines,
@@ -350,7 +397,8 @@ export interface ModelsTemplateApplyResult {
 
 /**
  * Write the plan. settings.json is re-read right before its merge so keys
- * changed since planning survive; only defaultProvider/defaultModel are set.
+ * changed since planning survive; only defaultProvider/defaultModel and
+ * still-unset template thinking levels are set.
  */
 export function applyModelsTemplate(plan: ModelsTemplatePlan): ModelsTemplateApplyResult {
 	// Parse settings.json first: if it broke since planning, fail before
@@ -368,7 +416,10 @@ export function applyModelsTemplate(plan: ModelsTemplatePlan): ModelsTemplateApp
 	}
 
 	let settingsWritten = false;
-	const merged = deepMerge(settings, plan.settingsPatch);
+	const patch: JsonObject = { ...plan.settingsPatch };
+	const levels = missingThinkingLevels(settings, plan.thinkingLevels);
+	if (Object.keys(levels).length > 0) patch.modelThinkingLevels = levels;
+	const merged = deepMerge(settings, patch);
 	if (!jsonEquals(merged, settings)) {
 		writeJsonObjectAtomic(plan.settingsPath, merged);
 		settingsWritten = true;

@@ -22,6 +22,7 @@ import type { BackgroundRegistry } from "../state.ts";
 import {
     OUTPUT_PREVIEW_CHARS,
     QUICK_COMPLETION_MS,
+    FOREGROUND_POLL_MS,
     type ForegroundSlot,
     type UiContext,
 } from "../types.ts";
@@ -67,13 +68,11 @@ export function registerBashTool(
             "Use /bg to manually background a running command.",
         promptSnippet:
             "Run shell commands; long-running commands auto-background or use run_in_background=true",
+        // pi-preset: background guidance for bash, bash_bg, jobs, monitor, and
+        // agent_bg condensed and deduplicated here and in monitor.ts.
         promptGuidelines: [
-            "Use bash with run_in_background=true when a command is expected to run for a long time.",
-            "run_in_background is for ONE notification (the command exits when done). For per-event streaming (watching logs, polling an API, file changes), use the monitor tool instead.",
-            "Never `sleep N` to wait for something — the job lingers for the full sleep. Wait on a background job with jobs action='attach', watch with the monitor tool, or poll with an `until` loop that exits when ready.",
-            "A foreground command that outlives its timeout moves to the background and keeps running; you are notified when it finishes, so never raise timeout to protect a long build.",
-            "Check background job status with jobs action='list'.",
-            "Read background output with jobs action='output'.",
+            "Long commands: run_in_background=true (or bash_bg) gives ONE notification when the command exits. A foreground command that outlives its timeout also moves to the background and keeps running, so never raise timeout for a long build.",
+            "Never `sleep N` to wait: use jobs action='attach' for a job, an `until` loop that exits when ready, or monitor for per-event streams. Completion notices are informational; read output only for a FAILED job or when the output is the deliverable.",
         ],
         parameters: bashParamSchema,
 
@@ -255,6 +254,13 @@ async function runForeground(args: {
         return { content: [textBlock(output || "(no output)")], details: undefined };
     };
 
+    // pi-preset: like pi's own bash, report a partial result at once and stream
+    // the log from the start. pi's bash renderer only starts its live
+    // "Elapsed" clock and output preview on the first partial result, so a
+    // quiet command otherwise showed nothing until it finished.
+    onUpdate?.({ content: [], details: undefined });
+    progressPoller = streamLog(logPath, onUpdate, FOREGROUND_POLL_MS);
+
     try {
         // Quick completion window (2s).
         const quickResult = await Promise.race<SpawnExit | null>([
@@ -269,9 +275,8 @@ async function runForeground(args: {
             return finishForeground(quickResult);
         }
 
-        // Still running past the quick window — start progress polling and show
-        // the "(ctrl+shift+b to run in background)" hint, like Claude Code.
-        progressPoller = streamLog(logPath, onUpdate);
+        // Still running past the quick window — show the
+        // "(ctrl+shift+b to run in background)" hint, like Claude Code.
         showBackgroundHint(ctx);
         hintShown = true;
 

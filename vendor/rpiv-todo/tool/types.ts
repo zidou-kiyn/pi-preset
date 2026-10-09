@@ -83,13 +83,12 @@ export const TodoParamsSchema = Type.Object({
 	description: Type.Optional(Type.String({ description: "Long-form task description" })),
 	activeForm: Type.Optional(
 		Type.String({
-			description: "Present-continuous spinner label shown while status is in_progress (e.g. 'writing tests')",
+			description: "Spinner label while in_progress, e.g. 'writing tests'",
 		}),
 	),
 	status: Type.Optional(
 		StringEnum(["pending", "in_progress", "completed", "deleted"] as const, {
-			description:
-				"Set this task's status (update): one of pending, in_progress, completed, deleted. When action is list, filters returned tasks by this status.",
+			description: "New status (update) or filter (list)",
 		}),
 	),
 	blockedBy: Type.Optional(
@@ -99,18 +98,18 @@ export const TodoParamsSchema = Type.Object({
 	),
 	addBlockedBy: Type.Optional(
 		Type.Array(Type.Number(), {
-			description: "Task ids to add to blockedBy (update only, additive merge)",
+			description: "update only; merged into blockedBy",
 		}),
 	),
 	removeBlockedBy: Type.Optional(
 		Type.Array(Type.Number(), {
-			description: "Task ids to remove from blockedBy (update only, additive merge)",
+			description: "update only",
 		}),
 	),
 	owner: Type.Optional(Type.String({ description: "Agent/owner assigned to this task" })),
 	metadata: Type.Optional(
 		Type.Record(Type.String(), Type.Unknown(), {
-			description: "Arbitrary metadata; pass null value for a key to delete that key on update",
+			description: "null value deletes a key on update",
 		}),
 	),
 	id: Type.Optional(
@@ -120,7 +119,7 @@ export const TodoParamsSchema = Type.Object({
 	),
 	includeDeleted: Type.Optional(
 		Type.Boolean({
-			description: "If true, list action returns deleted (tombstoned) tasks as well. Default: false.",
+			description: "list: include deleted tasks",
 		}),
 	),
 });

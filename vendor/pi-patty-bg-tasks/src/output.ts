@@ -124,9 +124,10 @@ export type ToolTextUpdate = (update: {
  */
 export function streamLog(
     logPath: string,
-    onUpdate: ToolTextUpdate | undefined
+    onUpdate: ToolTextUpdate | undefined,
+    intervalMs?: number
 ): { stop: () => void } {
     return pollFileTail(logPath, (text) => {
         onUpdate?.({ content: [{ type: "text", text }], details: undefined });
-    });
+    }, intervalMs);
 }

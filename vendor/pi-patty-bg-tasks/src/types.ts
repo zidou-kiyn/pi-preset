@@ -8,6 +8,8 @@ import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 // --- Configuration constants ---
 export const DEFAULT_TIMEOUT_MS = 120_000;
 export const QUICK_COMPLETION_MS = 2_000;
+/** pi-preset: live-output poll interval for foreground bash. */
+export const FOREGROUND_POLL_MS = 250;
 export const FOREGROUND_TAIL_BYTES = 4_096;
 export const STALL_CHECK_INTERVAL_MS = 5_000;
 export const STALL_THRESHOLD_MS = 45_000;

@@ -1,4 +1,7 @@
 {
   "defaultProvider": "anthropic-proxy",
-  "defaultModel": "claude-opus-5-5"
+  "defaultModel": "claude-opus-5-5",
+  "modelThinkingLevels": {
+    "anthropic-proxy/claude-fable-5-1": "high"
+  }
 }

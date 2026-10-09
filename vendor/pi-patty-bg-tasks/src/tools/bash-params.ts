@@ -14,7 +14,7 @@ export const bashParamSchema = Type.Object({
         Type.Boolean({
             description:
                 "Set to true to run this command in the background immediately. " +
-                "Output is saved to /tmp/pi-bg/<jobId>.log.",
+                "Output is saved to a private log file named in the result.",
         })
     ),
     description: Type.Optional(

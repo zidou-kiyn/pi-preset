@@ -49,7 +49,7 @@ The **Apply models.json template** menu entry writes [`templates/models.json`](t
 |---|---|---|---|---|
 | `openai-proxy` | `openai-responses` | GPT-6 Astra, GPT-6.1 Sol, GPT-6 Luna | `https://your-openai-relay.example.invalid/v1` | `$OPENAI_PROXY_API_KEY` |
 | `anthropic-proxy` | `anthropic-messages` | Claude Fable 5.1, Claude Opus 5.5, Claude Opus 4.6, Claude Sonnet 5.5 | `https://your-anthropic-relay.example.invalid` | `$ANTHROPIC_PROXY_API_KEY` |
-| `deepseek-proxy` | `openai-responses` | DeepSeek V4.1 Flash | `https://your-deepseek-relay.example.invalid/v1` | `$DEEPSEEK_PROXY_API_KEY` |
+| `deepseek-proxy` | `openai-responses` | DeepSeek V4.1 Flash, DeepSeek V4 Pro | `https://your-deepseek-relay.example.invalid/v1` | `$DEEPSEEK_PROXY_API_KEY` |
 
 The flow (TUI only):
 
@@ -57,7 +57,7 @@ The flow (TUI only):
 2. **Default provider and model.** Two selectors pick `defaultProvider` and `defaultModel` for `settings.json`. The template's defaults, [`templates/settings.json`](templates/settings.json) (`anthropic-proxy` / `claude-opus-5-5`), come first.
 3. **Review.** A summary lists the file being replaced, providers that disappear because they are not in the template, each provider's endpoint and where its key comes from, the two `settings.json` keys, and any placeholders left. Keys are never shown. Enter applies, Esc writes nothing.
 
-`models.json` is replaced as a whole: the previous file is kept as `models.json.preset-bak`, the new one is written atomically with mode `0600`. Only `defaultProvider` and `defaultModel` are merged into `settings.json`; everything else there stays. Running it again with the same answers writes nothing. Open `/model` afterwards to load the models; the new default applies from the next pi start.
+`models.json` is replaced as a whole: the previous file is kept as `models.json.preset-bak`, the new one is written atomically with mode `0600`. Into `settings.json` go `defaultProvider`, `defaultModel`, and the template's `modelThinkingLevels` for models that have no level yet: Claude Fable 5.1 starts at `high`, its official default (pi's global default is `medium`). A level you saved yourself (Ctrl+S in `/thinking`) is never replaced; everything else in `settings.json` stays. Running it again with the same answers writes nothing. Open `/model` afterwards to load the models; the new default applies from the next pi start.
 
 The providers target subscription relays (a ChatGPT or Claude subscription exposed as an API by a relay), so their parameters follow the subscription catalogs rather than the pay-as-you-go API ones:
 
@@ -67,6 +67,8 @@ The providers target subscription relays (a ChatGPT or Claude subscription expos
   - Anthropic: `supportsMidConvoEffort` (changing the thinking level mid-session keeps the prompt cache and binds thinking blocks), `supportsMidConvoSystemMessages`, `supportsMidConvoToolChanges`, and `supportsEagerToolInputStreaming`. Claude Opus 4.6 turns the three mid-conversation flags off.
 
   If your relay rejects one of the enabled flags, set it to `false` in `models.json` after applying the template.
+- **Claude** follows the subscription: 1M context on every listed model, the 1h prompt cache (pi prices 1h cache writes at 2× input on its own), and Opus 5.5 / Sonnet 5.5 marked as rejecting `temperature`, like the official catalog.
+- **DeepSeek** is pay-as-you-go, so its prices are DeepSeek's own peak rates (off-peak is half): V4.1 Flash $0.30 / $1.20 / $0.006 cache hit, V4 Pro $1.32 / $3.96 / $0.044 per 1M tokens. Both take `low`, `high`, and `max` (`off` sends `none`); pi's default `medium` runs as `high`, DeepSeek's own default. No cache lifetime is declared, so nothing pays for cache warming.
 
 To add another provider, edit `models.json` by hand or ask pi to do it; pi's own `docs/models.md` describes the format. Re-applying the template removes providers that are not in it, so keep a copy of hand-added ones.
 
@@ -76,13 +78,13 @@ Everything except the preset's own `extensions/` is vendored under [`vendor/`](v
 
 | Vendored package | Upstream | What it adds | Local changes |
 |---|---|---|---|
-| `pi-patty-bg-tasks` 2.0.0 | [patty-io/pi-patty-bg-tasks](https://github.com/patty-io/pi-patty-bg-tasks) (unreleased `main`) | `bash` override that slides long commands into the background, `bash_bg`, `jobs`, `monitor`, `agent_bg`, ctrl+shift+b | headless fix, 30s/60s foreground timing (see below) |
+| `pi-patty-bg-tasks` 2.0.0 | [patty-io/pi-patty-bg-tasks](https://github.com/patty-io/pi-patty-bg-tasks) (unreleased `main`) | `bash` override that slides long commands into the background, `bash_bg`, `jobs`, `monitor`, `agent_bg`, ctrl+shift+b | headless fix, 30s/60s foreground timing and live progress (see below), condensed prompt |
 | `pi-workspace-history` 0.5.0 | [wcldyx/pi-workspace-history](https://github.com/wcldyx/pi-workspace-history) | file snapshots per turn: `/undo`, `/redo`, `/diff`, `/checkpoint`, file restore on `/tree` | — |
 | `pi-wtf` 0.3.0 | [travisp/pi-wtf](https://github.com/travisp/pi-wtf) | `/fuck` (`?`, `!`): abort, rewind to before the last prompt, put it back in the editor | lives in `vendor/pi-workspace-history/wtf` |
 | `pi-better-compaction` 0.7.4 | [lll9p/pi-better-compaction](https://github.com/lll9p/pi-better-compaction) | provider-native compaction (see below) | — |
-| `pi-fff` 0.11.0 | [dmtrKovalenko/fff](https://github.com/dmtrKovalenko/fff) `packages/pi-fff` | `ffgrep` / `fffind`: frecency-ranked, git-aware search | native library stays an npm dependency |
-| `rpiv-todo` 2.12.0 | [juicesharp/rpiv-mono](https://github.com/juicesharp/rpiv-mono) | `todo` task list and overlay | — |
-| `rpiv-ask-user-question` 2.12.0 | same | `ask_user_question` structured questions (up to 4 per call) | — |
+| `pi-fff` 0.11.0 | [dmtrKovalenko/fff](https://github.com/dmtrKovalenko/fff) `packages/pi-fff` | `ffgrep` / `fffind`: frecency-ranked, git-aware search | condensed prompt; native library stays an npm dependency |
+| `rpiv-todo` 2.12.0 | [juicesharp/rpiv-mono](https://github.com/juicesharp/rpiv-mono) | `todo` task list and overlay | condensed prompt |
+| `rpiv-ask-user-question` 2.12.0 | same | `ask_user_question` structured questions (up to 4 per call) | condensed prompt |
 | `pi-web-search` 1.7.0 | [ttttmr/pi-web-search](https://github.com/ttttmr/pi-web-search) | `web_search` through the current provider's native search; no extra API key | — |
 | `pi-apply-patch` 0.1.4 | [code-yeongyu/pi-apply-patch](https://github.com/code-yeongyu/pi-apply-patch) | Codex `apply_patch` for OpenAI models | `typebox` as a peer dependency |
 | `pi-context-view` 0.6.0 | [dimk90/pi-context-view](https://github.com/dimk90/pi-context-view) | `/context`: what fills the context, including tool definitions and injections | — |
@@ -91,6 +93,10 @@ Everything except the preset's own `extensions/` is vendored under [`vendor/`](v
 All of them are MIT-licensed except termius-mcp (BSD 3-clause, from the Termius CLI); each directory keeps its upstream LICENSE (or the repository's, for monorepo packages).
 
 `/fuck` and workspace-history work together: the rewind goes through pi's tree navigation, which workspace-history intercepts to offer restoring the files to the same point. `/undo` does the same for the last finished turn and also puts the prompt back in the editor; `/fuck` additionally aborts a running turn.
+
+### Condensed tool prompts
+
+Four vendored packages have their model-facing text condensed: `ask_user_question`, `todo`, the patty background tools, and `ffgrep` / `fffind`. Upstream repeats the same advice across tools (how to wait without `sleep`, one notification vs. an event stream) and spells out limits the schema and validator already enforce. The condensed text keeps every rule that changes behavior; the tools' code is untouched. Measured with the same request, the fixed per-request context drops from about 9.9k to 8.1k tokens (system-prompt rules from 7.7k to 2.9k characters), and A/B runs of questionnaires, task lists, background builds, and monitors produced the same tool calls as before.
 
 ### Following upstream
 
@@ -107,10 +113,12 @@ npm run upstream -- check                  # what differs locally from the recor
 
 Brings Claude Code's background-task flow to pi: a foreground `bash` command that runs past its timeout slides into the background and keeps running, **ctrl+shift+b** (or `/bg`) backgrounds it on demand, every finished job sends one `<task-notification>` the moment it exits, and `jobs` / `monitor` / `agent_bg` / `/bg-list` manage what is running. The vendored copy is the unreleased 2.0.0 from `main` (npm still has 1.1.6): no `job_decide` prompt any more, no ctrl+b binding (so no shortcut conflict with pi's cursor key), signal deaths reported as killed instead of completed. Background tasks are killed when the session ends, including `/reload`.
 
-Two local changes replace the two workaround extensions 0.1 shipped:
+Four local changes (two replace the workaround extensions 0.1 shipped):
 
 - **Headless `pi -p` no longer exits on the first `bash` call.** Upstream spawns the foreground command detached and `unref()`s it; in a headless process nothing else holds Node's event loop once stdin is drained, so Node exited 0 in the middle of the tool call (Trellis workers, `agent_bg` children, any `--mode json|text` driver). The foreground child now stays ref'd until it finishes or moves to the background.
 - **Short foreground waits.** `timeout` is when a command moves to the background, not a kill deadline, but models pass hundreds of seconds to protect long builds and a hung command then held the session. Without a timeout a command moves after 30s (`PI_PRESET_BASH_BG_DEFAULT`), and any timeout is capped at 60s (`PI_PRESET_BASH_BG_CAP`); `off` restores upstream's 120s and no cap. The parameter description and a bash guideline tell the model that the command keeps running. A bare `sleep`, which is killed at the timeout instead, keeps the timeout it was given.
+- **Live progress from the first moment.** pi's bash row shows a running `Elapsed` clock and the latest output lines, but only once the tool reports a partial result. Upstream reported nothing for the first 2s and then only when the log grew, so a quiet command (tests, builds, installs) showed neither the clock nor anything else until it ended. The command now reports at once and its log is polled every 250ms. The `(timeout Ns)` on the row is when it moves to the background.
+- **Private job logs.** Upstream wrote every command's output to a shared, world-readable `/tmp/pi-bg`, which any other user on the machine could read, or create first and so receive the output. Logs now go to `<tmpdir>/pi-bg-<uid>` (mode 0700, checked to be a real directory owned by you) and each log is 0600.
 
 ### Tool rows: `extensions/compact-tools.ts`
 
@@ -227,6 +235,7 @@ pi rebuilds every `/new` session from `settings.json` (`defaultModel`, `defaultT
 2. **Sets the config keys** below in `settings.json` and `mcp.json`.
 3. **Moves a local `extensions/vibrant-footer/`** into `extensions-disabled/` if one exists, so the footer does not load twice.
 4. **Warns** when upstream-installed `grill-me` / `grilling` copies still shadow the bundled skills (the migration script removes them).
+5. **Makes pi's data private** (Linux/macOS): the agent directory to 0700 and `auth.json`, `models.json`, `mcp.json` and their backups to 0600, plus the Termius server's data directory (`.termius` in your home) to 0700. pi creates them with your umask, usually 0755/0644, and they hold API keys and full session transcripts. Only group/other bits are removed, only on paths you own; symlinks are skipped.
 
 Every step is idempotent. A second run reports "already in sync" and touches nothing — not even file mtimes.
 
@@ -263,11 +272,12 @@ Written to `settings.json`, next to `packages[]`:
 {
   "tuiMode": "fullscreen",
   "fullscreenWheelScrollLines": "auto",
-  "fullscreenCopyOnSelect": false
+  "fullscreenCopyOnSelect": false,
+  "enableInstallTelemetry": false
 }
 ```
 
-This turns on pi's fullscreen TUI. `"auto"` adapts wheel speed to the terminal (one line per event on local macOS, accelerated up to 6 elsewhere and over SSH). With copy-on-select off, selecting text no longer overwrites the clipboard; press `ctrl+x` (`app.message.copy`) to copy the active selection. Like any `settings.json` change made by the sync, it takes effect after a restart.
+This turns on pi's fullscreen TUI. `"auto"` adapts wheel speed to the terminal (one line per event on local macOS, accelerated up to 6 elsewhere and over SSH). With copy-on-select off, selecting text no longer overwrites the clipboard; press `ctrl+x` (`app.message.copy`) to copy the active selection. `enableInstallTelemetry: false` stops pi's anonymous install/update reports and the provider attribution headers it adds to requests; update checks are separate and still run. Like any `settings.json` change made by the sync, it takes effect after a restart.
 
 Written to `mcp.json` (see [Browser](#browser-the-chrome-devtools-mcp-server)):
 
@@ -319,7 +329,7 @@ pi only reconciles a git source to its *configured* ref and never advances it on
 
 - **Vendored, not depended on.** Every extension is a reviewed copy in this repository, so an upstream release cannot change behavior until it is pulled, local fixes need no fork per package, and updating the one package updates everything. The cost is following upstream by hand; `npm run upstream -- status` shows what is pending.
 - **Few personal preferences are shipped.** The sync flow sets only the fullscreen TUI keys and the chrome-devtools MCP server besides `packages[]`. `defaultProvider` and `defaultModel` are written only when you apply the models.json template, and you pick them there. No `theme`, no `defaultThinkingLevel`, no `AGENTS.md`.
-- **No credentials, ever.** The models template holds only placeholder endpoints and `$ENV_VAR` keys. `scripts/scan-secrets.sh` scans the working tree and the full git history before every push.
+- **No credentials, ever.** The models template holds only placeholder endpoints and `$ENV_VAR` keys. `scripts/scan-secrets.sh` scans the working tree and the full git history before every push. Personal identifiers to block (user name, relay hosts, local ports) are kept out of the repository too: put one regular expression per line in `~/.config/pi-preset/scan-private-patterns` (or point `PI_PRESET_SCAN_PRIVATE` at a file). Reviewed false positives in vendored code are allowlisted by line hash in `scripts/scan-secrets-allow.json`.
 - **`packages[]` changes need a restart.** Extensions get no access to pi's settings manager, so the sync writes the file while the running session still holds the array it loaded at startup. If you use `/config` or `pi install` in that same session afterwards, pi persists its stale snapshot and removed entries come back. Re-running the sync fixes it; nothing else is lost.
 - **MCP goes through codemode.** The preset adds two servers, chrome-devtools (in `mcp.json`) and Termius (registered by its extension), both with codemode exposure, so their tools are called from scripts instead of being declared. Other servers carry credentials and differ per person, so they are left to `/mcp`. The footer shows what is connected.
 - **Runtime dependencies are the vendored packages' own:** `@ff-labs/fff-node` / `fff-bun` (fff's native search library), `ignore` (workspace-history), `diff` (apply-patch), and the vendored `rpiv-config` through a `file:` dependency. pi installs them with the package. The Termius server's Python dependencies (paramiko, pynacl, cryptography, keyring, …) live in its own environment, created by `/termius setup`.

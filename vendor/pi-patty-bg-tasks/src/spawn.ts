@@ -1,7 +1,8 @@
 // src/spawn.ts
 import { spawn } from "node:child_process";
-import { closeSync, mkdirSync, openSync, unlinkSync } from "node:fs";
+import { closeSync, openSync, unlinkSync } from "node:fs";
 import { dirname } from "node:path";
+import { ensurePrivateLogDir } from "./registry.ts";
 
 /** How the child ended: an exit code, or the signal that killed it. Node
  *  reports `code === null` when the child died by signal (external kill, OOM),
@@ -49,10 +50,10 @@ export function spawnWithFileOutput(args: {
     keepAlive?: boolean;
 }): SpawnResult {
     ensureLogDir(args.logPath);
-    const outFd = openSync(args.logPath, "w");
+    const outFd = openSync(args.logPath, "w", 0o600);
     let errFd: number;
     try {
-        errFd = args.errPath ? openSync(args.errPath, "w") : outFd;
+        errFd = args.errPath ? openSync(args.errPath, "w", 0o600) : outFd;
     } catch (err) {
         closeSync(outFd);
         throw err;
@@ -117,13 +118,15 @@ export function spawnWithFileOutput(args: {
     return { pid, logPath: args.logPath, exit, release };
 }
 
-/** The log dir is a constant (registry.LOG_DIR), so create it once per process
- *  instead of paying a recursive mkdir on every spawn. */
-let logDirCreated = false;
+/** The log dir is a constant (registry.LOG_DIR), so create and check it once
+ *  per process instead of on every spawn. pi-preset: private (0700, owner
+ *  checked) via ensurePrivateLogDir. */
+const checkedLogDirs = new Set<string>();
 function ensureLogDir(logPath: string): void {
-    if (logDirCreated) return;
-    mkdirSync(dirname(logPath), { recursive: true });
-    logDirCreated = true;
+    const dir = dirname(logPath);
+    if (checkedLogDirs.has(dir)) return;
+    ensurePrivateLogDir(dir);
+    checkedLogDirs.add(dir);
 }
 
 /**

@@ -49,18 +49,9 @@ export function registerJobsTool(
         name: "jobs",
         label: "Background Jobs",
         description:
-            "Manage background jobs: list, output, kill, attach, search, cleanup, and stats.",
+            "Manage background jobs: list; output (log tail, non-blocking peek); attach (follow live output and wait for the job to finish); kill; search (regex over all job output); cleanup (drop finished jobs); stats.",
         promptSnippet: "Inspect and manage background jobs",
-        promptGuidelines: [
-            "list: show all jobs",
-            "output: show the log tail for one job",
-            "kill: terminate a job",
-            "attach: follow a job's live output and wait for it to finish (use output for a non-blocking peek)",
-            "search: regex-search all job output",
-            "cleanup: purge terminal jobs",
-            "stats: show aggregate metrics",
-            "Completion notices are informational — call 'output' on a FAILED job, or on any job whose output is the deliverable (e.g. a test/build you must report). Don't call it just to acknowledge a completed job.",
-        ],
+        promptGuidelines: [],
         parameters: Type.Object({
             action: StringEnum(
                 [
