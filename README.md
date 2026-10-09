@@ -16,15 +16,16 @@ Restart pi, then run:
 /pi-preset
 ```
 
-`/pi-preset` is the preset's single visual control panel — a TUI menu with three entries:
+`/pi-preset` is the preset's single visual control panel — a TUI menu with four entries:
 
 1. **Sync preset** — packages, config keys, and footer. Starts with a package checklist (optional extensions, plus every installed package that is not part of the preset — unchecked, i.e. removed, by default), then shows a diff of everything it would change and writes nothing until you confirm.
 2. **Install / refresh grilling skills** — the optional upstream grilling workflow.
 3. **Apply models.json template** — replaces `~/.pi/agent/models.json` with the preset's providers and sets the default provider and model (see [models.json template](#modelsjson-template)).
+4. **Install the Maple Mono NF CN font (ask pi)** — sends a font-install prompt to the current model (see [Font](#font)).
 
 After a sync that added or removed packages, restart pi so the new package set loads — and do that before touching `/config` in the same session (see [Design notes](#design-notes)).
 
-Once pi can talk to a model, ask it to install the font the status bar needs (see [Font](#font)).
+Once pi can talk to a model, pick **Install the Maple Mono NF CN font** in `/pi-preset` to have it install the font the status bar needs (see [Font](#font)).
 
 ## Optional extensions
 
@@ -109,7 +110,7 @@ Skills execute as model instructions with Pi's agent permissions. Review the two
 | Resource | Effect |
 |---|---|
 | `extensions/vibrant-footer.ts` | The status bar. Toggle with `/vibrant-footer` |
-| `extensions/pi-preset.ts` | The `/pi-preset` control panel: sync, skills, and the models.json template in one TUI menu |
+| `extensions/pi-preset.ts` | The `/pi-preset` control panel: sync, skills, the models.json template, and the font-install prompt in one TUI menu |
 | `templates/models.json`, `templates/settings.json` | The provider template (placeholder endpoints and keys) and its default provider/model |
 | `extensions/headless-keepalive.ts` | Keeps headless `pi -p` children alive during tool calls (works around a `pi-patty-bg-tasks` bug, see below). No command, no UI |
 | `extensions/bash-bg-cap.ts` | Moves stuck foreground `bash` commands to the background after 30s (no timeout given) or at most 60s, instead of the model's multi-minute timeouts (see below). No command, no UI |
@@ -290,11 +291,13 @@ The keepalive extension holds one ref'd `setInterval` per in-flight tool call (`
 
 The footer uses Nerd Fonts v3 Material Design glyphs (`nf-md-*`). Without a Nerd Font they render as tofu. The preset uses **Maple Mono NF CN** ([subframe7536/maple-font](https://github.com/subframe7536/maple-font/releases/latest), asset `MapleMono-NF-CN-unhinted.zip`).
 
-The preset does not install fonts itself: the right method differs per OS and per distribution. Once a model is configured and pi answers, ask pi to do it, for example:
+The preset does not install fonts itself: the right method differs per OS and per distribution. Instead, once a model is configured and pi answers, pick **Install the Maple Mono NF CN font (ask pi)** in `/pi-preset`. It sends this prompt as your message (queued as a follow-up if a run is in progress; refused with a hint when no model is selected yet), and the model does the install with its normal tools:
 
 ```
-Install the Maple Mono NF CN font for my operating system: check whether it is already installed, otherwise download MapleMono-NF-CN-unhinted.zip from the latest release of github.com/subframe7536/maple-font, install it for my user only, refresh the font cache, and tell me how to set it as my terminal's font.
+Install the Maple Mono NF CN font for my operating system. First check whether it is already installed; if it is, stop and tell me. Otherwise download MapleMono-NF-CN-unhinted.zip from the latest release of github.com/subframe7536/maple-font, install it for my user only (no sudo/administrator rights), refresh the font cache if my OS has one, and tell me how to set it as my terminal's font.
 ```
+
+You can also paste it yourself. The text lives in [`src/font-prompt.ts`](src/font-prompt.ts).
 
 > **You must set your terminal font to `Maple Mono NF CN` yourself.** Installing the font does not change your terminal emulator's configuration. pi can tell you where that setting lives for your terminal, or edit its config file if you ask.
 

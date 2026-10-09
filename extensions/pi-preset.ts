@@ -8,6 +8,7 @@
  *   2. Grilling skills   — install or refresh the upstream grill-me/grilling pair
  *   3. Models template   — replace models.json with the preset template and set
  *                          the default provider/model (TUI only)
+ *   4. Install the font  — sends the font-install prompt to the current model
  *
  * Escape at the menu (or any later prompt) writes nothing. Non-interactive
  * modes (print, json) render the sync dry-run plan, matching the old
@@ -20,6 +21,7 @@
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { TUI } from "@earendil-works/pi-tui";
+import { FONT_FAMILY, sendFontInstallPrompt } from "../src/font-prompt.ts";
 import { runPresetModelsTemplate } from "../src/models-template-run.ts";
 import { type DescribedOption, DescribedSelectComponent } from "../src/preset-ui.ts";
 import { runPresetSync } from "../src/preset-sync-run.ts";
@@ -43,6 +45,12 @@ const MENU_OPTIONS: readonly DescribedOption[] = [
 		label: "Apply models.json template",
 		description:
 			"Replaces models.json with the preset's OpenAI/Anthropic/DeepSeek providers. Fill in each base URL and API key now or keep placeholders, then pick the default provider and model for settings.json. The old file is kept as models.json.preset-bak.",
+	},
+	{
+		id: "font",
+		label: `Install the ${FONT_FAMILY} font (ask pi)`,
+		description:
+			"Sends a prompt to the current model asking it to check for the footer's Nerd Font and, if missing, download and install it for your user with its normal tools, then explain how to set it as the terminal font. Needs a working model.",
 	},
 ];
 
@@ -69,7 +77,7 @@ async function selectMenuAction(ctx: ExtensionCommandContext): Promise<string | 
 
 export default function piPresetExtension(pi: ExtensionAPI): void {
 	pi.registerCommand("pi-preset", {
-		description: "Preset control panel: sync packages/config, grilling skills, models.json template",
+		description: "Preset control panel: sync packages/config, grilling skills, models.json template, font",
 		handler: async (_args, ctx) => {
 			// print/json: no dialogs exist, so the only useful output is the sync
 			// dry-run plan — runPresetSync renders exactly that and stops.
@@ -88,6 +96,9 @@ export default function piPresetExtension(pi: ExtensionAPI): void {
 					return;
 				case "models":
 					await runPresetModelsTemplate(ctx);
+					return;
+				case "font":
+					sendFontInstallPrompt(pi, ctx);
 					return;
 				default:
 					// Escape / cancelled menu: nothing was chosen, nothing is written.
