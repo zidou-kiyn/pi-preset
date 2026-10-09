@@ -1,0 +1,42 @@
+{
+	"note": "Behavior references for trellis-lite (clean-room: formats and behavior only, no code). Update a baseline only after the decision log in docs/trellis-lite-upstream.md has an entry for everything up to it.",
+	"repos": {
+		"trellis": {
+			"url": "https://github.com/mindfold-ai/Trellis.git",
+			"npm": "@mindfoldhq/trellis",
+			"betaBranchPattern": "feat/v*-beta",
+			"tracks": [
+				{ "name": "beta", "branch": "feat/v0.7-beta", "baseline": "be9e19b269c25cb2787489eb81062bf96619442c", "ref": "v0.7.0-beta.4", "date": "2026-09-11" },
+				{ "name": "stable", "branch": "main", "baseline": "833a5846d18ad7a5ccd8c41c876d89cc936f5fd9", "ref": "v0.6.17", "date": "2026-09-11" }
+			],
+			"paths": [
+				"packages/cli/src/templates/pi/",
+				"packages/cli/src/templates/common/skills/update-spec.md",
+				"packages/cli/src/templates/common/skills/brainstorm.md",
+				"packages/cli/src/templates/common/skills/break-loop.md",
+				"packages/cli/src/templates/trellis/scripts/add_session.py",
+				"packages/cli/src/templates/trellis/scripts/common/spec_match.py",
+				"packages/cli/src/templates/trellis/scripts/common/spec_inject.py",
+				"packages/cli/src/templates/shared-hooks/inject-spec-context.py",
+				"packages/cli/src/templates/markdown/spec/",
+				"packages/cli/src/templates/trellis/workflow.md",
+				"packages/cli/src/templates/trellis/config.yaml"
+			]
+		},
+		"mini-trellis": {
+			"url": "https://github.com/Tiger-zzZ/mini-trellis.git",
+			"npm": "mini-trellis",
+			"tracks": [
+				{ "name": "main", "branch": "main", "baseline": "74f2dfa85cc25becbe853b374dac6ea1233604d5", "ref": "v0.2.0", "date": "2026-10-04" }
+			],
+			"paths": [
+				"packages/cli/src/templates/pi/",
+				"packages/cli/src/templates/common/skills/update-spec.md",
+				"packages/cli/src/templates/common/commands/remember.md",
+				"packages/cli/src/templates/markdown/spec/guides/mini-memory.md.txt",
+				"docs/roadmap.md",
+				"README.md"
+			]
+		}
+	}
+}
