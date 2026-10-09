@@ -26,6 +26,7 @@ import { FONT_FAMILY, sendFontInstallPrompt } from "../src/font-prompt.ts";
 import { runPresetModelsTemplate } from "../src/models-template-run.ts";
 import { type DescribedOption, DescribedSelectComponent } from "../src/preset-ui.ts";
 import { runPresetSync } from "../src/preset-sync-run.ts";
+import { presetVersion } from "../src/version.ts";
 
 const MENU_OPTIONS: readonly DescribedOption[] = [
 	{
@@ -49,10 +50,11 @@ const MENU_OPTIONS: readonly DescribedOption[] = [
 ];
 
 async function selectMenuAction(ctx: ExtensionCommandContext): Promise<string | undefined> {
+	const title = `pi-preset ${presetVersion()}`;
 	if (ctx.mode === "tui") {
 		return ctx.ui.custom<string | undefined>((tui: TUI, theme, keybindings, done) => {
 			return new DescribedSelectComponent(
-				"pi-preset",
+				title,
 				MENU_OPTIONS,
 				theme,
 				keybindings,
@@ -63,7 +65,7 @@ async function selectMenuAction(ctx: ExtensionCommandContext): Promise<string | 
 	}
 	// RPC has dialogs but no custom components: fall back to a plain select.
 	const label = await ctx.ui.select(
-		"pi-preset",
+		title,
 		MENU_OPTIONS.map((option) => option.label),
 	);
 	return MENU_OPTIONS.find((option) => option.label === label)?.id;

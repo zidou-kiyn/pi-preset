@@ -234,6 +234,7 @@ The pi version asks each round through `ask_user_question` (at most 4 questions 
 | `trellis-lite/` | trellis-lite's skills (loaded only in Trellis projects), its CLI, the migration prompt, and upstream baselines |
 | `templates/models.json`, `templates/settings.json` | The provider template (placeholder endpoints and keys) and its default provider/model |
 | `scripts/upstream.mjs`, `scripts/migrate-vendored.ts` | Upstream tracking and the 0.1 → 0.2 migration |
+| `scripts/release.mjs` | `npm run release`: version bump, commit, and tag (see [Versions](#versions)) |
 | `scripts/check-upstream-trellis.mjs` | What changed in Trellis and mini-trellis since trellis-lite's baselines (read-only) |
 
 ### Reading the status bar
@@ -398,6 +399,17 @@ export PI_CODING_AGENT_DIR=$(mktemp -d)
 echo '{"packages":["'$PWD'"]}' > $PI_CODING_AGENT_DIR/settings.json
 pi
 ```
+
+### Versions
+
+Releases are git tags `vX.Y.Z` with the same version in `package.json`; trellis-lite and the vendored extensions have no versions of their own and follow the preset's. The installed `packages[]` entry still follows the default branch (see [Git ref semantics](#git-ref-semantics)), so tags are for comparing machines, not for pinning. `/pi-preset` shows the installed version and commit in its title, e.g. `pi-preset 0.3.0 (abc1234)`.
+
+```bash
+npm run release -- minor    # or patch / major / X.Y.Z; needs a clean tree, runs npm test, commits "release: vX.Y.Z", tags it
+git push --follow-tags
+```
+
+The tag message lists the commits since the previous tag.
 
 ## License
 
