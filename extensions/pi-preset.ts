@@ -50,7 +50,7 @@ const MENU_OPTIONS: readonly DescribedOption[] = [
 		id: "font",
 		label: `Install the ${FONT_FAMILY} font (ask pi)`,
 		description:
-			"Sends a prompt to the current model asking it to check for the footer's Nerd Font and, if missing, download and install it for your user with its normal tools, then explain how to set it as the terminal font. Needs a working model.",
+			"Sends a prompt to the current model asking it to install the footer's Nerd Font for your user if it is missing and to set it as your terminal's font in the terminal's config (backing it up first). Needs a working model.",
 	},
 ];
 
