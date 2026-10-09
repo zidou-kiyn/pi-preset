@@ -1,0 +1,4 @@
+{
+  "defaultProvider": "anthropic-proxy",
+  "defaultModel": "claude-opus-5-5"
+}

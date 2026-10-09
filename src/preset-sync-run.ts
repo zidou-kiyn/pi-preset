@@ -71,8 +71,7 @@ export async function runPresetSync(ctx: ExtensionCommandContext): Promise<void>
 
 	// Nothing to do: skip the confirmation entirely so a repeat run is a
 	// true no-op with no prompt and no writes. The body still prints, because
-	// notes carry things the user must act on themselves — a manual font
-	// install on Windows is reported here and nowhere else.
+	// notes and blockers carry things the user must act on themselves.
 	if (syncPlan.steps.length === 0) {
 		if (syncPlan.blockers.length > 0) {
 			report(ctx, `pi-preset sync: nothing applied\n${body}`, "warning");

@@ -1,6 +1,6 @@
 # pi-preset
 
-Personal [pi](https://pi.dev) environment as a pi package: a theme-reactive status bar, a curated extension set, the two non-default config keys (the ones that keep the background-task and tool-display extensions from fighting over `bash`), and the Nerd Font the footer's glyphs need.
+Personal [pi](https://pi.dev) environment as a pi package: a theme-reactive status bar, a curated extension set, the two non-default config keys (the ones that keep the background-task and tool-display extensions from fighting over `bash`), and a `models.json` template for OpenAI / Anthropic / DeepSeek relays.
 
 Reproduces the base working setup on a new machine in two commands, without shipping a single credential; the optional upstream grilling workflow has its own explicit sync command.
 
@@ -18,11 +18,13 @@ Restart pi, then run:
 
 `/pi-preset` is the preset's single visual control panel — a TUI menu with three entries:
 
-1. **Sync preset** — packages, config keys, footer, and font. Starts with a package checklist (optional extensions, plus every installed package that is not part of the preset — unchecked, i.e. removed, by default), then shows a diff of everything it would change and writes nothing until you confirm.
+1. **Sync preset** — packages, config keys, and footer. Starts with a package checklist (optional extensions, plus every installed package that is not part of the preset — unchecked, i.e. removed, by default), then shows a diff of everything it would change and writes nothing until you confirm.
 2. **Install / refresh grilling skills** — the optional upstream grilling workflow.
-3. **Add model provider** — the masked model-provider wizard for `~/.pi/agent/models.json`.
+3. **Apply models.json template** — replaces `~/.pi/agent/models.json` with the preset's providers and sets the default provider and model (see [models.json template](#modelsjson-template)).
 
 After a sync that added or removed packages, restart pi so the new package set loads — and do that before touching `/config` in the same session (see [Design notes](#design-notes)).
+
+Once pi can talk to a model, ask it to install the font the status bar needs (see [Font](#font)).
 
 ## Optional extensions
 
@@ -30,41 +32,34 @@ After a sync that added or removed packages, restart pi so the new package set l
 
 `pi-playwright` used to sit next to it and was dropped: Chrome DevTools already covers navigate / evaluate / screenshot against a live browser without Playwright's own browser downloads.
 
-## Interactive model provider wizard
+## models.json template
 
-The **Add model provider** menu entry is a deterministic, TUI-only wizard for three fixed model bundles plus a fully custom channel:
+The **Apply models.json template** menu entry writes [`templates/models.json`](templates/models.json) over `~/.pi/agent/models.json`. The template carries three providers with every model, compat flag, thinking-level map, context limit, modality, and price filled in. Only the endpoint and the key are placeholders:
 
-| Family | Models | Fixed API mode |
-|---|---|---|
-| Anthropic | Claude Fable 5.1, Claude Opus 5.5, Claude Sonnet 5.5 | `anthropic-messages` |
-| OpenAI | GPT-6 Astra, GPT-6.1 Sol, GPT-6 Luna | `openai-responses` |
-| DeepSeek | DeepSeek V4.1 Flash | `openai-responses` |
-| Custom | user-defined | `openai-completions`, `openai-responses`, or `anthropic-messages` |
+| Provider | API | Models | Placeholder `baseUrl` | Placeholder `apiKey` |
+|---|---|---|---|---|
+| `openai-proxy` | `openai-responses` | GPT-6 Astra, GPT-6.1 Sol, GPT-6 Luna | `https://your-openai-relay.example.invalid/v1` | `$OPENAI_PROXY_API_KEY` |
+| `anthropic-proxy` | `anthropic-messages` | Claude Fable 5.1, Claude Opus 5.5, Claude Opus 4.6, Claude Sonnet 5.5 | `https://your-anthropic-relay.example.invalid` | `$ANTHROPIC_PROXY_API_KEY` |
+| `deepseek-proxy` | `openai-responses` | DeepSeek V4.1 Flash | `https://your-deepseek-relay.example.invalid/v1` | `$DEEPSEEK_PROXY_API_KEY` |
 
-Choose a family, explicitly select one or more models, then enter a provider identifier, base URL, and API key. For the three preset families, the catalog metadata, compatibility flags, thinking-level maps, context limits, modalities, and pricing tiers are bundled in the package; the wizard never asks for those schema details.
+The flow (TUI only):
 
-The bundles target subscription relays (a ChatGPT or Claude subscription exposed as an API by a relay), so their parameters follow the subscription catalogs rather than the pay-as-you-go API ones:
+1. **Fill in or keep.** Either enter a base URL and API key for each provider (the key prompt is masked), or skip the prompts. An empty answer, and every provider when you skip, keeps the provider's current value from your existing `models.json`, or the template placeholder when there is none. A key written as `$NAME` is read by pi from that environment variable, so the placeholders already work if you export `OPENAI_PROXY_API_KEY` and so on.
+2. **Default provider and model.** Two selectors pick `defaultProvider` and `defaultModel` for `settings.json`. The template's defaults, [`templates/settings.json`](templates/settings.json) (`anthropic-proxy` / `claude-opus-5-5`), come first.
+3. **Review.** A summary lists the file being replaced, providers that disappear because they are not in the template, each provider's endpoint and where its key comes from, the two `settings.json` keys, and any placeholders left. Keys are never shown. Enter applies, Esc writes nothing.
+
+`models.json` is replaced as a whole: the previous file is kept as `models.json.preset-bak`, the new one is written atomically with mode `0600`. Only `defaultProvider` and `defaultModel` are merged into `settings.json`; everything else there stays. Running it again with the same answers writes nothing. Open `/model` afterwards to load the models; the new default applies from the next pi start.
+
+The providers target subscription relays (a ChatGPT or Claude subscription exposed as an API by a relay), so their parameters follow the subscription catalogs rather than the pay-as-you-go API ones:
 
 - **OpenAI** thinking levels use the ChatGPT-subscription (`openai-codex`) mapping: `minimal` is served as `low`. GPT-6 Astra and GPT-6.1 Sol cannot disable reasoning, so `off` is unavailable for them. Context stays at the subscription's 272k.
 - **Compatibility flags** mirror what pi's bundled catalog enables for these models and were verified end to end through two different subscription relays:
   - OpenAI: `supportsOpenAIGrammarTools` (grammar-constrained tools go out as native OpenAI custom tools) and `supportsMidConvoSystemMessages` (mid-conversation developer messages stay in place instead of being folded into the leading system prompt, which would break the cached prefix).
-  - Anthropic: `supportsMidConvoEffort` (changing the thinking level mid-session keeps the prompt cache and binds thinking blocks), `supportsMidConvoSystemMessages`, `supportsMidConvoToolChanges`, and `supportsEagerToolInputStreaming`.
+  - Anthropic: `supportsMidConvoEffort` (changing the thinking level mid-session keeps the prompt cache and binds thinking blocks), `supportsMidConvoSystemMessages`, `supportsMidConvoToolChanges`, and `supportsEagerToolInputStreaming`. Claude Opus 4.6 turns the three mid-conversation flags off.
 
-  `supportsAdditionalTools` and `supportsToolSearch` are left off: they only matter for MCP tools loaded through `tool_search` and have not been verified through a relay yet. If your relay rejects one of the enabled flags, add the provider through the **Custom** channel instead, where every one of these flags can be set to `false`.
+  If your relay rejects one of the enabled flags, set it to `false` in `models.json` after applying the template.
 
-The **Custom** entry is a generic channel for any OpenAI- or Anthropic-compatible endpoint (one-api/new-api relays, OpenRouter, vLLM, Ollama, Claude proxies, ...). Every step explains its options on screen before you choose:
-
-1. **API protocol** — a described selector for `openai-completions` (chat completions, the most widely supported), `openai-responses`, or `anthropic-messages`.
-2. **Compatibility flags** — a tri-state checklist filtered to the chosen protocol. Each flag shows what it does; Enter cycles *default → true → false*, where *default* omits the flag so Pi keeps its built-in or URL-auto-detected behavior.
-3. **Models** — one or more models, each with model ID, display name, input modalities (text or text+image), thinking levels (none, OpenAI-, Anthropic-, or DeepSeek-style presets, each explained, or **Custom mapping**, which asks for the provider value of each of Pi's seven thinking levels — leave a level empty to make it unavailable), context window and max output tokens (accepts `128000`, `128k`, `1m`; empty picks a sensible default), and optional per-million-token costs entered as `input,output,cacheRead,cacheWrite`. Invalid entries re-prompt instead of aborting the wizard.
-
-After that, the custom flow joins the normal path: provider identifier, base URL, masked API key, redacted diff preview, and atomic write. The API key is collected by a masked TUI component and is not rendered in the preview, notifications, diagnostics, or command arguments. RPC, JSON, and print modes report that the wizard requires interactive TUI mode and do not write anything.
-
-The target file is parsed with Pi-compatible `//` comments and trailing commas. Only `providers[providerId]` is added or replaced; unrelated top-level data and sibling providers are re-read immediately before the atomic write and preserved. On POSIX filesystems, existing files must grant no group or other permissions. A missing POSIX file is created as `0600`; an existing owner-only mode such as `0600` or `0400` is preserved. On Windows, access is governed by ACLs; Node's numeric mode is only a writable/read-only approximation, so the wizard does not interpret synthetic group/other bits as POSIX permissions. On POSIX, a broader mode stops the wizard before API-key entry and prints an actionable `chmod 600` instruction. Valid symlinks are followed without replacing the symlink inode; dangling symlinks are blocked.
-
-The wizard shows a redacted provider-only diff and asks for explicit confirmation. Replacing a different existing provider requires a second confirmation and replaces that provider object as a unit rather than merging stale model fields. An existing identical provider is reported as already configured and does not create a backup or change the file mtime. Successful writes create `<real-models-path>.preset-bak` containing the original bytes, then atomically rename the new JSON. Open `/model` after success to hot-reload the selected models; no Pi restart is required.
-
-OAuth, environment-variable generation, secret managers, editing existing providers in place, and API protocols beyond the three listed above are intentionally out of scope. Advanced compat fields (e.g. `thinkingFormat`, routing preferences) can still be added by editing `models.json` by hand after the wizard writes the provider. Use the provider's own endpoint and credentials locally; the public preset contains no user-specific provider identifier, endpoint, or credential.
+To add another provider, edit `models.json` by hand or ask pi to do it; pi's own `docs/models.md` describes the format. Re-applying the template removes providers that are not in it, so keep a copy of hand-added ones.
 
 ## Upstream grilling skills
 
@@ -114,7 +109,8 @@ Skills execute as model instructions with Pi's agent permissions. Review the two
 | Resource | Effect |
 |---|---|
 | `extensions/vibrant-footer.ts` | The status bar. Toggle with `/vibrant-footer` |
-| `extensions/pi-preset.ts` | The `/pi-preset` control panel: sync, skills, and model wizard in one TUI menu |
+| `extensions/pi-preset.ts` | The `/pi-preset` control panel: sync, skills, and the models.json template in one TUI menu |
+| `templates/models.json`, `templates/settings.json` | The provider template (placeholder endpoints and keys) and its default provider/model |
 | `extensions/headless-keepalive.ts` | Keeps headless `pi -p` children alive during tool calls (works around a `pi-patty-bg-tasks` bug, see below). No command, no UI |
 | `extensions/bash-bg-cap.ts` | Moves stuck foreground `bash` commands to the background after 30s (no timeout given) or at most 60s, instead of the model's multi-minute timeouts (see below). No command, no UI |
 | `extensions/cache-retention.ts` | Defaults `PI_CACHE_RETENTION` to `long` inside pi (1h Anthropic cache TTL, 24h OpenAI Responses retention) so it applies even in shells that never sourced your rc file. An explicit value in the environment wins. No command, no UI |
@@ -164,7 +160,6 @@ pi rebuilds every `/new` session from `settings.json` (`defaultModel`, `defaultT
 1. **Declares 12 required extensions** (plus any checked optional ones) in `~/.pi/agent/settings.json` `packages[]`, and **removes every other entry you did not check to keep** (see [Packages outside the preset](#packages-outside-the-preset)).
 2. **Sets 5 config keys** across three JSON files (see below).
 3. **Moves a local `extensions/vibrant-footer/`** into `extensions-disabled/` if one exists, so the footer does not load twice.
-4. **Installs the font** when it is missing.
 
 Every step is idempotent. A second run reports "already in sync" and touches nothing — not even file mtimes.
 
@@ -179,7 +174,7 @@ Every step is idempotent. A second run reports "already in sync" and touches not
 | `npm:pi-context-view` | `npm:@juicesharp/rpiv-ask-user-question` |
 | `npm:@narumitw/pi-btw` | `npm:pi-patty-bg-tasks` |
 
-`pi-apply-patch` stays required: pi has no built-in `apply_patch`. Its Codex Lark grammar only reaches the model once the tool declares it through pi's `constrainedSampling` API ([code-yeongyu/pi-apply-patch#43](https://github.com/code-yeongyu/pi-apply-patch/pull/43)). Until that lands, it goes out as a plain function tool even though the OpenAI bundle enables `supportsOpenAIGrammarTools`. The flag is harmless in the meantime and takes effect after an update.
+`pi-apply-patch` stays required: pi has no built-in `apply_patch`. Its Codex Lark grammar only reaches the model once the tool declares it through pi's `constrainedSampling` API ([code-yeongyu/pi-apply-patch#43](https://github.com/code-yeongyu/pi-apply-patch/pull/43)). Until that lands, it goes out as a plain function tool even though the OpenAI template enables `supportsOpenAIGrammarTools`. The flag is harmless in the meantime and takes effect after an update.
 
 Web search is `pi-web-search` only. It uses the selected model provider's native search (Gemini grounding, xAI, OpenAI Responses, Anthropic), so no separate search API key is needed. `pi-web-access` was dropped because it registers the same tool names; pi treats a duplicate tool name as a fatal load error, so the two cannot coexist.
 
@@ -293,23 +288,15 @@ The keepalive extension holds one ref'd `setInterval` per in-flight tool call (`
 
 ## Font
 
-The footer uses Nerd Fonts v3 Material Design glyphs (`nf-md-*`). Without a Nerd Font they render as tofu.
+The footer uses Nerd Fonts v3 Material Design glyphs (`nf-md-*`). Without a Nerd Font they render as tofu. The preset uses **Maple Mono NF CN** ([subframe7536/maple-font](https://github.com/subframe7536/maple-font/releases/latest), asset `MapleMono-NF-CN-unhinted.zip`).
 
-The sync flow detects the family **`Maple Mono NF CN`** and skips when present. Detection is a purely local check — `fc-list` where available, otherwise a scan of the platform font directories — so a machine that already has the font issues no network request and keeps whatever build it has.
+The preset does not install fonts itself: the right method differs per OS and per distribution. Once a model is configured and pi answers, ask pi to do it, for example:
 
-When the font is missing:
+```
+Install the Maple Mono NF CN font for my operating system: check whether it is already installed, otherwise download MapleMono-NF-CN-unhinted.zip from the latest release of github.com/subframe7536/maple-font, install it for my user only, refresh the font cache, and tell me how to set it as my terminal's font.
+```
 
-| Platform | Behavior |
-|---|---|
-| Linux | Downloads the `NF-CN-unhinted` asset from the **latest** release into `$XDG_DATA_HOME/fonts/maple-nf-cn/`, then runs `fc-cache -f` |
-| macOS | Same, into `~/Library/Fonts/` |
-| Windows | **Writes nothing.** Prints the release link and manual steps |
-
-No version is pinned anywhere. The asset is resolved from whatever GitHub currently reports as the latest release, and matched by pattern rather than filename, because filenames are not stable across releases.
-
-Extraction shells out to `unzip`, falling back to `bsdtar` then `tar`. Note that GNU `tar` cannot read zip archives, so on Linux you need `unzip` or `bsdtar` installed.
-
-> **You must set your terminal font to `Maple Mono NF CN` yourself.** Installing the font does not change your terminal emulator's configuration, and nothing in this package can.
+> **You must set your terminal font to `Maple Mono NF CN` yourself.** Installing the font does not change your terminal emulator's configuration. pi can tell you where that setting lives for your terminal, or edit its config file if you ask.
 
 ## Git ref semantics
 
@@ -323,13 +310,13 @@ pi only reconciles a git source to its *configured* ref and never advances it on
 
 ## Design notes
 
-- **No personal preferences are shipped.** The fullscreen TUI keys above are the only `settings.json` keys besides `packages[]`. No `theme`, no `defaultProvider`, no `defaultModel`, no `defaultThinkingLevel`, no `AGENTS.md`. Those are personal and belong on the machine, not in a package.
-- **No credentials, ever.** `scripts/scan-secrets.sh` scans the working tree and the full git history before every push.
+- **Few personal preferences are shipped.** The sync flow sets only the fullscreen TUI keys above besides `packages[]`. `defaultProvider` and `defaultModel` are written only when you apply the models.json template, and you pick them there. No `theme`, no `defaultThinkingLevel`, no `AGENTS.md`.
+- **No credentials, ever.** The models template holds only placeholder endpoints and `$ENV_VAR` keys. `scripts/scan-secrets.sh` scans the working tree and the full git history before every push.
 - **No automatic `pi install`.** The sync flow only writes `packages[]` and lets pi install on its next start. (Removals are the exception: they run `pi remove` so the installed files go too.)
 
   > **Restart pi after a sync that changed `packages[]`.** Extensions get no access to pi's settings manager, so the write goes straight to the file while the running session still holds the array it loaded at startup. If you use `/config` or `pi install` in that same session afterwards, pi persists its stale snapshot and the newly added entries disappear (or removed ones come back). Re-running the sync fixes it; nothing else is lost.
 - **MCP, codemode, and tool search are left to pi.** Since 0.99, pi ships them as built-in extensions: servers live in `~/.pi/agent/mcp.json` and are managed with `/mcp`, while `codemode` and `tool_search` switch on by themselves when an MCP server needs them. The preset writes no `mcp.json` and no `defaultTools`. MCP servers carry credentials and differ per person, and codemode is not worth keeping on without MCP, because the models already call tools in parallel natively. None of the required extensions collide with the built-ins. The footer shows what is connected.
-- **No runtime dependencies.** Zip extraction uses system tools instead of adding a supply-chain layer.
+- **No runtime dependencies.**
 - **`pi-startup-redraw-fix` is not included.** It rewrites `ESC[3J ESC[2J ESC[H` into `ESC[H ESC[2J ESC[3J`, but pi's alternate-screen renderer emits `ESC[2J ESC[H ESC[3J`, which never matches its trigger. The patch cannot fire.
 
 ## Development

@@ -1,7 +1,7 @@
 /**
  * Compute what the /pi-preset sync flow would change.
  *
- * Read-only: this module reads files and probes the font, and computes a plan.
+ * Read-only: this module reads files and computes a plan.
  * It never writes. apply.ts is the single side-effecting point, which is what
  * makes "decline changes nothing" a structural guarantee rather than a promise.
  */
@@ -9,7 +9,6 @@
 import { existsSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { detectFont, manualFontInstructions } from "./font.ts";
 import {
 	flattenLeaves,
 	getPath,
@@ -20,20 +19,13 @@ import {
 	readJsonObject,
 } from "./json-merge.ts";
 import {
-	FONT,
 	JSON_PATCHES,
 	LOCAL_FOOTER_DIR_NAME,
 	OPTIONAL_PACKAGES,
 	PRESET_SELF_SOURCE,
 	REQUIRED_PACKAGES,
 } from "./manifest.ts";
-import {
-	type FontPlatform,
-	getDisabledExtensionsDir,
-	getFontPlatform,
-	getSettingsPath,
-	getUserExtensionsDir,
-} from "./paths.ts";
+import { getDisabledExtensionsDir, getSettingsPath, getUserExtensionsDir } from "./paths.ts";
 import { sanitizeTerminalText } from "./skills-sync-output.ts";
 
 // ── package source identity ─────────────────────────────────────────────────
@@ -260,14 +252,7 @@ export interface FooterDemoteStep {
 	to: string;
 }
 
-/** Only ever planned on platforms that actually install fonts (linux, darwin). */
-export interface FontInstallStep {
-	kind: "font.install";
-	family: string;
-	platform: Extract<FontPlatform, "linux" | "darwin">;
-}
-
-export type Step = PackagesRemoveStep | PackagesAddStep | JsonPatchStep | FooterDemoteStep | FontInstallStep;
+export type Step = PackagesRemoveStep | PackagesAddStep | JsonPatchStep | FooterDemoteStep;
 
 export type NoteLevel = "ok" | "info" | "warn";
 
@@ -411,30 +396,6 @@ function planFooterDemote(plan: SyncPlan): void {
 	plan.steps.push({ kind: "footer.demote", from: localFooter, to: destination });
 }
 
-async function planFont(plan: SyncPlan): Promise<void> {
-	const fontPlatform = getFontPlatform();
-
-	// Platforms this package refuses to write fonts on never get a step: a step
-	// that cannot write would make the plan permanently non-empty there, so every
-	// run would prompt and no run could ever report "already in sync". The
-	// instructions ride along as a note instead, which is rendered either way.
-	if (fontPlatform === "win32" || fontPlatform === "unsupported") {
-		plan.notes.push({
-			level: fontPlatform === "win32" ? "info" : "warn",
-			text: `font: no automatic install on this platform.\n${manualFontInstructions()}`,
-		});
-		return;
-	}
-
-	const found = await detectFont();
-	if (found) {
-		plan.notes.push({ level: "ok", text: `font: ${FONT.family} already installed` });
-		return;
-	}
-
-	plan.steps.push({ kind: "font.install", family: FONT.family, platform: fontPlatform });
-}
-
 export interface PlanOptions {
 	/** Opt-in package sources (checked optional packages) to include in the desired set. */
 	extraPackages?: readonly string[];
@@ -457,7 +418,6 @@ export async function plan(options: PlanOptions = {}): Promise<SyncPlan> {
 	planPackages(result, options.extraPackages ?? [], options.keep);
 	planJsonPatches(result);
 	planFooterDemote(result);
-	await planFont(result);
 
 	return result;
 }
@@ -492,9 +452,6 @@ export function renderPlan(syncPlan: SyncPlan): string {
 				lines.push("~ local vibrant-footer would double-load: move it aside");
 				lines.push(`    ${step.from}`);
 				lines.push(`    -> ${step.to}`);
-				break;
-			case "font.install":
-				lines.push(`+ font ${step.family}: download latest release and install`);
 				break;
 		}
 	}

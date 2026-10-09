@@ -4,14 +4,15 @@
  * One TUI menu replaces the former /preset-sync, /preset-skills-sync, and
  * /preset-models-add commands:
  *
- *   1. Sync preset      — optional-extension checklist, then the diff-first sync
- *   2. Grilling skills  — install or refresh the upstream grill-me/grilling pair
- *   3. Add model provider — the masked models.json wizard (TUI only)
+ *   1. Sync preset       — optional-extension checklist, then the diff-first sync
+ *   2. Grilling skills   — install or refresh the upstream grill-me/grilling pair
+ *   3. Models template   — replace models.json with the preset template and set
+ *                          the default provider/model (TUI only)
  *
  * Escape at the menu (or any later prompt) writes nothing. Non-interactive
  * modes (print, json) render the sync dry-run plan, matching the old
- * /preset-sync behavior. RPC mode gets a plain select menu; the model wizard
- * still requires full TUI and says so instead of writing anything.
+ * /preset-sync behavior. RPC mode gets a plain select menu; the models
+ * template flow still requires full TUI and says so instead of writing.
  *
  * Runtime: pi-preset/extensions/pi-preset.ts
  * Command: /pi-preset
@@ -19,8 +20,8 @@
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { TUI } from "@earendil-works/pi-tui";
-import { runPresetModelsAdd } from "../src/models-add-run.ts";
-import { type DescribedOption, DescribedSelectComponent } from "../src/models-wizard-ui.ts";
+import { runPresetModelsTemplate } from "../src/models-template-run.ts";
+import { type DescribedOption, DescribedSelectComponent } from "../src/preset-ui.ts";
 import { runPresetSync } from "../src/preset-sync-run.ts";
 import { runPresetSkillsSync } from "../src/skills-sync-run.ts";
 
@@ -29,7 +30,7 @@ const MENU_OPTIONS: readonly DescribedOption[] = [
 		id: "sync",
 		label: "Sync preset",
 		description:
-			"Packages, config keys, footer, and font. Starts with the optional browser-extension checklist, shows a full diff, and writes only after confirmation.",
+			"Packages, config keys, and footer. Starts with the optional browser-extension checklist, shows a full diff, and writes only after confirmation.",
 	},
 	{
 		id: "skills",
@@ -39,9 +40,9 @@ const MENU_OPTIONS: readonly DescribedOption[] = [
 	},
 	{
 		id: "models",
-		label: "Add model provider",
+		label: "Apply models.json template",
 		description:
-			"Masked wizard for Anthropic/OpenAI/DeepSeek bundles or a fully custom endpoint. Writes only the selected provider to models.json.",
+			"Replaces models.json with the preset's OpenAI/Anthropic/DeepSeek providers. Fill in each base URL and API key now or keep placeholders, then pick the default provider and model for settings.json. The old file is kept as models.json.preset-bak.",
 	},
 ];
 
@@ -68,7 +69,7 @@ async function selectMenuAction(ctx: ExtensionCommandContext): Promise<string | 
 
 export default function piPresetExtension(pi: ExtensionAPI): void {
 	pi.registerCommand("pi-preset", {
-		description: "Preset control panel: sync packages/config/font, grilling skills, model providers",
+		description: "Preset control panel: sync packages/config, grilling skills, models.json template",
 		handler: async (_args, ctx) => {
 			// print/json: no dialogs exist, so the only useful output is the sync
 			// dry-run plan — runPresetSync renders exactly that and stops.
@@ -86,7 +87,7 @@ export default function piPresetExtension(pi: ExtensionAPI): void {
 					await runPresetSkillsSync(ctx);
 					return;
 				case "models":
-					await runPresetModelsAdd(ctx);
+					await runPresetModelsTemplate(ctx);
 					return;
 				default:
 					// Escape / cancelled menu: nothing was chosen, nothing is written.

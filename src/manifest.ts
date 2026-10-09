@@ -162,25 +162,5 @@ export const JSON_PATCHES: readonly JsonPatchTarget[] = [
 	},
 ];
 
-/**
- * Nerd Font used by the footer's nf-md-* glyphs.
- *
- * No version is pinned anywhere: detection keys on the family name, which is
- * stable across releases, and installation resolves whatever asset the latest
- * GitHub release currently offers. Filenames are NOT stable across releases
- * (older builds used underscores instead of hyphens), so an installed font is
- * never matched by filename when the family name is available.
- */
-export const FONT = {
-	family: "Maple Mono NF CN",
-	repo: "subframe7536/maple-font",
-	assetPattern: /^MapleMono-NF-CN-unhinted\.zip$/,
-	releasesPage: "https://github.com/subframe7536/maple-font/releases/latest",
-	/** Filename fragments used when fc-list is unavailable and only a directory scan is possible. */
-	fileHints: ["maple", "nf", "cn"],
-	/** Subdirectory created under the Linux user font directory. */
-	linuxDirName: "maple-nf-cn",
-} as const;
-
 /** Extension directory name the packaged footer would collide with if it stayed local. */
 export const LOCAL_FOOTER_DIR_NAME = "vibrant-footer";

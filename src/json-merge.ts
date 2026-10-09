@@ -38,6 +38,11 @@ export interface WriteJsonObjectAtomicOptions {
 	newFileMode?: number;
 	/** Refuse to replace a dangling symlink instead of treating it as absent. */
 	rejectDanglingSymlink?: boolean;
+	/**
+	 * Mode for the written file even when it already exists. For credential
+	 * files: a pre-existing 0644 must not survive a write that adds API keys.
+	 */
+	forceMode?: number;
 }
 
 export interface ReadJsonResult {
@@ -246,15 +251,15 @@ export function writeJsonObjectAtomic(
 		writeBackupAtomic(filePath, mode);
 	}
 
-	const tempMode =
-		options.newFileMode !== undefined ? options.newFileMode | 0o200 : mode !== undefined ? mode | 0o200 : 0o666;
-	const temporary = openUniqueSibling(filePath, "preset.tmp", tempMode);
+	const wantedMode = options.forceMode ?? mode ?? options.newFileMode;
+	const tempMode = options.forceMode ?? options.newFileMode ?? mode;
+	const openMode = tempMode !== undefined ? tempMode | 0o200 : 0o666;
+	const temporary = openUniqueSibling(filePath, "preset.tmp", openMode);
 	let descriptor: number | undefined = temporary.descriptor;
 	let temporaryExists = true;
 	try {
 		writeFileSync(descriptor, serialized, "utf8");
-		const finalMode = mode ?? options.newFileMode;
-		if (finalMode !== undefined) fchmodSync(descriptor, finalMode & 0o777);
+		if (wantedMode !== undefined) fchmodSync(descriptor, wantedMode & 0o777);
 		closeSync(descriptor);
 		descriptor = undefined;
 		renameSync(temporary.path, filePath);

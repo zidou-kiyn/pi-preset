@@ -10,7 +10,6 @@
 import { execFile } from "node:child_process";
 import { existsSync, mkdirSync, realpathSync, renameSync } from "node:fs";
 import { dirname } from "node:path";
-import { installFont } from "./font.ts";
 import { deepMerge, type JsonObject, type JsonValue, readJsonObject, writeJsonObjectAtomic } from "./json-merge.ts";
 import { packageEntrySource, packageIdentity, type Step, type SyncPlan } from "./plan.ts";
 import { sanitizeTerminalText } from "./skills-sync-output.ts";
@@ -206,11 +205,6 @@ function applyFooterDemote(step: Extract<Step, { kind: "footer.demote" }>): stri
 	return `footer: moved local copy to ${step.to}`;
 }
 
-async function applyFont(): Promise<string> {
-	const result = await installFont();
-	return result.message;
-}
-
 async function runStep(step: Step, options: ApplyOptions): Promise<string> {
 	switch (step.kind) {
 		case "settings.packages.remove":
@@ -221,8 +215,6 @@ async function runStep(step: Step, options: ApplyOptions): Promise<string> {
 			return applyJsonPatch(step);
 		case "footer.demote":
 			return applyFooterDemote(step);
-		case "font.install":
-			return applyFont();
 	}
 }
 

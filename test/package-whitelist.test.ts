@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { withPlatform } from "./platform-test-utils.ts";
 import { apply } from "../src/apply.ts";
 import { OPTIONAL_PACKAGES, PRESET_SELF_SOURCE, REQUIRED_PACKAGES } from "../src/manifest.ts";
 import { PackageChecklistComponent, type PackageSelection } from "../src/optional-packages-ui.ts";
@@ -19,8 +18,7 @@ async function inAgentDir<T>(agentDir: string, callback: () => T | Promise<T>): 
 	const previous = process.env.PI_CODING_AGENT_DIR;
 	process.env.PI_CODING_AGENT_DIR = agentDir;
 	try {
-		// win32 keeps planFont() hermetic (note only, no font probe).
-		return await withPlatform("win32", callback);
+		return await callback();
 	} finally {
 		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
 		else process.env.PI_CODING_AGENT_DIR = previous;

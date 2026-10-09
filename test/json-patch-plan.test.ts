@@ -3,7 +3,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { assertModeOnPosix, withPlatform } from "./platform-test-utils.ts";
+import { assertModeOnPosix } from "./platform-test-utils.ts";
 import { apply } from "../src/apply.ts";
 import { jsonEquals } from "../src/json-merge.ts";
 import { JSON_PATCHES, OPTIONAL_PACKAGES, REQUIRED_PACKAGES } from "../src/manifest.ts";
@@ -17,18 +17,12 @@ function cleanup(path: string): void {
 	rmSync(path, { recursive: true, force: true });
 }
 
-/**
- * Run plan() against a sandbox agent dir.
- *
- * win32 is simulated because planFont() probes the real font stack on linux and
- * darwin; on win32 it only emits a note, which keeps these tests hermetic and
- * fast without touching the font code under test elsewhere.
- */
+/** Run plan() against a sandbox agent dir. */
 async function planIn(agentDir: string, options?: PlanOptions): Promise<Awaited<ReturnType<typeof plan>>> {
 	const previous = process.env.PI_CODING_AGENT_DIR;
 	process.env.PI_CODING_AGENT_DIR = agentDir;
 	try {
-		return await withPlatform("win32", () => plan(options));
+		return await plan(options);
 	} finally {
 		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
 		else process.env.PI_CODING_AGENT_DIR = previous;
