@@ -30,12 +30,15 @@
  * Command: /trellis-lite [status|init|migrate], /trellis-lite-migrate
  */
 
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { readTrellisConfig } from "../src/trellis-lite/config.ts";
 import { applyInit, developerId, gitToplevel, gitUserName, planInit } from "../src/trellis-lite/init.ts";
 import { today } from "../src/trellis-lite/journal.ts";
+import { formatPlan } from "../src/trellis-lite/migrate/cli.ts";
+import { scanMigration } from "../src/trellis-lite/migrate/run.ts";
 import { detectLegacy, findProjectRoot, readDeveloper } from "../src/trellis-lite/root.ts";
 import { buildSnapshot, SECTION_NAME } from "../src/trellis-lite/snapshot.ts";
 import {
@@ -51,6 +54,7 @@ import {
 
 const PACKAGE_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const RESOURCES = join(PACKAGE_ROOT, "trellis-lite");
+const CLI_PATH = join(RESOURCES, "bin", "trellis-lite.ts");
 const SKILL_PATHS = ["trellis-spec", "trellis-journal", "trellis-plan"].map((name) =>
 	join(RESOURCES, "skills", name, "SKILL.md"),
 );
@@ -192,7 +196,28 @@ export default function trellisLite(pi: ExtensionAPI): void {
 				ctx.ui.notify(`${summary}\n\nNot committed (see git status). Run /reload to load the trellis-lite skills.`, "info");
 				return;
 			}
+			if (sub === "migrate") {
+				const found = project(ctx.cwd);
+				if (!found) {
+					ctx.ui.notify("Not a Trellis project; nothing to migrate.", "info");
+					return;
+				}
+				ctx.ui.notify(`${formatPlan(scanMigration(found.root))}\n\nRun /trellis-lite-migrate to carry it out with the agent.`, "info");
+				return;
+			}
 			ctx.ui.notify(`Unknown subcommand "${sub}". Use status, init, or migrate.`, "warning");
+		},
+	});
+
+	pi.registerCommand("trellis-lite-migrate", {
+		description: "Migrate this project from Trellis to trellis-lite with the agent (dry run first, asks before every change)",
+		handler: async (_args, ctx) => {
+			if (!project(ctx.cwd)) {
+				ctx.ui.notify("Not a Trellis project; nothing to migrate.", "info");
+				return;
+			}
+			const prompt = readFileSync(join(RESOURCES, "prompts", "migrate.md"), "utf8").replaceAll("{{CLI}}", CLI_PATH);
+			pi.sendUserMessage(prompt);
 		},
 	});
 }

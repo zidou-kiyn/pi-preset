@@ -9,6 +9,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { journalFiles, readDeveloper } from "./root.ts";
 import { journalHeader } from "./journal.ts";
+import { specIndexes } from "./snapshot.ts";
 
 export const SPEC_INDEX = `# Project specs
 
@@ -68,7 +69,10 @@ export function gitToplevel(cwd: string): string | undefined {
 export function planInit(root: string, developer: string | undefined, date: string, now: string): InitStep[] {
 	const steps: InitStep[] = [];
 	const trellis = join(root, ".trellis");
-	if (!existsSync(join(trellis, "spec", "index.md"))) steps.push({ path: ".trellis/spec/index.md", content: SPEC_INDEX });
+	// An entry point for specs, unless the project already has layer indexes.
+	if (!existsSync(join(trellis, "spec", "index.md")) && specIndexes(root).length === 0) {
+		steps.push({ path: ".trellis/spec/index.md", content: SPEC_INDEX });
+	}
 
 	const existing = readDeveloper(root);
 	const name = existing ?? developer;
