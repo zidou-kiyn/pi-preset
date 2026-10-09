@@ -1,0 +1,7 @@
+include AUTHORS
+include README.md
+include README.zh-CN.md
+include LICENSE
+include setup.py
+include contrib/mcp/termius.mcp.json
+include contrib/mcp/codex.toml

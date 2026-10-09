@@ -12,7 +12,7 @@ import { existsSync, mkdirSync, realpathSync, renameSync } from "node:fs";
 import { dirname } from "node:path";
 import { deepMerge, type JsonObject, type JsonValue, readJsonObject, writeJsonObjectAtomic } from "./json-merge.ts";
 import { packageEntrySource, packageIdentity, type Step, type SyncPlan } from "./plan.ts";
-import { sanitizeTerminalText } from "./skills-sync-output.ts";
+import { sanitizeTerminalText } from "./terminal-text.ts";
 
 export interface StepResult {
 	kind: Step["kind"];

@@ -1,18 +1,17 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { apply } from "../src/apply.ts";
-import { OPTIONAL_PACKAGES, PRESET_SELF_SOURCE, REQUIRED_PACKAGES } from "../src/manifest.ts";
+import { OPTIONAL_PACKAGES, PRESET_SELF_SOURCE, REQUIRED_PACKAGES, SUPERSEDED_PACKAGES } from "../src/manifest.ts";
 import { PackageChecklistComponent, type PackageSelection } from "../src/optional-packages-ui.ts";
 import { plan, type PlanOptions, readInstalledPackages, renderPlan, type Step } from "../src/plan.ts";
 
 type RemoveStep = Extract<Step, { kind: "settings.packages.remove" }>;
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const CHROME = "npm:@narumitw/pi-chrome-devtools";
 
 async function inAgentDir<T>(agentDir: string, callback: () => T | Promise<T>): Promise<T> {
 	const previous = process.env.PI_CODING_AGENT_DIR;
@@ -34,9 +33,9 @@ function removeStep(steps: Step[]): RemoveStep | undefined {
 }
 
 /**
- * A machine mid-migration: every required package (one spelled with a
- * version), the optional Chrome package, the preset itself installed both ways,
- * and three packages the preset does not ship — one of them spelled twice.
+ * A machine mid-migration: old packages the preset now bundles (one spelled
+ * with a version, one as an object), the preset itself installed both ways,
+ * and packages the preset never shipped.
  */
 function writeMixedSettings(agentDir: string): string {
 	const settingsPath = join(agentDir, "settings.json");
@@ -45,12 +44,11 @@ function writeMixedSettings(agentDir: string): string {
 		JSON.stringify({
 			theme: "dark",
 			packages: [
-				...REQUIRED_PACKAGES.map((source) => (source === "npm:pi-wtf" ? "npm:pi-wtf@0.3.0" : source)),
-				CHROME,
+				"npm:pi-wtf@0.3.0",
+				{ source: "npm:pi-patty-bg-tasks", extensions: [] },
+				"git:github.com/code-yeongyu/pi-apply-patch",
 				`${PRESET_SELF_SOURCE}@main`,
 				REPO_ROOT,
-				"npm:pi-btw@0.6.1",
-				{ source: "npm:pi-btw", extensions: [] },
 				"./local-thing",
 				"npm:pi-statusline",
 			],
@@ -63,59 +61,93 @@ function packagesOf(settingsPath: string): unknown[] {
 	return JSON.parse(readFileSync(settingsPath, "utf8")).packages;
 }
 
-test("manifest: the new btw is required, the old one and the preset itself are not", () => {
-	assert.ok(REQUIRED_PACKAGES.includes("npm:@narumitw/pi-btw"));
-	assert.ok(!REQUIRED_PACKAGES.includes("npm:pi-btw"));
-	assert.ok(!REQUIRED_PACKAGES.includes(PRESET_SELF_SOURCE));
-	assert.ok(OPTIONAL_PACKAGES.some((pkg) => pkg.source === CHROME));
+test("manifest: everything is vendored, nothing is required or optional, the old sources are superseded", () => {
+	assert.deepEqual(REQUIRED_PACKAGES, []);
+	assert.deepEqual(OPTIONAL_PACKAGES, []);
+	const superseded = SUPERSEDED_PACKAGES.map((pkg) => pkg.source);
+	for (const source of [
+		"npm:pi-patty-bg-tasks",
+		"npm:pi-tool-display",
+		"npm:@narumitw/pi-btw",
+		"npm:@narumitw/pi-chrome-devtools",
+		"git:github.com/code-yeongyu/pi-apply-patch",
+	]) {
+		assert.ok(superseded.includes(source), `${source} must be superseded`);
+	}
+	assert.ok(!superseded.includes(PRESET_SELF_SOURCE));
+	assert.equal(new Set(superseded).size, superseded.length);
 });
 
-test("installed packages are classified; the preset itself is never listed, however installed", async () => {
+test("package manifest: every extension and skill path exists, every vendored package is loaded", () => {
+	const pkg = JSON.parse(readFileSync(join(REPO_ROOT, "package.json"), "utf8"));
+	for (const path of [...pkg.pi.extensions, ...pkg.pi.skills]) {
+		assert.ok(existsSync(join(REPO_ROOT, path)), `${path} is missing`);
+	}
+	const upstream = JSON.parse(readFileSync(join(REPO_ROOT, "vendor", "UPSTREAM.json"), "utf8"));
+	for (const [name, entry] of Object.entries<{ dest: string; commit: string }>(upstream.packages)) {
+		assert.ok(existsSync(join(REPO_ROOT, entry.dest)), `${name}: ${entry.dest} is missing`);
+		assert.match(entry.commit, /^[0-9a-f]{40}$/, `${name}: commit must be a full sha`);
+		// rpiv-config is a library; termius-mcp is a Python MCP server that
+		// extensions/termius.ts installs and registers.
+		if (name === "rpiv-config" || name === "termius-mcp") continue;
+		assert.ok(
+			pkg.pi.extensions.some((path: string) => path.startsWith(`./${entry.dest}/`)),
+			`${name} is vendored but not loaded`,
+		);
+	}
+	for (const superseded of SUPERSEDED_PACKAGES) {
+		const dir = superseded.reason.match(/vendor\/([^)]+)/)?.[1];
+		if (dir) assert.ok(existsSync(join(REPO_ROOT, "vendor", dir)), `${superseded.source}: vendor/${dir} is missing`);
+	}
+});
+
+test("installed packages are classified; superseded entries and the preset itself are never listed", async () => {
 	const agentDir = mkdtempSync(join(tmpdir(), "pi-preset-whitelist-test-"));
 	try {
 		writeMixedSettings(agentDir);
 		const installed = await inAgentDir(agentDir, () => readInstalledPackages());
-		assert.deepEqual([...installed.optional], [CHROME]);
+		assert.deepEqual([...installed.optional], []);
 		assert.deepEqual(
 			installed.unlisted.map((pkg) => pkg.source),
-			["npm:pi-btw@0.6.1", "./local-thing", "npm:pi-statusline"],
-			"one row per identity, first spelling, required/optional/self excluded",
+			["./local-thing", "npm:pi-statusline"],
 		);
 	} finally {
 		rmSync(agentDir, { recursive: true, force: true });
 	}
 });
 
-test("without a keep list (no checklist, e.g. RPC mode) nothing is removed", async () => {
+test("without a keep list (no checklist, e.g. RPC mode) only superseded packages are removed", async () => {
 	const agentDir = mkdtempSync(join(tmpdir(), "pi-preset-whitelist-test-"));
 	try {
 		writeMixedSettings(agentDir);
 		const result = await planIn(agentDir);
-		assert.equal(removeStep(result.steps), undefined);
+		const remove = removeStep(result.steps);
+		assert.ok(remove);
+		assert.deepEqual(
+			remove.remove.map((removal) => removal.source),
+			["npm:pi-wtf@0.3.0", "npm:pi-patty-bg-tasks", "git:github.com/code-yeongyu/pi-apply-patch"],
+		);
+		assert.match(remove.remove[0]!.reason, /bundled in pi-preset/);
 	} finally {
 		rmSync(agentDir, { recursive: true, force: true });
 	}
 });
 
-test("everything outside required + checked + kept is removed once per identity, then converges", async () => {
+test("superseded + everything not kept is removed once per identity, then converges", async () => {
 	const agentDir = mkdtempSync(join(tmpdir(), "pi-preset-whitelist-test-"));
 	try {
 		const settingsPath = writeMixedSettings(agentDir);
-		// Chrome unchecked, only ./local-thing kept.
 		const options: PlanOptions = { extraPackages: [], keep: ["./local-thing"] };
 
 		const first = await planIn(agentDir, options);
 		const remove = removeStep(first.steps);
 		assert.ok(remove);
 		assert.deepEqual(
-			remove.remove.map((removal) => [removal.source, removal.reason]),
-			[
-				[CHROME, "optional, unchecked"],
-				["npm:pi-btw@0.6.1", "not in preset, not kept"],
-				["npm:pi-statusline", "not in preset, not kept"],
-			],
+			remove.remove.map((removal) => removal.source),
+			["npm:pi-wtf@0.3.0", "npm:pi-patty-bg-tasks", "git:github.com/code-yeongyu/pi-apply-patch", "npm:pi-statusline"],
 		);
-		assert.match(renderPlan(first), /- settings\.json packages\[\]: remove 3/);
+		assert.equal(remove.remove[3]!.reason, "not in preset, not kept");
+		assert.match(renderPlan(first), /- settings\.json packages\[\]: remove 4/);
 
 		// Fake `pi remove`: record the call and drop the exact entry, as pi does.
 		const uninstalled: string[] = [];
@@ -129,16 +161,13 @@ test("everything outside required + checked + kept is removed once per identity,
 			},
 		});
 		assert.ok(result.ok, JSON.stringify(result.results));
-		assert.deepEqual(uninstalled, [CHROME, "npm:pi-btw@0.6.1", "npm:pi-statusline"], "one pi remove per identity");
-		assert.match(result.results[0]!.message, /installed files deleted/);
+		assert.equal(uninstalled.length, 4, "one pi remove per identity");
 
 		const packages = packagesOf(settingsPath);
 		const text = JSON.stringify(packages);
-		assert.ok(!/"npm:pi-btw[@"]/.test(text), "every spelling of pi-btw is gone, including the object one");
-		assert.ok(packages.includes("npm:@narumitw/pi-btw"));
+		assert.ok(!text.includes("pi-patty-bg-tasks"), "the object spelling is gone too");
 		assert.ok(!text.includes("pi-statusline"));
-		assert.ok(!text.includes("chrome-devtools"));
-		for (const kept of ["npm:pi-wtf@0.3.0", `${PRESET_SELF_SOURCE}@main`, REPO_ROOT, "./local-thing"]) {
+		for (const kept of [`${PRESET_SELF_SOURCE}@main`, REPO_ROOT, "./local-thing"]) {
 			assert.ok(packages.includes(kept), `${kept} must survive`);
 		}
 		assert.equal(JSON.parse(readFileSync(settingsPath, "utf8")).theme, "dark");
@@ -154,9 +183,9 @@ test("a failed uninstall still removes the settings entry and reports leftover f
 	const agentDir = mkdtempSync(join(tmpdir(), "pi-preset-whitelist-test-"));
 	try {
 		const settingsPath = join(agentDir, "settings.json");
-		writeFileSync(settingsPath, JSON.stringify({ packages: [...REQUIRED_PACKAGES, "npm:pi-btw"] }));
+		writeFileSync(settingsPath, JSON.stringify({ packages: ["./keep-me", "npm:pi-statusline"] }));
 
-		const planned = await planIn(agentDir, { keep: [] });
+		const planned = await planIn(agentDir, { keep: ["./keep-me"] });
 		planned.steps = planned.steps.filter((step) => step.kind === "settings.packages.remove");
 		const result = await apply(planned, {
 			uninstall: async () => {
@@ -166,19 +195,21 @@ test("a failed uninstall still removes the settings entry and reports leftover f
 
 		assert.ok(result.ok, "leftover files are a warning, not a failed step");
 		assert.match(result.results[0]!.message, /installed files may remain.*pi: command not found/);
-		assert.deepEqual(packagesOf(settingsPath), [...REQUIRED_PACKAGES]);
+		assert.deepEqual(packagesOf(settingsPath), ["./keep-me"]);
 	} finally {
 		rmSync(agentDir, { recursive: true, force: true });
 	}
 });
 
+const theme = { fg: (_color: string, text: string) => text, bold: (text: string) => text };
+const keybindings = { matches: (data: string, action: string) => data === action } as never;
+
 test("checklist: installed optional starts checked, packages outside the preset start unchecked", () => {
-	const theme = { fg: (_color: string, text: string) => text, bold: (text: string) => text };
-	const keybindings = { matches: (data: string, action: string) => data === action } as never;
+	const optional = [{ source: "npm:some-browser", label: "Some browser", description: "d" }];
 	let result: PackageSelection | undefined | null = null;
 	const component = new PackageChecklistComponent(
-		OPTIONAL_PACKAGES,
-		new Set([CHROME]),
+		optional,
+		new Set(["npm:some-browser"]),
 		[
 			{ source: "npm:pi-btw", identity: "npm:pi-btw" },
 			{ source: "./local-thing\u001b[2J", identity: "local:/x" },
@@ -191,18 +222,33 @@ test("checklist: installed optional starts checked, packages outside the preset 
 		},
 	);
 
-	assert.deepEqual(component.getSelection(), { extraPackages: [CHROME], keep: [] });
+	assert.deepEqual(component.getSelection(), { extraPackages: ["npm:some-browser"], keep: [] });
 	const screen = component.render(200).join("\n");
 	assert.match(screen, /\[ \] npm:pi-btw \(will be removed\)/);
 	assert.ok(!screen.includes("\u001b[2J"), "settings.json text is sanitized before rendering");
 
-	// Row order: Chrome, pi-btw, local-thing, Continue. Keep pi-btw, drop Chrome.
+	// Row order: browser, pi-btw, local-thing, Continue. Keep pi-btw, drop the browser.
 	component.handleInput("tui.select.confirm");
 	component.handleInput("tui.select.down");
 	component.handleInput("tui.select.confirm");
-	assert.match(component.render(200).join("\n"), /\[ \] Chrome DevTools .*\(installed, will be removed\)/);
+	assert.match(component.render(200).join("\n"), /\[ \] Some browser .*\(installed, will be removed\)/);
 	component.handleInput("tui.select.down");
 	component.handleInput("tui.select.down");
 	component.handleInput("tui.select.confirm");
 	assert.deepEqual(result, { extraPackages: [], keep: ["npm:pi-btw"] });
+});
+
+test("checklist without optional packages shows only the packages outside the preset", () => {
+	const component = new PackageChecklistComponent(
+		OPTIONAL_PACKAGES,
+		new Set(),
+		[{ source: "npm:pi-statusline", identity: "npm:pi-statusline" }],
+		theme,
+		keybindings,
+		() => {},
+		() => {},
+	);
+	const screen = component.render(200);
+	assert.equal(screen[0], "Packages not in the preset");
+	assert.ok(!screen.join("\n").includes("Optional extensions"));
 });

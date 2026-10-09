@@ -17,7 +17,7 @@ import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { type Component, type KeybindingsManager, type TUI, truncateToWidth } from "@earendil-works/pi-tui";
 import type { OptionalPackage } from "./manifest.ts";
 import type { UnlistedPackage } from "./plan.ts";
-import { sanitizeTerminalText } from "./skills-sync-output.ts";
+import { sanitizeTerminalText } from "./terminal-text.ts";
 
 interface ChecklistTheme {
 	fg(color: string, text: string): string;
@@ -172,14 +172,17 @@ export class PackageChecklistComponent implements Component {
 	}
 
 	render(width: number): string[] {
-		const lines: string[] = [
-			fit(this.theme.bold("Optional extensions"), width),
-			fit(this.theme.fg("dim", "Checked = installed after the sync. Unchecking an installed one removes it."), width),
-		];
-		for (let index = 0; index < this.optionalCount; index++) lines.push(this.renderRow(index, width));
+		const lines: string[] = [];
+		if (this.optionalCount > 0) {
+			lines.push(fit(this.theme.bold("Optional extensions"), width));
+			lines.push(
+				fit(this.theme.fg("dim", "Checked = installed after the sync. Unchecking an installed one removes it."), width),
+			);
+			for (let index = 0; index < this.optionalCount; index++) lines.push(this.renderRow(index, width));
+		}
 
 		if (this.rows.length > this.optionalCount) {
-			lines.push(fit("", width));
+			if (lines.length > 0) lines.push(fit("", width));
 			lines.push(fit(this.theme.bold("Packages not in the preset"), width));
 			lines.push(fit(this.theme.fg("dim", "Check the ones to keep. Unchecked packages are removed."), width));
 			for (let index = this.optionalCount; index < this.rows.length; index++) lines.push(this.renderRow(index, width));

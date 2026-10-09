@@ -1,16 +1,48 @@
 {
   "name": "pi-preset",
-  "version": "0.1.0",
-  "description": "Personal pi environment preset: ramp status bar footer, extension set, and models.json template",
-  "keywords": ["pi-package"],
+  "version": "0.2.0",
+  "description": "Personal pi environment preset: ramp status bar footer, a vendored extension set, grilling skills, and a models.json template",
+  "keywords": [
+    "pi-package"
+  ],
   "license": "MIT",
   "type": "module",
   "pi": {
-    "extensions": ["./extensions"]
+    "extensions": [
+      "./extensions",
+      "./vendor/pi-patty-bg-tasks/index.ts",
+      "./vendor/pi-workspace-history/.pi/extensions/workspace-history.ts",
+      "./vendor/pi-workspace-history/wtf/index.ts",
+      "./vendor/pi-better-compaction/index.ts",
+      "./vendor/pi-fff/src/index.ts",
+      "./vendor/rpiv-todo/index.ts",
+      "./vendor/rpiv-ask-user-question/index.ts",
+      "./vendor/pi-web-search/src/index.ts",
+      "./vendor/pi-apply-patch/src/index.ts",
+      "./vendor/pi-context-view/src/index.ts"
+    ],
+    "skills": [
+      "./skills/grill-me",
+      "./skills/grilling"
+    ]
+  },
+  "scripts": {
+    "test": "node --experimental-strip-types --test --test-force-exit 'test/*.test.ts' 'vendor/pi-patty-bg-tasks/src/__tests__/*.test.ts'",
+    "upstream": "node scripts/upstream.mjs",
+    "test:termius": "cd vendor/termius-mcp && uv run --isolated --no-project --with-editable . --with pytest --with mock python -m pytest -q tests/unit -p no:cacheprovider"
+  },
+  "dependencies": {
+    "@ff-labs/fff-bun": "0.11.0",
+    "@ff-labs/fff-node": "0.11.0",
+    "@juicesharp/rpiv-config": "file:./vendor/rpiv-config",
+    "diff": "^9.0.0",
+    "ignore": "^7.0.5"
   },
   "peerDependencies": {
+    "@earendil-works/pi-agent-core": "*",
     "@earendil-works/pi-ai": "*",
     "@earendil-works/pi-coding-agent": "*",
-    "@earendil-works/pi-tui": "*"
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
   }
 }

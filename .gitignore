@@ -1,3 +1,7 @@
 node_modules/
 *.tmp
 *.preset-bak
+package-lock.json
+__pycache__/
+*.egg-info/
+build/

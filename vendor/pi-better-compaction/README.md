@@ -1,0 +1,152 @@
+# pi-better-compaction
+
+English | [中文](README.zh-CN.md)
+
+A [pi](https://github.com/nicepkg/pi) extension that upgrades context compaction with three coordinated strategies:
+
+1. **OpenAI Responses APIs**, including supported GitHub Copilot models, use the provider's native compaction endpoint, preserving opaque context that plain text summaries lose.
+2. **Anthropic Messages API** uses Anthropic's on-demand server-side compaction (beta `compact-2026-09-04`) and replays the signed compaction block.
+3. **All other APIs** (Gemini, etc.) can run pi's built-in compaction with a **dedicated cheaper/faster model**, so summarization doesn't consume quota on your primary model.
+
+Everything fails open — if any step cannot proceed, pi's default compaction takes over.
+
+## Install
+
+```bash
+# From npm (recommended)
+pi install npm:@lll9p/pi-better-compaction
+
+# Try without installing
+pi -e npm:@lll9p/pi-better-compaction
+
+# From source
+git clone https://github.com/lll9p/pi-better-compaction.git
+cd pi-better-compaction && pi install .
+```
+
+After installation, run `/reload`.
+
+## Requirements
+
+- **pi** ≥ 0.84.3 (`@earendil-works/pi-coding-agent >= 0.84.3`)
+
+## Configuration
+
+Config file location:
+
+```
+~/.pi/agent/extensions/pi-better-compaction/config.json
+```
+
+If the file doesn't exist, all defaults apply. The extension never creates this file.
+
+### Defaults
+
+```jsonc
+{
+  "enabled": true,
+  "compactionVersion": "v2",
+  "compactionModel": null,
+  "compactionThinkingLevel": "off",
+  "responsesCompactApis": ["openai-responses", "openai-codex-responses"],
+  "allowCompactionContinuityBreak": false,
+
+  // Debug & logging
+  "notifyOnLoad": false,
+  "debug": false,
+  "logProviderPayloads": false,
+  "logCompactResponses": false,
+  "redactSensitiveData": true,
+  "artifactRoot": "~/.pi/agent/artifacts/pi-better-compaction"
+}
+```
+
+### Options reference
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `enabled` | `boolean` | `true` | Master switch. Set `false` to disable the extension entirely. |
+| `compactionVersion` | `"v1" \| "v2"` | `"v2"` | Protocol for Responses-family APIs. **V2** (streaming, encrypted blob) is the current OpenAI default. **V1** uses the legacy `/responses/compact` endpoint. |
+| `compactionModel` | `string \| null` | `null` | Model for fallback compaction (non-Responses APIs, or when native compact fails). Format: `"provider/model-id"`, e.g. `"openai/gpt-5.1-mini"`. `null` = let pi use the current chat model. |
+| `compactionThinkingLevel` | `string` | `"off"` | Thinking level for the fallback compaction model. One of: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`. |
+| `responsesCompactApis` | `string[]` | `["openai-responses", "openai-codex-responses"]` | Which Responses APIs use native compaction. Can only narrow the built-in set; unknown entries are ignored with a warning. |
+| `allowCompactionContinuityBreak` | `boolean` | `false` | Allow restarting native compaction when the latest session compaction was created by pi's default path (not this extension). Sacrifices opaque-window continuity at that boundary. |
+| `notifyOnLoad` | `boolean` | `false` | Show a notification in the TUI when the extension loads. |
+| `debug` | `boolean` | `false` | Write lifecycle and compaction-event debug artifacts. |
+| `logProviderPayloads` | `boolean` | `false` | Write `before_provider_request` payload artifacts. |
+| `logCompactResponses` | `boolean` | `false` | Write compact endpoint request/response artifacts. |
+| `redactSensitiveData` | `boolean` | `true` | Redact secrets in debug artifacts. |
+| `artifactRoot` | `string` | `"~/.pi/agent/artifacts/pi-better-compaction"` | Root directory for debug artifacts. Supports `~/` and relative paths (resolved against config dir). |
+
+### Example: use a cheap model for fallback compaction
+
+```json
+{
+  "compactionModel": "openai/gpt-5.1-mini",
+  "compactionThinkingLevel": "off"
+}
+```
+
+### Example: force V1 compaction protocol
+
+```json
+{
+  "compactionVersion": "v1"
+}
+```
+
+## How it works
+
+When pi triggers compaction (`session_before_compact`):
+
+1. **Responses API detected** → run native compaction (V2 or V1 per config):
+   - **V2**: streams a request with `compaction_trigger` to `/responses`; the API returns an encrypted compaction blob. Retained user/developer messages + blob form the compacted context.
+   - **V1**: POSTs to `/responses/compact`; receives an opaque compacted window.
+   - On success, the compacted window is stored and replayed on subsequent requests via `before_provider_request`.
+   - Replay requires the original provider, API and model. If the latest compaction has only the placeholder summary (always V2, or V1 without extracted text), selecting an incompatible model shows a UI warning: only retained messages remain available, and `/tree` can branch from before the first incompatible compaction (branching just before the latest one may leave earlier opaque checkpoints). Warnings are deduplicated per checkpoint and model within the current session; readable summaries do not trigger them. Configured base URLs are not compared for this warning because OAuth can resolve a different endpoint.
+
+2. **Anthropic Messages API** (`anthropic-messages`) → send Pi's own serialized request for the messages Pi would discard, with `compaction: {type: "summarize"}` and the `compact-2026-09-04` beta:
+   - The response holds one signed `compaction` block. It is stored in the compaction entry's `details`, keyed by provider, API, model and base URL. Its text is also the entry summary.
+   - Later requests for the same provider and model replace Pi's summary message with the block, verbatim, as the first message. Pi's kept messages stay unchanged.
+   - After a switch to another provider or model, Pi's summary is sent instead. A block is never sent to a different provider or model.
+   - If the provider answers a request that carries the block with HTTP 400, the block is retired for the session and Pi's summary is used.
+   - Some gateways add `context_management` to every thinking request (CLIProxyAPI does with Claude subscriptions), which Anthropic refuses next to `compaction`. On that specific 400 the summary is requested once more without thinking. Thinking blocks already in the history are still sent, and later turns keep the session's thinking level.
+   - The compaction threshold stays in Pi's `compaction` settings.
+
+3. **Not a native API, or native compact failed** → if `compactionModel` is configured and differs from the current model, run pi's built-in `compact()` with that model.
+
+4. **No fallback configured** → pi's default compaction runs as if the extension weren't installed.
+
+Selection is by API type, not provider — any OpenAI-compatible proxy speaking a Responses API gets a native compact attempt. If the endpoint doesn't support it, the request fails and falls through to the configured fallback.
+
+## Debugging
+
+Enable debug artifacts:
+
+```json
+{
+  "debug": true,
+  "logCompactResponses": true
+}
+```
+
+Then `/reload`, run `/compact`, send a follow-up message, and inspect:
+
+```
+<artifactRoot>/sessions/<session-id>/
+├── provider-requests/
+├── compact-responses/
+├── compaction-events/
+└── lifecycle/
+```
+
+## Tests
+
+```bash
+bun test
+bun test --coverage --coverage-reporter=text --coverage-reporter=lcov
+```
+
+## License
+
+MIT

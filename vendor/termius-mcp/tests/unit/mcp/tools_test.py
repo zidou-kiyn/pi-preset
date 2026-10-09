@@ -1,0 +1,356 @@
+# -*- coding: utf-8 -*-
+import json
+import tempfile
+import unittest
+from unittest.mock import patch
+
+from termius import __version__
+from termius.core.models.terminal import Host, Identity, SshConfig
+from termius.mcp.server import handle_rpc
+from termius.core.ssh_exec import SshExecError
+from termius.core.ssh_files import SshFileError
+from termius.mcp.tools import ToolError, call_tool
+from termius.runtime import Runtime
+
+
+class ToolsTest(unittest.TestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.runtime = Runtime(directory_path=self.tmpdir.name)
+
+    def tearDown(self):
+        self.tmpdir.cleanup()
+
+    def _sign_in(self):
+        self.runtime.config.set('User', 'username', 'you@example.com')
+        self.runtime.config.set('User', 'apikey', 'token')
+        self.runtime.config.set('User', 'salt', 'c2FsdA==')
+        self.runtime.config.set('User', 'hmac_salt', 'aG1hYw==')
+        self.runtime.config.write()
+
+    def _add_host(self, label='web', address='10.0.0.1', username='root'):
+        identity = Identity(label=label, username=username, is_visible=True)
+        with self.runtime.storage:
+            saved_identity = self.runtime.storage.save(identity)
+            ssh_config = SshConfig(port=22, identity=saved_identity.id)
+            saved_config = self.runtime.storage.save(ssh_config)
+            host = Host(
+                label=label, address=address, ssh_config=saved_config.id
+            )
+            return self.runtime.storage.save(host)
+
+    def test_status_not_signed_in(self):
+        data, summary = call_tool(self.runtime, 'status', {})
+        self.assertFalse(data['logged_in'])
+        self.assertIn('Not signed in', summary)
+
+    def test_hosts_requires_login(self):
+        with self.assertRaises(ToolError) as caught:
+            call_tool(self.runtime, 'hosts', {})
+        self.assertEqual(caught.exception.code, 'not_signed_in')
+
+    def test_hosts_requires_vault_password(self):
+        self._sign_in()
+        with self.assertRaises(ToolError) as caught:
+            call_tool(self.runtime, 'hosts', {})
+        self.assertEqual(caught.exception.code, 'vault_password_required')
+
+    def test_hosts_and_host_use_a_short_ttl(self):
+        from termius.mcp.tools import HOST_PULL_TTL
+        self._sign_in()
+        with patch('termius.mcp.tools.ensure_fresh', return_value={}) as sync:
+            call_tool(self.runtime, 'hosts', {})
+            with self.assertRaises(ToolError):
+                call_tool(self.runtime, 'host', {'name': 'missing'})
+        ttls = [call[1].get('ttl') for call in sync.call_args_list]
+        self.assertEqual(ttls, [HOST_PULL_TTL, HOST_PULL_TTL])
+        self.assertEqual(HOST_PULL_TTL, 600)
+
+    def test_hosts_serves_the_cache_when_the_pull_fails(self):
+        self._sign_in()
+        self._add_host()
+        with patch(
+            'termius.mcp.tools.ensure_fresh',
+            side_effect=RuntimeError('offline'),
+        ):
+            data, summary = call_tool(self.runtime, 'hosts', {})
+        self.assertTrue(data['stale'])
+        self.assertEqual(data['sync_error'], 'offline')
+        self.assertEqual(data['count'], 1)
+        self.assertIn('local cache', summary)
+
+    def test_host_serves_the_cache_when_the_pull_fails(self):
+        self._sign_in()
+        saved = self._add_host()
+        with patch(
+            'termius.mcp.tools.ensure_fresh',
+            side_effect=RuntimeError('offline'),
+        ):
+            data, summary = call_tool(
+                self.runtime, 'host', {'name': saved.id}
+            )
+        self.assertTrue(data['stale'])
+        self.assertEqual(data['address'], '10.0.0.1')
+        self.assertIn('local cache', summary)
+
+    def test_exec_still_fails_when_the_pull_fails(self):
+        self._sign_in()
+        saved = self._add_host()
+        with patch(
+            'termius.mcp.tools.ensure_fresh',
+            side_effect=RuntimeError('offline'),
+        ):
+            with self.assertRaises(ToolError) as caught:
+                call_tool(
+                    self.runtime, 'exec',
+                    {'name': saved.id, 'command': 'true'},
+                )
+        self.assertEqual(caught.exception.code, 'sync_failed')
+
+    def test_other_reads_keep_the_cache_ttl(self):
+        self._sign_in()
+        with patch('termius.mcp.tools.ensure_fresh', return_value={}) as sync:
+            call_tool(self.runtime, 'inventory', {'kind': 'groups'})
+        self.assertIsNone(sync.call_args[1].get('ttl'))
+
+    def test_host_not_found(self):
+        self._sign_in()
+        with patch('termius.mcp.tools.ensure_fresh', return_value={}):
+            with self.assertRaises(ToolError) as caught:
+                call_tool(self.runtime, 'host', {'name': 'missing'})
+        self.assertEqual(caught.exception.code, 'host_not_found')
+
+    def test_host_ambiguous(self):
+        self._sign_in()
+        self._add_host('dup', '1.1.1.1')
+        self._add_host('dup', '2.2.2.2')
+        with patch('termius.mcp.tools.ensure_fresh', return_value={}):
+            with self.assertRaises(ToolError) as caught:
+                call_tool(self.runtime, 'host', {'name': 'dup'})
+        self.assertEqual(caught.exception.code, 'host_not_found')
+        self.assertIn('Multiple hosts', str(caught.exception))
+
+    def test_hosts_and_host_shape(self):
+        self._sign_in()
+        saved = self._add_host()
+        with patch('termius.mcp.tools.ensure_fresh', return_value={}):
+            listing, _ = call_tool(self.runtime, 'hosts', {'query': 'web'})
+            detail, _ = call_tool(self.runtime, 'host', {'name': saved.id})
+        self.assertEqual(listing['count'], 1)
+        self.assertEqual(listing['hosts'][0]['address'], '10.0.0.1')
+        self.assertEqual(detail['username'], 'root')
+        self.assertIn('ssh_command', detail)
+        self.assertTrue(detail['ssh_command'].startswith('ssh'))
+        self.assertNotIn('password', detail)
+
+    def test_exec_shape(self):
+        self._sign_in()
+        saved = self._add_host()
+        fake = {
+            'host': 'web',
+            'address': '10.0.0.1',
+            'username': 'root',
+            'command': 'uname',
+            'exit_code': 0,
+            'stdout': 'Linux\n',
+            'stderr': '',
+            'truncated': False,
+        }
+        with patch('termius.mcp.tools.ensure_fresh', return_value={}):
+            with patch(
+                'termius.mcp.tools.run_host_command', return_value=dict(fake)
+            ):
+                data, summary = call_tool(
+                    self.runtime, 'exec',
+                    {'name': saved.label, 'command': 'uname'},
+                )
+        self.assertTrue(data['ok'])
+        self.assertEqual(data['exit_code'], 0)
+        self.assertEqual(data['stdout'], 'Linux\n')
+        self.assertIn('exit 0', summary)
+
+    def test_files_shape(self):
+        self._sign_in()
+        saved = self._add_host()
+        fake = {
+            'host': 'web',
+            'address': '10.0.0.1',
+            'username': 'root',
+            'action': 'list',
+            'path': '/home/root',
+            'entries': [{'name': 'a', 'type': 'file', 'size': 1}],
+            'count': 1,
+            'ok': True,
+        }
+        with patch('termius.mcp.tools.ensure_fresh', return_value={}):
+            with patch(
+                'termius.mcp.tools.run_file_action', return_value=dict(fake)
+            ):
+                data, summary = call_tool(
+                    self.runtime, 'files',
+                    {'name': saved.label, 'action': 'list'},
+                )
+        self.assertTrue(data['ok'])
+        self.assertEqual(data['count'], 1)
+        self.assertIn('1 entries', summary)
+
+    def test_files_rejects_bad_action(self):
+        self._sign_in()
+        with patch('termius.mcp.tools.ensure_fresh', return_value={}):
+            with self.assertRaises(ToolError) as caught:
+                call_tool(
+                    self.runtime, 'files',
+                    {'name': 'web', 'action': 'chmod'},
+                )
+        self.assertEqual(caught.exception.code, 'invalid_argument')
+
+    def test_files_requires_path(self):
+        self._sign_in()
+        with patch('termius.mcp.tools.ensure_fresh', return_value={}):
+            with self.assertRaises(ToolError) as caught:
+                call_tool(
+                    self.runtime, 'files',
+                    {'name': 'web', 'action': 'read'},
+                )
+        self.assertEqual(caught.exception.code, 'invalid_argument')
+
+    def test_files_ssh_error(self):
+        self._sign_in()
+        saved = self._add_host()
+        with patch('termius.mcp.tools.ensure_fresh', return_value={}):
+            with patch(
+                'termius.mcp.tools.run_file_action',
+                side_effect=SshFileError('permission denied'),
+            ):
+                with self.assertRaises(ToolError) as caught:
+                    call_tool(
+                        self.runtime, 'files',
+                        {
+                            'name': saved.label,
+                            'action': 'read',
+                            'path': '/etc/shadow',
+                        },
+                    )
+        self.assertEqual(caught.exception.code, 'file_failed')
+
+    def test_files_connect_error(self):
+        self._sign_in()
+        saved = self._add_host()
+        with patch('termius.mcp.tools.ensure_fresh', return_value={}):
+            with patch(
+                'termius.mcp.tools.run_file_action',
+                side_effect=SshExecError('SSH to 10.0.0.1 failed: timeout'),
+            ):
+                with self.assertRaises(ToolError) as caught:
+                    call_tool(
+                        self.runtime, 'files',
+                        {'name': saved.label, 'action': 'list'},
+                    )
+        self.assertEqual(caught.exception.code, 'ssh_failed')
+
+    def test_files_requires_login(self):
+        with self.assertRaises(ToolError) as caught:
+            call_tool(self.runtime, 'files', {'action': 'list'})
+        self.assertEqual(caught.exception.code, 'not_signed_in')
+
+    def test_inventory_rejects_bad_kind(self):
+        self._sign_in()
+        with patch('termius.mcp.tools.ensure_fresh', return_value={}):
+            with self.assertRaises(ToolError) as caught:
+                call_tool(self.runtime, 'inventory', {'kind': 'tags'})
+        self.assertEqual(caught.exception.code, 'invalid_argument')
+
+    def test_unknown_tool(self):
+        with self.assertRaises(ToolError) as caught:
+            call_tool(self.runtime, 'push', {})
+        self.assertEqual(caught.exception.code, 'unknown_tool')
+
+    def test_login_tools_are_gone(self):
+        # pi-preset: no tool takes a password; sign-in happens outside MCP.
+        for name in ('login', 'login_complete', 'logout'):
+            with self.assertRaises(ToolError) as caught:
+                call_tool(self.runtime, name, {'password': 'hunter22'})
+            self.assertEqual(caught.exception.code, 'unknown_tool')
+
+    def test_handle_rpc_tool_error(self):
+        response = handle_rpc(self.runtime, {
+            'jsonrpc': '2.0',
+            'id': 7,
+            'method': 'tools/call',
+            'params': {'name': 'hosts', 'arguments': {}},
+        })
+        self.assertTrue(response['result']['isError'])
+        self.assertEqual(response['id'], 7)
+
+    def test_handle_rpc_initialize(self):
+        response = handle_rpc(self.runtime, {
+            'jsonrpc': '2.0',
+            'id': 1,
+            'method': 'initialize',
+            'params': {},
+        })
+        self.assertEqual(
+            response['result']['serverInfo']['name'], 'termius'
+        )
+        self.assertEqual(
+            response['result']['serverInfo']['title'], 'Termius Cloud'
+        )
+        self.assertEqual(response['result']['serverInfo']['version'], __version__)
+        self.assertEqual(
+            response['result']['protocolVersion'], '2025-11-25'
+        )
+
+    def test_initialize_echoes_client_protocol_version(self):
+        for version in ('2025-11-25', '2025-06-18'):
+            response = handle_rpc(self.runtime, {
+                'jsonrpc': '2.0',
+                'id': 1,
+                'method': 'initialize',
+                'params': {'protocolVersion': version},
+            })
+            self.assertEqual(response['result']['protocolVersion'], version)
+
+    def test_status_ignores_harness_intent_field(self):
+        data, summary = call_tool(
+            self.runtime, 'status', {'i': 'check login state'},
+        )
+        self.assertFalse(data['logged_in'])
+        self.assertIn('Not signed in', summary)
+
+    def test_status_result_includes_structured_json_text(self):
+        response = handle_rpc(self.runtime, {
+            'jsonrpc': '2.0',
+            'id': 3,
+            'method': 'tools/call',
+            'params': {'name': 'status', 'arguments': {}},
+        })
+        result = response['result']
+        texts = [block['text'] for block in result['content']]
+        self.assertEqual(len(texts), 2)
+        self.assertIn('Not signed in', texts[0])
+        parsed = json.loads(texts[1])
+        self.assertEqual(parsed, result['structuredContent'])
+        self.assertFalse(parsed['logged_in'])
+
+    def test_tools_list_has_seven(self):
+        response = handle_rpc(self.runtime, {
+            'jsonrpc': '2.0',
+            'id': 2,
+            'method': 'tools/list',
+        })
+        tools = response['result']['tools']
+        names = [tool['name'] for tool in tools]
+        self.assertEqual(
+            names,
+            [
+                'status', 'sync', 'hosts', 'host', 'exec', 'files',
+                'inventory',
+            ],
+        )
+        for tool in tools:
+            self.assertTrue(tool.get('title'), tool['name'])
+            self.assertTrue(tool.get('description'), tool['name'])
+            self.assertEqual(tool['inputSchema']['type'], 'object')
+            self.assertNotIn('additionalProperties', tool['inputSchema'])
+            self.assertEqual(tool['outputSchema'], {'type': 'object'})
+            self.assertEqual(tool['annotations']['title'], tool['title'])

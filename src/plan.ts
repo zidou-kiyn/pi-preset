@@ -19,14 +19,16 @@ import {
 	readJsonObject,
 } from "./json-merge.ts";
 import {
+	BUNDLED_SKILLS,
 	JSON_PATCHES,
 	LOCAL_FOOTER_DIR_NAME,
 	OPTIONAL_PACKAGES,
 	PRESET_SELF_SOURCE,
 	REQUIRED_PACKAGES,
+	SUPERSEDED_PACKAGES,
 } from "./manifest.ts";
-import { getDisabledExtensionsDir, getSettingsPath, getUserExtensionsDir } from "./paths.ts";
-import { sanitizeTerminalText } from "./skills-sync-output.ts";
+import { getDisabledExtensionsDir, getLegacySkillRoots, getSettingsPath, getUserExtensionsDir } from "./paths.ts";
+import { sanitizeTerminalText } from "./terminal-text.ts";
 
 // ── package source identity ─────────────────────────────────────────────────
 //
@@ -160,6 +162,11 @@ export function isPresetSelf(identity: string, baseDir: string): boolean {
 	return realpathOrSelf(identity.slice("local:".length)) === realpathOrSelf(PRESET_ROOT);
 }
 
+/** Reason a packages[] identity was superseded by the preset, or undefined. */
+export function supersededReason(identity: string, baseDir: string): string | undefined {
+	return SUPERSEDED_PACKAGES.find((pkg) => packageIdentity(pkg.source, baseDir) === identity)?.reason;
+}
+
 export interface UnlistedPackage {
 	/** Source string exactly as in settings.json (first spelling of its identity). */
 	source: string;
@@ -169,7 +176,10 @@ export interface UnlistedPackage {
 export interface InstalledPackages {
 	/** OPTIONAL_PACKAGES sources currently present in settings.json. */
 	optional: Set<string>;
-	/** Entries that are not required, not optional, and not the preset itself. */
+	/**
+	 * Entries that are not required, not optional, not superseded (those are
+	 * always removed, see planPackages), and not the preset itself.
+	 */
 	unlisted: UnlistedPackage[];
 }
 
@@ -195,7 +205,13 @@ export function readInstalledPackages(): InstalledPackages {
 		seen.add(identity);
 		const optionalSource = optional.get(identity);
 		if (optionalSource !== undefined) result.optional.add(optionalSource);
-		else if (!required.has(identity) && !isPresetSelf(identity, baseDir)) result.unlisted.push({ source, identity });
+		else if (
+			!required.has(identity) &&
+			!isPresetSelf(identity, baseDir) &&
+			supersededReason(identity, baseDir) === undefined
+		) {
+			result.unlisted.push({ source, identity });
+		}
 	}
 	return result;
 }
@@ -306,35 +322,43 @@ function planPackages(plan: SyncPlan, extraPackages: readonly string[], keep: re
 		if (source) installed.add(packageIdentity(source, baseDir));
 	}
 
-	// Whitelist mode: only when the caller passed an explicit keep list, i.e.
-	// the user saw the checklist. Without one (RPC, print mode, tests of the
-	// add path) nothing is ever removed, because nobody consented.
-	if (keep !== undefined) {
-		const protectedIdentities = new Set(desiredIdentities);
-		for (const source of keep) protectedIdentities.add(packageIdentity(source, baseDir));
-		const optionalIdentities = new Set(OPTIONAL_PACKAGES.map((pkg) => packageIdentity(pkg.source, baseDir)));
+	// Superseded packages are removed in every mode: keeping one next to its
+	// vendored copy is a duplicate tool name, which stops pi from starting.
+	// Everything else is only removed in whitelist mode, i.e. when the caller
+	// passed an explicit keep list because the user saw the checklist. Without
+	// one (RPC, print mode, tests of the add path) nobody consented.
+	const protectedIdentities = new Set(desiredIdentities);
+	for (const source of keep ?? []) protectedIdentities.add(packageIdentity(source, baseDir));
+	const optionalIdentities = new Set(OPTIONAL_PACKAGES.map((pkg) => packageIdentity(pkg.source, baseDir)));
 
-		// Matched by identity, so `npm:foo@1.2` and { source: "npm:foo", ... }
-		// are one package. Entries whose source cannot be read are left alone.
-		const remove: PackageRemoval[] = [];
-		for (const entry of existing) {
-			const source = packageEntrySource(entry);
-			if (!source) continue;
-			const identity = packageIdentity(source, baseDir);
-			if (protectedIdentities.has(identity) || isPresetSelf(identity, baseDir)) continue;
-			if (remove.some((removal) => removal.identity === identity)) continue;
-			const reason = optionalIdentities.has(identity) ? "optional, unchecked" : "not in preset, not kept";
-			remove.push({ source, identity, reason });
+	// Matched by identity, so `npm:foo@1.2` and { source: "npm:foo", ... }
+	// are one package. Entries whose source cannot be read are left alone.
+	const remove: PackageRemoval[] = [];
+	for (const entry of existing) {
+		const source = packageEntrySource(entry);
+		if (!source) continue;
+		const identity = packageIdentity(source, baseDir);
+		if (isPresetSelf(identity, baseDir)) continue;
+		if (remove.some((removal) => removal.identity === identity)) continue;
+		const superseded = supersededReason(identity, baseDir);
+		if (superseded !== undefined) {
+			remove.push({ source, identity, reason: superseded });
+			continue;
 		}
-		if (remove.length > 0) {
-			plan.steps.push({ kind: "settings.packages.remove", settingsPath, remove });
-		}
+		if (keep === undefined || protectedIdentities.has(identity)) continue;
+		const reason = optionalIdentities.has(identity) ? "optional, unchecked" : "not in preset, not kept";
+		remove.push({ source, identity, reason });
+	}
+	if (remove.length > 0) {
+		plan.steps.push({ kind: "settings.packages.remove", settingsPath, remove });
 	}
 
 	const missing = desired.filter((source) => !installed.has(packageIdentity(source, baseDir)));
 
 	if (missing.length === 0) {
-		plan.notes.push({ level: "ok", text: `packages: all ${desired.length} already in settings.json` });
+		if (desired.length > 0) {
+			plan.notes.push({ level: "ok", text: `packages: all ${desired.length} already in settings.json` });
+		}
 		return;
 	}
 
@@ -386,6 +410,26 @@ function planJsonPatches(plan: SyncPlan): void {
 	}
 }
 
+/**
+ * Older presets installed grill-me / grilling from upstream into the user's
+ * skill roots. pi keeps the first skill it finds under a name, so such a copy
+ * would shadow the bundled one. Removal stays with scripts/migrate-vendored.ts
+ * (it also edits the skills lock file); the sync only points at it.
+ */
+function planLegacySkills(plan: SyncPlan): void {
+	const found: string[] = [];
+	for (const root of getLegacySkillRoots()) {
+		for (const name of BUNDLED_SKILLS) {
+			if (existsSync(join(root, name))) found.push(join(root, name));
+		}
+	}
+	if (found.length === 0) return;
+	plan.notes.push({
+		level: "warn",
+		text: `skills: ${found.join(", ")} shadow the bundled copies; run node <pi-preset>/scripts/migrate-vendored.ts to remove them`,
+	});
+}
+
 function planFooterDemote(plan: SyncPlan): void {
 	const localFooter = join(getUserExtensionsDir(), LOCAL_FOOTER_DIR_NAME);
 	if (!existsSync(localFooter)) return;
@@ -418,6 +462,7 @@ export async function plan(options: PlanOptions = {}): Promise<SyncPlan> {
 	planPackages(result, options.extraPackages ?? [], options.keep);
 	planJsonPatches(result);
 	planFooterDemote(result);
+	planLegacySkills(result);
 
 	return result;
 }

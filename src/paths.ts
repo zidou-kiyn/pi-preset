@@ -44,15 +44,17 @@ export function getKeybindingsPath(): string {
 	return join(getAgentDir(), "keybindings.json");
 }
 
+/** pi's user-level MCP server configuration (docs/mcp.md). */
+export function getMcpConfigPath(): string {
+	return join(getAgentDir(), "mcp.json");
+}
+
 /**
- * pi-tool-display's own config file.
- *
- * The extension resolves it from the same agent dir pi does, so a sandbox that
- * sets PI_CODING_AGENT_DIR moves both together (pi-tool-display agent-dir.ts
- * resolvePiAgentDir + config-store.ts CONFIG_FILE).
+ * Skill roots older presets installed the upstream grilling skills into:
+ * ~/.agents/skills (skills CLI 1.7.1+) and the agent dir's skills/ (older).
  */
-export function getToolDisplayConfigPath(): string {
-	return join(getUserExtensionsDir(), "pi-tool-display", "config.json");
+export function getLegacySkillRoots(): string[] {
+	return [join(homedir(), ".agents", "skills"), join(getAgentDir(), "skills")];
 }
 
 /** Directory auto-discovered for user extensions. */

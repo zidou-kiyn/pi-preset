@@ -25,7 +25,7 @@ import {
 	readJsonObject,
 	writeJsonObjectAtomic,
 } from "./json-merge.ts";
-import { sanitizeTerminalText } from "./skills-sync-output.ts";
+import { sanitizeTerminalText } from "./terminal-text.ts";
 
 const TEMPLATE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..", "templates");
 

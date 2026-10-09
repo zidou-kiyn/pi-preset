@@ -1,8 +1,8 @@
 # pi-preset
 
-Personal [pi](https://pi.dev) environment as a pi package: a theme-reactive status bar, a curated extension set, the two non-default config keys (the ones that keep the background-task and tool-display extensions from fighting over `bash`), and a `models.json` template for OpenAI / Anthropic / DeepSeek relays.
+Personal [pi](https://pi.dev) environment as one pi package: a theme-reactive status bar, the extension set I work with (vendored and maintained here), the `grill-me` / `grilling` skills, the chrome-devtools MCP server, and a `models.json` template for OpenAI / Anthropic / DeepSeek relays.
 
-Reproduces the base working setup on a new machine in two commands, without shipping a single credential; the optional upstream grilling workflow has its own explicit sync command.
+Reproduces the working setup on a new machine in two commands, without shipping a single credential. Updating this one package (`pi update git:github.com/zidou-kiyn/pi-preset`) updates every extension in it.
 
 ## Bootstrap
 
@@ -16,22 +16,30 @@ Restart pi, then run:
 /pi-preset
 ```
 
-`/pi-preset` is the preset's single visual control panel — a TUI menu with four entries:
+`/pi-preset` is the preset's single visual control panel — a TUI menu with three entries:
 
-1. **Sync preset** — packages, config keys, and footer. Starts with a package checklist (optional extensions, plus every installed package that is not part of the preset — unchecked, i.e. removed, by default), then shows a diff of everything it would change and writes nothing until you confirm.
-2. **Install / refresh grilling skills** — the optional upstream grilling workflow; every run pulls the newest upstream version.
-3. **Apply models.json template** — replaces `~/.pi/agent/models.json` with the preset's providers and sets the default provider and model (see [models.json template](#modelsjson-template)).
-4. **Install the Maple Mono NF CN font (ask pi)** — sends a font-install prompt to the current model (see [Font](#font)).
+1. **Sync preset** — config keys, the chrome-devtools MCP server, and `packages[]` cleanup. Starts with a checklist of installed packages that are not part of the preset (unchecked, i.e. removed, by default), then shows a diff of everything it would change and writes nothing until you confirm.
+2. **Apply models.json template** — replaces `~/.pi/agent/models.json` with the preset's providers and sets the default provider and model (see [models.json template](#modelsjson-template)).
+3. **Install the Maple Mono NF CN font (ask pi)** — sends a font-install prompt to the current model (see [Font](#font)).
 
-After a sync that added or removed packages, restart pi so the new package set loads — and do that before touching `/config` in the same session (see [Design notes](#design-notes)).
+After a sync that removed packages, restart pi — and do that before touching `/config` in the same session (see [Design notes](#design-notes)).
 
-Once pi can talk to a model, pick **Install the Maple Mono NF CN font** in `/pi-preset` to have it install the font the status bar needs (see [Font](#font)).
+For SSH through your Termius hosts, run `/termius setup` and `/termius login` once (see [SSH](#ssh-the-termius-mcp-server)).
 
-## Optional extensions
+### Migrating from 0.1
 
-`@narumitw/pi-chrome-devtools` is **not installed by default**: it drives a real browser, which not every machine wants. The sync flow opens with a checklist where you tick the ones this machine should have. Already-installed entries start checked; unchecking one removes it (see [Packages outside the preset](#packages-outside-the-preset)).
+0.1 installed every extension as its own `packages[]` entry; 0.2 loads them from this package. pi refuses to start when two extensions register the same tool name, so on every machine the old entries must go **after** the preset is updated and **before** pi starts again. Close every pi session first, then:
 
-`pi-playwright` used to sit next to it and was dropped: Chrome DevTools already covers navigate / evaluate / screenshot against a live browser without Playwright's own browser downloads.
+```bash
+pi update git:github.com/zidou-kiyn/pi-preset    # only the preset; plain `pi update` updates pi itself
+cd ~/.pi/agent/git/github.com/zidou-kiyn/pi-preset   # Windows: cd $HOME\.pi\agent\git\github.com\zidou-kiyn\pi-preset
+node scripts/migrate-vendored.ts                 # dry run: lists what it would change
+node scripts/migrate-vendored.ts --apply         # then do it
+```
+
+The script needs nothing beyond the Node.js pi already requires. It removes the superseded `packages[]` entries, moves the upstream-installed `grill-me` / `grilling` copies out of `~/.agents/skills` (they would shadow the bundled ones) and drops them from the skills lock file, and moves the leftover `extensions/pi-tool-display` and `extensions/pi-permission-system` data directories. Nothing is deleted: everything goes to `~/.pi/agent/preset-migration-backup/<timestamp>/`. Then start pi, run **Sync preset** in `/pi-preset` once (MCP config, remaining cleanup), and restart pi. Later syncs also remove any superseded entry that comes back.
+
+If pi was started in between and stopped with `Tool "…" conflicts with …`, just run the script and start again.
 
 ## models.json template
 
@@ -62,62 +70,118 @@ The providers target subscription relays (a ChatGPT or Claude subscription expos
 
 To add another provider, edit `models.json` by hand or ask pi to do it; pi's own `docs/models.md` describes the format. Re-applying the template removes providers that are not in it, so keep a copy of hand-added ones.
 
-## Upstream grilling skills
+## Extensions
 
-The preset can install Matt Pocock's upstream [`skills`](https://github.com/mattpocock/skills) workflow. The repository and its skill content are MIT-licensed; Matt Pocock owns the upstream files. This package does not vendor, rewrite, or behaviorally fork them. It invokes the official Vercel `skills` CLI at install or refresh time instead.
+Everything except the preset's own `extensions/` is vendored under [`vendor/`](vendor): a copy of the upstream source at a recorded commit, loaded through `package.json` `pi.extensions`. [`vendor/UPSTREAM.json`](vendor/UPSTREAM.json) records each package's repository, commit, license, and every local change.
 
-Both skills are required:
+| Vendored package | Upstream | What it adds | Local changes |
+|---|---|---|---|
+| `pi-patty-bg-tasks` 2.0.0 | [patty-io/pi-patty-bg-tasks](https://github.com/patty-io/pi-patty-bg-tasks) (unreleased `main`) | `bash` override that slides long commands into the background, `bash_bg`, `jobs`, `monitor`, `agent_bg`, ctrl+shift+b | headless fix, 30s/60s foreground timing (see below) |
+| `pi-workspace-history` 0.5.0 | [wcldyx/pi-workspace-history](https://github.com/wcldyx/pi-workspace-history) | file snapshots per turn: `/undo`, `/redo`, `/diff`, `/checkpoint`, file restore on `/tree` | — |
+| `pi-wtf` 0.3.0 | [travisp/pi-wtf](https://github.com/travisp/pi-wtf) | `/fuck` (`?`, `!`): abort, rewind to before the last prompt, put it back in the editor | lives in `vendor/pi-workspace-history/wtf` |
+| `pi-better-compaction` 0.7.4 | [lll9p/pi-better-compaction](https://github.com/lll9p/pi-better-compaction) | provider-native compaction (see below) | — |
+| `pi-fff` 0.11.0 | [dmtrKovalenko/fff](https://github.com/dmtrKovalenko/fff) `packages/pi-fff` | `ffgrep` / `fffind`: frecency-ranked, git-aware search | native library stays an npm dependency |
+| `rpiv-todo` 2.12.0 | [juicesharp/rpiv-mono](https://github.com/juicesharp/rpiv-mono) | `todo` task list and overlay | — |
+| `rpiv-ask-user-question` 2.12.0 | same | `ask_user_question` structured questions (up to 4 per call) | — |
+| `pi-web-search` 1.7.0 | [ttttmr/pi-web-search](https://github.com/ttttmr/pi-web-search) | `web_search` through the current provider's native search; no extra API key | — |
+| `pi-apply-patch` 0.1.4 | [code-yeongyu/pi-apply-patch](https://github.com/code-yeongyu/pi-apply-patch) | Codex `apply_patch` for OpenAI models | `typebox` as a peer dependency |
+| `pi-context-view` 0.6.0 | [dimk90/pi-context-view](https://github.com/dimk90/pi-context-view) | `/context`: what fills the context, including tool definitions and injections | — |
+| `termius-mcp` 3.1.0 | [MiaM1ku/termius-mcp](https://github.com/MiaM1ku/termius-mcp) | Python MCP server: SSH into Termius hosts (see [SSH](#ssh-the-termius-mcp-server)) | no secret-bearing tools, output redaction, pinned host keys, stdin login |
 
-- `grill-me` is the explicitly invoked wrapper. Use `/skill:grill-me` to start a session.
-- `grilling` is the separate interview primitive. Use `/skill:grilling` to invoke it directly.
+All of them are MIT-licensed except termius-mcp (BSD 3-clause, from the Termius CLI); each directory keeps its upstream LICENSE (or the repository's, for monorepo packages).
 
-Pi does not infer a transitive skill dependency, so installing only `grill-me` is not sufficient. The preset's **Install / refresh grilling skills** menu entry installs or refreshes both names together. It is the only preset flow that performs this network/npm work; the sync flow never installs or refreshes upstream skills.
+`/fuck` and workspace-history work together: the rewind goes through pi's tree navigation, which workspace-history intercepts to offer restoring the files to the same point. `/undo` does the same for the last finished turn and also puts the prompt back in the editor; `/fuck` additionally aborts a running turn.
 
-### Install, refresh, or repair
-
-Choose **Install / refresh grilling skills** from `/pi-preset` in TUI or RPC mode. It shows a read-only plan, asks for explicit confirmation, then invokes this fixed filtered command without a shell:
+### Following upstream
 
 ```bash
-npx --yes skills@latest add mattpocock/skills \
-  --skill grill-me --skill grilling \
-  --agent pi --global --copy --yes
+npm run upstream -- status                 # upstream commits since each vendored commit
+npm run upstream -- diff pi-patty-bg-tasks # the upstream diff for one package
+npm run upstream -- pull pi-patty-bg-tasks # three-way merge it into vendor/ (--to REV for a specific tag/commit)
+npm run upstream -- check                  # what differs locally from the recorded upstream commit
 ```
 
-The same filtered `add` command is used for first installation, later refreshes, and repair. The preset deliberately does not use `skills update`: the current update path can drop `--agent pi` and `--copy`, which can retarget another agent or change a Pi-only copy into a different layout. If `npx` is unavailable, the command uses the no-shell equivalent:
+`pull` merges file by file with `git merge-file`: files changed only upstream are replaced, files changed on both sides get conflict markers, and the recorded commit moves. It never commits; review with `git diff`, run `npm test`, and update `localChanges` in `UPSTREAM.json` when a local change is dropped or added. Upstream clones are cached in `~/.cache/pi-preset-upstream`.
 
-```bash
-npm exec --yes --package=skills@latest -- skills add mattpocock/skills \
-  --skill grill-me --skill grilling \
-  --agent pi --global --copy --yes
+### Background commands: `pi-patty-bg-tasks`
+
+Brings Claude Code's background-task flow to pi: a foreground `bash` command that runs past its timeout slides into the background and keeps running, **ctrl+shift+b** (or `/bg`) backgrounds it on demand, every finished job sends one `<task-notification>` the moment it exits, and `jobs` / `monitor` / `agent_bg` / `/bg-list` manage what is running. The vendored copy is the unreleased 2.0.0 from `main` (npm still has 1.1.6): no `job_decide` prompt any more, no ctrl+b binding (so no shortcut conflict with pi's cursor key), signal deaths reported as killed instead of completed. Background tasks are killed when the session ends, including `/reload`.
+
+Two local changes replace the two workaround extensions 0.1 shipped:
+
+- **Headless `pi -p` no longer exits on the first `bash` call.** Upstream spawns the foreground command detached and `unref()`s it; in a headless process nothing else holds Node's event loop once stdin is drained, so Node exited 0 in the middle of the tool call (Trellis workers, `agent_bg` children, any `--mode json|text` driver). The foreground child now stays ref'd until it finishes or moves to the background.
+- **Short foreground waits.** `timeout` is when a command moves to the background, not a kill deadline, but models pass hundreds of seconds to protect long builds and a hung command then held the session. Without a timeout a command moves after 30s (`PI_PRESET_BASH_BG_DEFAULT`), and any timeout is capped at 60s (`PI_PRESET_BASH_BG_CAP`); `off` restores upstream's 120s and no cap. The parameter description and a bash guideline tell the model that the command keeps running. A bare `sleep`, which is killed at the timeout instead, keeps the timeout it was given.
+
+### Tool rows: `extensions/compact-tools.ts`
+
+pi's own renderers already collapse most tool rows (read shows nothing, bash 5 lines, write 10), but `edit` always draws the whole diff. compact-tools re-registers the built-in `edit` with only its renderers wrapped: a collapsed row shows the first 16 lines (`PI_PRESET_EDIT_LINES`, `off` to disable) and a ctrl+o hint, and expanding shows pi's full diff. The model's tool schema and results are pi's own. It replaces `pi-tool-display`, which also took over `read`/`grep`/`find`/`ls` (activating them next to fff) and wrote ANSI-colored "Thinking:" labels into the saved session.
+
+### MCP servers run in codemode
+
+Both MCP servers below use `exposure: "codemode"`: none of their tools is declared to the model. The model calls them from a `codemode` script (`tools.mcp__chrome_devtools__navigate_page(...)`, `tools.mcp__termius__exec(...)`), finds signatures with `describeNamespace()` / `describeTool()`, and returns only what it needs, so a script can chain several calls and filter large output (page snapshots, logs from many hosts) before anything reaches the context. The tool declarations never change mid-session, and the only standing cost is the one `codemode` tool.
+
+### Browser: the chrome-devtools MCP server
+
+Google's [chrome-devtools-mcp](https://github.com/ChromeDevTools/chrome-devtools-mcp) runs through pi's built-in MCP support instead of a browser extension. **Sync preset** adds it to `~/.pi/agent/mcp.json`, pinned (`chrome-devtools-mcp@1.10.1`, via `npx`), with telemetry, CrUX lookups, and update checks off, and codemode exposure (its 30 tools are called from scripts). On the first browser call it starts its own Chrome with a separate profile. Turn it off in `/mcp`; the sync does not own `enabled`. Bump the version in `src/manifest.ts` after reading its changelog.
+
+### SSH: the Termius MCP server
+
+[`vendor/termius-mcp`](vendor/termius-mcp) is [MiaM1ku/termius-mcp](https://github.com/MiaM1ku/termius-mcp) (Python, BSD, a fork of the official Termius CLI), hardened here, and [`extensions/termius.ts`](extensions/termius.ts) installs and registers it. The agent can list your Termius hosts and run commands or move files on them over SSH with the hosts' own usernames, passwords, and keys, without ever seeing those secrets.
+
+```
+/termius setup     install the server (one step; installs uv first if neither uv nor Python 3.9+ is there)
+/termius login     sign in: email + password, or Google; asks for the 2FA code / app approval when Termius wants one
+/termius mode      review | auto | dangerously
+/termius status    install state, account, host count, last sync, mode
+/termius logout    sign out and wipe the local host cache
 ```
 
-Node.js 22.20 or newer and npm are required. Network, npm, or GitHub failures are reported without changing the previous pair. The command snapshots the two target entries in both skill roots and the complete global lock before invoking the installer; a non-zero exit or invalid post-install state restores that snapshot and prints a safe recovery command. Concurrent preset-managed runs are serialized with a short-lived lock next to the global skill lock, and a stale lock from a dead process is recovered automatically. Installer diagnostics are control-sequence stripped, credential-redacted, and bounded before display.
+**Setup.** The server goes into its own environment under `~/.pi/agent/termius-mcp/venv`, built with [uv](https://docs.astral.sh/uv/) (which also fetches a Python when there is none) or a local Python 3.9+. It works the same on Linux, macOS, and Windows. When a preset update changes the vendored code, the next session reinstalls it.
 
-Do not use `--all`, install the Claude plugin, install the whole Matt repository as a pi package, or copy individual files into the skill roots. Those paths can load unrelated skills or create duplicate names.
+**Sign-in.** `/termius login` asks in pi's own masked prompts and hands the answers to the server process on stdin (`termius login-json`). They never pass through the model, the MCP protocol, the command line, or the environment. Two-factor accounts are asked for the authenticator code; a "approve this device" request waits until you approve it in the Termius app. The vault password is remembered in the OS keychain (an encrypted file where there is none), so later sessions sync on their own.
 
-**Where the skills land changed in skills 1.7.1.** Earlier CLI versions installed pi's global skills into `~/.pi/agent/skills/`; 1.7.1 and newer use the Agent Skills location `~/.agents/skills/`. pi loads both roots, so a refresh that added a 1.7.1 copy next to an older one used to fail with *independent same-name skills found at ...* and roll back. Each run now removes the existing `grill-me` / `grilling` copies from both roots inside its snapshot, lets the CLI write its fresh copy, and requires exactly one copy per skill afterwards. An older install is therefore moved to `~/.agents/skills/` on the next run, and reported as `moved`. Only these two names are touched; other skills in either root stay. Anything unusable at one of those paths (a file, a directory without `SKILL.md`) still stops the run before anything is removed.
+**What the model gets.** Seven tools: `status`, `sync`, `hosts`, `host`, `exec`, `files` (SFTP list/stat/read/get/put/write/mkdir/rm/rename), `inventory`. Compared with upstream:
 
-The official CLI invocations disable its optional telemetry and npm lifecycle scripts. The preset stores no credentials, passes no CLI metadata, and adds no provider configuration. The child inherits the user’s normal process environment so existing npm, GitHub, proxy, and CA configuration keeps working; displayed diagnostics redact common credential forms. In TUI and RPC modes, a successful content change reloads Pi resources before the command returns. A restart is a fallback if reload is unavailable. Print (`-p`) and JSON modes only render the plan to the appropriate diagnostic stream; they never ask for consent, invoke npm, or write files.
+- No tool takes or returns a secret. The `login`, `login_complete`, and `logout` tools, which took the vault password as a model-visible argument, are gone; `sync` has no password argument; snippets are listed by label only, since their scripts can hold credentials.
+- Every result is scrubbed: any identity password, key passphrase, private key, or the vault password in command output or file content becomes `[redacted]`, as does any PEM/OpenSSH private key block.
+- Host keys are pinned on first connection in `~/.termius/known_hosts`; a changed key is refused instead of silently accepted (upstream used paramiko's `AutoAddPolicy`).
 
-Installed state is kept in these global locations:
+**Approval modes** (`/termius mode`, saved in `~/.pi/agent/termius-mcp/config.json`, default `auto`):
 
-- Skills: `~/.agents/skills/grill-me/` and `~/.agents/skills/grilling/` (skills CLI 1.7.1+; older versions: `~/.pi/agent/skills/`)
-- Lock: `~/.agents/.skill-lock.json`, or `$XDG_STATE_HOME/skills/.skill-lock.json` when `XDG_STATE_HOME` is set
+| Mode | exec | files |
+|---|---|---|
+| `review` | every command asks | every action asks |
+| `auto` | read-only commands run, everything else asks | list/stat/read/get run, write/put/mkdir/rm/rename ask |
+| `dangerously` | runs | runs |
 
-Skills execute as model instructions with Pi's agent permissions. Review the two upstream `SKILL.md` files before enabling them, just as you would review any extension or package with system access.
+The prompt offers *Allow once*, *Allow everything on this host for this session*, or *Deny*. `auto` uses fixed rules, not a model: a command is read-only only when every pipeline segment is an allowlisted read-only program (`ls`, `cat`, `tail`, `grep`, `df`, `ps`, `systemctl status`, `docker ps/logs`, `kubectl get/logs`, `journalctl`, `git log`, …) with no output redirection, command substitution, `sudo`, or backgrounding. Anything unrecognised asks, so a gap in the rules costs a question, never a silent change. Without a UI (`pi -p`), calls that would ask are refused unless the mode is `dangerously`.
+
+**Local guard.** The agent's own tools run as your user, so it could in principle read the server's encrypted cache in `~/.termius`, ask the OS keychain for the vault password, or read the server process. The extension blocks tool calls whose paths or commands point there (`~/.termius`, keychain lookups mentioning termius, `/proc/<pid>/mem|environ`, `gdb -p`, …), and `files put` cannot upload from `~/.termius`. This stops the ordinary ways and makes intent visible; it is not an isolation boundary against an agent deliberately working around it as the same OS user. Running the server as a separate OS user would be that boundary.
+
+## Skills
+
+`grill-me` and `grilling` ship in [`skills/`](skills), adapted from Matt Pocock's [skills](https://github.com/mattpocock/skills) (MIT, see [`skills/NOTICE.md`](skills/NOTICE.md)). They are maintained here and not synced from upstream.
+
+- `/skill:grill-me` starts a grilling session on a plan or idea; it is hidden from the model's skill list.
+- `grilling` is the interview itself; the model also loads it on its own for "grill me"-style requests.
+
+The pi version asks each round through `ask_user_question` (at most 4 questions per call, the recommended answer first) instead of a numbered text list, so answers are picked rather than typed. When a round has more open decisions than that, the 4 most fundamental go first and the rest follow in the next round. Facts are looked up by the model itself (or `agent_bg`), never asked.
 
 ## What it ships
 
 | Resource | Effect |
 |---|---|
 | `extensions/vibrant-footer.ts` | The status bar. Toggle with `/vibrant-footer` |
-| `extensions/pi-preset.ts` | The `/pi-preset` control panel: sync, skills, the models.json template, and the font-install prompt in one TUI menu |
-| `templates/models.json`, `templates/settings.json` | The provider template (placeholder endpoints and keys) and its default provider/model |
-| `extensions/headless-keepalive.ts` | Keeps headless `pi -p` children alive during tool calls (works around a `pi-patty-bg-tasks` bug, see below). No command, no UI |
-| `extensions/bash-bg-cap.ts` | Moves stuck foreground `bash` commands to the background after 30s (no timeout given) or at most 60s, instead of the model's multi-minute timeouts (see below). No command, no UI |
+| `extensions/pi-preset.ts` | The `/pi-preset` control panel: sync, the models.json template, and the font-install prompt in one TUI menu |
+| `extensions/compact-tools.ts` | Caps collapsed `edit` rows (see [Tool rows](#tool-rows-extensionscompact-toolsts)). No command |
+| `extensions/termius.ts` | Installs and registers the Termius MCP server, `/termius`, approval modes, and the local guard (see [SSH](#ssh-the-termius-mcp-server)) |
 | `extensions/cache-retention.ts` | Defaults `PI_CACHE_RETENTION` to `long` inside pi (1h Anthropic cache TTL, 24h OpenAI Responses retention) so it applies even in shells that never sourced your rc file. An explicit value in the environment wins. No command, no UI |
 | `extensions/idle-keepwarm.ts` | Keeps the Anthropic prompt cache warm while pi's UI stays open and idle, past pi's own 30-minute idle limit (see below). Status bar segment `keepwarm`, no command |
 | `extensions/inherit-model.ts` | `/new` keeps the model and thinking level you were just using instead of falling back to `defaultModel` (see below). No command, no UI |
+| `vendor/` | The vendored extensions (see [Extensions](#extensions)) |
+| `skills/` | `grill-me` and `grilling` (see [Skills](#skills)) |
+| `templates/models.json`, `templates/settings.json` | The provider template (placeholder endpoints and keys) and its default provider/model |
+| `scripts/upstream.mjs`, `scripts/migrate-vendored.ts` | Upstream tracking and the 0.1 → 0.2 migration |
 
 ### Reading the status bar
 
@@ -128,7 +192,7 @@ Skills execute as model instructions with Pi's agent permissions. Review the two
 ⟲ · ⬡ 12 · ⧉ 2·14 cm ts · ☑ 1/3 · ▸ current task
 ```
 
-Segments show icons only. Set `PI_PRESET_FOOTER_LABELS=1` to bring back the word labels (`in`, `out`, `cache r`, `w`, `hit`, `ttl`, `warm`, `pkg`, `mcp`); they are then shown whenever the stats fit in two lines. The list below uses those label names.
+Segments show icons only (`⬡` counts the package extensions that register tools or commands; a vendored package counts once). Set `PI_PRESET_FOOTER_LABELS=1` to bring back the word labels (`in`, `out`, `cache r`, `w`, `hit`, `ttl`, `warm`, `pkg`, `mcp`); they are then shown whenever the stats fit in two lines. The list below uses those label names.
 
 - **Context**: the meter plus `used/window percent` of the current context. Its color turns warning above 70% and error above 90%.
 - **in / out**: input and output tokens summed over the whole session, not the current context.
@@ -137,7 +201,6 @@ Segments show icons only. Set `PI_PRESET_FOOTER_LABELS=1` to bring back the word
 - **◈**: session cost as `$0.410` (`sub` when the model runs on an OAuth subscription), or `Σ` total tokens when the provider reports no price.
 - **⟲**: [pi-workspace-history](https://www.npmjs.com/package/pi-workspace-history) is active (`/undo` works), shown as a success-toned glyph. The footer draws its `⟲ history` status itself; it turns into an error-toned `snapshot failed` when snapshots break (see `/history-status`). Hidden when the extension is not installed or `workspaceHistory.showStatus` is `false`.
 - **mcp servers·tools**: MCP servers connected through pi's built-in MCP support and their callable tools. Servers that failed or need a sign-in are not counted; pi reports them after startup and in `/mcp`. A dim `mcp 0` means MCP support is loaded but no server is connected. `cm` / `ts` mark the built-in `codemode` / `tool_search` tools while they are active. The segment is hidden only when the built-in MCP extension is disabled.
-
 
 ### Prompt cache kept warm while idle
 
@@ -160,36 +223,22 @@ pi rebuilds every `/new` session from `settings.json` (`defaultModel`, `defaultT
 
 ## What Sync preset does
 
-1. **Declares 12 required extensions** (plus any checked optional ones) in `~/.pi/agent/settings.json` `packages[]`, and **removes every other entry you did not check to keep** (see [Packages outside the preset](#packages-outside-the-preset)).
-2. **Sets 5 config keys** across three JSON files (see below).
+1. **Removes superseded `packages[]` entries** — the packages the preset now vendors or replaced — in every mode, and **every other entry outside the preset that you did not check to keep** (see [Packages outside the preset](#packages-outside-the-preset)).
+2. **Sets the config keys** below in `settings.json` and `mcp.json`.
 3. **Moves a local `extensions/vibrant-footer/`** into `extensions-disabled/` if one exists, so the footer does not load twice.
+4. **Warns** when upstream-installed `grill-me` / `grilling` copies still shadow the bundled skills (the migration script removes them).
 
 Every step is idempotent. A second run reports "already in sync" and touches nothing — not even file mtimes.
 
-### The 12 required extensions
-
-| Package | |
-|---|---|
-| `npm:pi-wtf` | `npm:@lll9p/pi-better-compaction` |
-| `npm:pi-workspace-history` | `npm:pi-web-search` |
-| `npm:@ff-labs/pi-fff` | `git:github.com/code-yeongyu/pi-apply-patch` |
-| `npm:pi-tool-display` | `npm:@juicesharp/rpiv-todo` |
-| `npm:pi-context-view` | `npm:@juicesharp/rpiv-ask-user-question` |
-| `npm:@narumitw/pi-btw` | `npm:pi-patty-bg-tasks` |
-
-`pi-apply-patch` stays required: pi has no built-in `apply_patch`. Its Codex Lark grammar only reaches the model once the tool declares it through pi's `constrainedSampling` API ([code-yeongyu/pi-apply-patch#43](https://github.com/code-yeongyu/pi-apply-patch/pull/43)). Until that lands, it goes out as a plain function tool even though the OpenAI template enables `supportsOpenAIGrammarTools`. The flag is harmless in the meantime and takes effect after an update.
-
-Web search is `pi-web-search` only. It uses the selected model provider's native search (Gemini grounding, xAI, OpenAI Responses, Anthropic), so no separate search API key is needed. `pi-web-access` was dropped because it registers the same tool names; pi treats a duplicate tool name as a fatal load error, so the two cannot coexist.
-
 ### Native compaction
 
-`pi-better-compaction` replaces pi's text summary with the provider's own server-side compaction where the API offers one, and falls back to pi's compaction whenever that fails:
+The vendored `pi-better-compaction` replaces pi's text summary with the provider's own server-side compaction where the API offers one, and falls back to pi's compaction whenever that fails:
 
 - **OpenAI Responses** (`openai-responses`): native `/responses/compact`. The result is an opaque window that replays only for the provider and model that produced it.
 - **Anthropic Messages** (`anthropic-messages`): on-demand compaction (beta `compact-2026-09-04`, Claude Sonnet 4.6 / Opus 4.6 and newer, not Haiku). The signed block replays for the same model; its text also becomes pi's summary, so other models can still read it.
 - Everything else keeps pi's compaction.
 
-Whether native compaction actually runs depends on the relay. CLIProxyAPI (verified on 8.0.8) passes the beta through but adds `context_management` to every thinking request, which Anthropic refuses next to `compaction`. pi always sends thinking for the preset's Anthropic models, so before 0.7.3 every Anthropic compaction through CLIProxyAPI fell back to pi's. Since 0.7.3 the package retries that one rejected request without thinking ([lll9p/pi-better-compaction#9](https://github.com/lll9p/pi-better-compaction/pull/9); thinking blocks already in the history are kept, later turns keep your thinking level). If you installed an earlier version of this preset, leave the old `git:github.com/zidou-kiyn/pi-better-compaction` entry unchecked under *Packages not in the preset*: pi identifies git packages by URL, so both copies would otherwise load and both handle compaction.
+Whether native compaction actually runs depends on the relay. CLIProxyAPI (verified on 8.0.8) passes the beta through but adds `context_management` to every thinking request, which Anthropic refuses next to `compaction`. pi always sends thinking for the preset's Anthropic models, so before 0.7.3 every Anthropic compaction through CLIProxyAPI fell back to pi's. Since 0.7.3 the package retries that one rejected request without thinking ([lll9p/pi-better-compaction#9](https://github.com/lll9p/pi-better-compaction/pull/9); thinking blocks already in the history are kept, later turns keep your thinking level). The old `git:github.com/zidou-kiyn/pi-better-compaction` fork entry is superseded like the npm one, so the sync removes it.
 
 **Switching models after an OpenAI native compaction.** The new model cannot read the opaque window and continues from the kept messages only. The package warns when this happens ([#10](https://github.com/lll9p/pi-better-compaction/pull/10)). To give the new model the full history, use `/tree` to branch from the entry just before that compaction; pi rebuilds the context from the original messages and compacts again with the new model if it does not fit. Switching away from an Anthropic compaction is safe.
 
@@ -197,40 +246,16 @@ To check what happened, run `/compact` and look at the session's compaction entr
 
 ### Packages outside the preset
 
-`packages[]` is managed as a **whitelist**. The sync checklist lists every installed entry that is neither required, optional, nor the preset itself, under *Packages not in the preset*, **unchecked**. Check the ones this machine should keep; everything left unchecked is removed. Unchecking an installed optional extension removes it the same way.
+`packages[]` is managed as a **whitelist**. The sync checklist lists every installed entry that is neither required, optional, superseded, nor the preset itself, under *Packages not in the preset*, **unchecked**. Check the ones this machine should keep; everything left unchecked is removed. Unchecking an installed optional extension removes it the same way.
 
 - **Nothing is written from the checklist.** The plan that follows lists each removal as a `- remove` line with its reason, and needs the usual confirmation.
 - **The preset never removes itself**, whether it was installed as `git:github.com/zidou-kiyn/pi-preset` (any ref) or from a local path pointing at this package.
 - **Removal goes through `pi remove <source>`**, so npm packages are uninstalled and git checkouts deleted exactly as pi would do it by hand. Its output is captured so it cannot print over the TUI. For a local-path entry only the `settings.json` entry is removed; the directory is left alone.
 - **Matching is by package identity**: `npm:pi-btw@0.6.1` and `{ "source": "npm:pi-btw", ... }` are the same package, listed once and removed together.
 - If `pi remove` fails, the entry is still removed from `settings.json` and the result says which files may remain.
-- **RPC and print modes never remove anything**: with no checklist there is no consent, so they only add.
+- **RPC and print modes only remove superseded packages** (see [Migrating from 0.1](#migrating-from-01)): with no checklist there is no consent for anything else.
 
-This is also how the old `npm:pi-btw` goes away after the switch to `npm:@narumitw/pi-btw` (both register `/btw`): it shows up unchecked under *Packages not in the preset*.
-
-### The optional extension
-
-| Package | Why opt-in |
-|---|---|
-| `npm:@narumitw/pi-chrome-devtools` | Drives a running Chrome over the DevTools Protocol |
-
-It appears as an unchecked box at the start of every sync. Checking it adds it to the desired set for that run; when already installed it starts checked, and unchecking it removes it.
-
-They are declared as **independent `packages[]` entries**, not bundled inside this package. That is deliberate: `pi update --extensions` only iterates sources listed in `settings.json`, so bundling them would freeze their versions forever. As independent entries, each one keeps its native update behavior.
-
-### The 5 config keys
-
-Written to `extensions/pi-tool-display/config.json`:
-
-```json
-{ "registerToolOverrides": { "bash": false } }
-```
-
-Written to `keybindings.json`:
-
-```json
-{ "tui.editor.cursorLeft": ["left"] }
-```
+### The config keys
 
 Written to `settings.json`, next to `packages[]`:
 
@@ -244,50 +269,25 @@ Written to `settings.json`, next to `packages[]`:
 
 This turns on pi's fullscreen TUI. `"auto"` adapts wheel speed to the terminal (one line per event on local macOS, accelerated up to 6 elsewhere and over SSH). With copy-on-select off, selecting text no longer overwrites the clipboard; press `ctrl+x` (`app.message.copy`) to copy the active selection. Like any `settings.json` change made by the sync, it takes effect after a restart.
 
-Nothing else is written. Every consumer falls back per key to its own defaults, so a partial file is valid and no upstream default can be frozen by a stale snapshot.
+Written to `mcp.json` (see [Browser](#browser-the-chrome-devtools-mcp-server)):
 
-Writes to all three files are a deep merge of exactly those leaf keys — never a whole-file overwrite. If a file does not parse as JSON, only that step aborts, rather than starting from `{}` and erasing your hand-tuned settings. The previous content is copied to `<file>.preset-bak` before every write, and the write itself is a tmp-file rename so an interrupted run cannot truncate it.
-
-#### Why these keys exist: `pi-patty-bg-tasks`
-
-[`pi-patty-bg-tasks`](https://pi.dev/packages/pi-patty-bg-tasks) brings Claude Code's background-task flow to pi: a foreground command that runs past 120s slides into the background, **Ctrl+B** backgrounds it on demand, and `jobs` / `monitor` / `agent_bg` / `/bg-list` manage what is running. It collides with the rest of the preset in two places.
-
-**1. The `bash` tool — this one is fatal.** Both `pi-patty-bg-tasks` and `pi-tool-display` register a `bash` override, and pi treats a duplicate tool name as a load **error**, not a precedence question:
-
+```json
+{
+  "mcpServers": {
+    "chrome-devtools": {
+      "command": "npx",
+      "args": ["-y", "chrome-devtools-mcp@1.10.1", "--no-usage-statistics", "--no-performance-crux"],
+      "env": { "CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS": "1" },
+      "exposure": "codemode",
+      "description": "Drive a Chrome browser: navigate, click, fill forms, evaluate JS, screenshots, console, network, performance traces"
+    }
+  }
+}
 ```
-Error: Failed to load extension ".../pi-patty-bg-tasks/index.ts": Tool "bash" conflicts with .../pi-tool-display/index.ts
-Hint: Start without extensions using "pi -ne".
-```
 
-pi exits 1 and does not start. Reordering `packages[]` does not help. Setting `registerToolOverrides.bash: false` is `pi-tool-display`'s own documented opt-out and leaves every other tool it renders (`read`, `grep`, `find`, `ls`, `edit`, `write`) untouched. Ownership changes only take effect after a restart or `/reload`.
+Nothing else is written; other servers and keys in `mcp.json` stay. Writes to both files are a deep merge of exactly those leaf keys — never a whole-file overwrite. If a file does not parse as JSON, only that step aborts, rather than starting from `{}` and erasing your hand-tuned settings. The previous content is copied to `<file>.preset-bak` before every write, and the write itself is a tmp-file rename so an interrupted run cannot truncate it.
 
-To keep `pi-tool-display`'s bash rendering instead, set that key back to `true` **and** drop `npm:pi-patty-bg-tasks` from `packages[]` — keeping both with `true` makes pi unstartable.
-
-**2. The Ctrl+B keybinding.** pi binds `ctrl+b` to `tui.editor.cursorLeft` by default (an emacs-style alias for `left`), and the extension registers `ctrl+b` unconditionally. The extension wins the key either way — this is only cosmetic — but pi prints `Extension shortcut conflict: 'ctrl+b' ...` on every startup until the built-in claim is dropped. A user key list **replaces** the default list rather than extending it, so `["left"]` is what removes `ctrl+b`.
-
-To keep the emacs binding and live with the warning, restore `"tui.editor.cursorLeft": ["left", "ctrl+b"]`. The extension's other shortcuts (`ctrl+shift+b`, `ctrl+shift+j`, `shift+down`, `ctrl+shift+x`) collide with nothing.
-
-**3. Headless children die on the first `bash` call.** This one is why `extensions/headless-keepalive.ts` ships. `pi-patty-bg-tasks` spawns its foreground `bash` with `detached: true` + `proc.unref()` and `unref()`s every timer. In the TUI the terminal keeps Node's event loop alive, so nothing is noticed. In a headless `pi -p` process (Trellis `trellis_subagent` workers, pi-patty's own `agent_bg`, anything driving `--mode json|text`) the loop is empty once stdin is drained and the LLM stream ends, so Node exits **0** mid tool-call: no `tool_execution_end`, no `agent_end`, empty or first-turn-only output. Verified on 1.1.6: `pi -p --no-extensions -e …/pi-patty-bg-tasks` reproduces it, built-in bash does not.
-
-**4. Models hold the session with huge `bash` timeouts.** This is why `extensions/bash-bg-cap.ts` ships. Under `pi-patty-bg-tasks`, `bash`'s `timeout` is when a foreground command slides into the background (the model then gets `job_decide`: keep / kill / check), not when it is killed. Models read it as a kill deadline and pass hundreds of seconds to protect long builds, so a hung command holds the session for minutes. The extension rewrites each `bash` call before it runs:
-
-| Model passed | Runs with |
-|---|---|
-| no `timeout` | 30s (`PI_PRESET_BASH_BG_DEFAULT`) |
-| `timeout` above 60s | 60s (`PI_PRESET_BASH_BG_CAP`) |
-| `timeout` at or below 60s | unchanged, never raised |
-| `run_in_background: true` | unchanged |
-| a command starting with `sleep` | unchanged: patty **kills** those at the timeout instead of backgrounding them |
-
-The rewrite happens on the finalized assistant message (`message_end`), which pi shares between the tool row, the tool loop, and the saved transcript, so the row reads `(timeout 60s)` rather than the model's original number, and the recorded call shows 60 too. So that the model doesn't take the rewritten argument for its own mistake, the extension adds one bullet to the bash guidelines in the system prompt, and capped results end with a single `[pi-preset] bash timeout capped: 150s -> 60s` line. A `tool_call` hook caps the executed copy as well, covering calls that never pass through an assistant message (codemode scripts).
-
-Nothing gets killed because of this: a capped build keeps running in the background and reports when it ends. While the model waits on it with `jobs attach`, Esc only stops the waiting; the job keeps going. Set either variable to `off` to disable the extension.
-
-It only acts when the registered `bash` tool comes from `pi-patty-bg-tasks` (checked through the tool's `sourceInfo.path`). With pi's built-in `bash`, `timeout` **is** a kill deadline, and capping it would kill long builds. It also stays out of print/json modes, where patty ignores the timeout anyway.
-
-The keepalive extension holds one ref'd `setInterval` per in-flight tool call (`tool_execution_start` → `tool_execution_end`) and releases everything on `agent_end` / `session_shutdown`. It registers no tool and no command, so it never appears in the footer's package count. Drop it once upstream stops unref'ing the foreground child.
-
-`settings.json` `packages[]` is a **whitelist**: entries are matched by pi's own identity rule (npm compares the package name, git compares the repository URL without its ref), missing preset packages are appended, existing entries are never reordered, and a package outside the preset is removed only when you left it unchecked in the sync checklist and confirmed the plan (see [Packages outside the preset](#packages-outside-the-preset)).
+0.1 also wrote `extensions/pi-tool-display/config.json` and `keybindings.json` (`tui.editor.cursorLeft: ["left"]`, to free ctrl+b for patty 1.x). Neither is needed any more; the keybinding is left as it is.
 
 ## Font
 
@@ -317,27 +317,31 @@ pi only reconciles a git source to its *configured* ref and never advances it on
 
 ## Design notes
 
-- **Few personal preferences are shipped.** The sync flow sets only the fullscreen TUI keys above besides `packages[]`. `defaultProvider` and `defaultModel` are written only when you apply the models.json template, and you pick them there. No `theme`, no `defaultThinkingLevel`, no `AGENTS.md`.
+- **Vendored, not depended on.** Every extension is a reviewed copy in this repository, so an upstream release cannot change behavior until it is pulled, local fixes need no fork per package, and updating the one package updates everything. The cost is following upstream by hand; `npm run upstream -- status` shows what is pending.
+- **Few personal preferences are shipped.** The sync flow sets only the fullscreen TUI keys and the chrome-devtools MCP server besides `packages[]`. `defaultProvider` and `defaultModel` are written only when you apply the models.json template, and you pick them there. No `theme`, no `defaultThinkingLevel`, no `AGENTS.md`.
 - **No credentials, ever.** The models template holds only placeholder endpoints and `$ENV_VAR` keys. `scripts/scan-secrets.sh` scans the working tree and the full git history before every push.
-- **No automatic `pi install`.** The sync flow only writes `packages[]` and lets pi install on its next start. (Removals are the exception: they run `pi remove` so the installed files go too.)
-
-  > **Restart pi after a sync that changed `packages[]`.** Extensions get no access to pi's settings manager, so the write goes straight to the file while the running session still holds the array it loaded at startup. If you use `/config` or `pi install` in that same session afterwards, pi persists its stale snapshot and the newly added entries disappear (or removed ones come back). Re-running the sync fixes it; nothing else is lost.
-- **MCP, codemode, and tool search are left to pi.** Since 0.99, pi ships them as built-in extensions: servers live in `~/.pi/agent/mcp.json` and are managed with `/mcp`, while `codemode` and `tool_search` switch on by themselves when an MCP server needs them. The preset writes no `mcp.json` and no `defaultTools`. MCP servers carry credentials and differ per person, and codemode is not worth keeping on without MCP, because the models already call tools in parallel natively. None of the required extensions collide with the built-ins. The footer shows what is connected.
-- **No runtime dependencies.**
+- **`packages[]` changes need a restart.** Extensions get no access to pi's settings manager, so the sync writes the file while the running session still holds the array it loaded at startup. If you use `/config` or `pi install` in that same session afterwards, pi persists its stale snapshot and removed entries come back. Re-running the sync fixes it; nothing else is lost.
+- **MCP goes through codemode.** The preset adds two servers, chrome-devtools (in `mcp.json`) and Termius (registered by its extension), both with codemode exposure, so their tools are called from scripts instead of being declared. Other servers carry credentials and differ per person, so they are left to `/mcp`. The footer shows what is connected.
+- **Runtime dependencies are the vendored packages' own:** `@ff-labs/fff-node` / `fff-bun` (fff's native search library), `ignore` (workspace-history), `diff` (apply-patch), and the vendored `rpiv-config` through a `file:` dependency. pi installs them with the package. The Termius server's Python dependencies (paramiko, pynacl, cryptography, keyring, …) live in its own environment, created by `/termius setup`.
 - **`pi-startup-redraw-fix` is not included.** It rewrites `ESC[3J ESC[2J ESC[H` into `ESC[H ESC[2J ESC[3J`, but pi's alternate-screen renderer emits `ESC[2J ESC[H ESC[3J`, which never matches its trigger. The patch cannot fire.
 
 ## Development
 
 ```bash
+npm install                 # vendored packages' dependencies (pi's own packages come from the host)
+npm test                    # preset tests + the vendored patty suite
+npm run test:termius        # the vendored termius-mcp suite (needs uv)
 ./scripts/scan-secrets.sh   # working tree + full history
 ```
 
-Install from a local checkout to test before pushing:
+Try a local checkout in a throwaway agent dir before pushing (copy `models.json` and `auth.json` in if the run needs a model):
 
 ```bash
-PI_CODING_AGENT_DIR=$(mktemp -d) pi install ~/pi-preset
+export PI_CODING_AGENT_DIR=$(mktemp -d)
+echo '{"packages":["'$PWD'"]}' > $PI_CODING_AGENT_DIR/settings.json
+pi
 ```
 
 ## License
 
-MIT
+MIT for this repository. Vendored code keeps its upstream license in its own directory (MIT, BSD 3-clause for termius-mcp); the skills' notice is in `skills/NOTICE.md`.

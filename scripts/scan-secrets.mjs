@@ -1,8 +1,29 @@
 #!/usr/bin/env node
 
-import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const mode = process.argv[2];
+
+/**
+ * Reviewed false positives in vendored upstream code (public client ids, test
+ * fixtures). Matched by the SHA-256 of the trimmed line, with a leading diff
+ * marker (+/-/space) removed, so the same line passes in the working tree and
+ * in `git log -p`. Every entry carries a reason.
+ */
+const allowPath = join(dirname(fileURLToPath(import.meta.url)), "scan-secrets-allow.json");
+const allowed = new Set(
+	existsSync(allowPath) ? JSON.parse(readFileSync(allowPath, "utf8")).map((entry) => entry.sha256) : [],
+);
+
+function lineFingerprint(source, index) {
+	const start = source.lastIndexOf("\n", index - 1) + 1;
+	const end = source.indexOf("\n", index);
+	const line = source.slice(start, end === -1 ? source.length : end);
+	return createHash("sha256").update(line.replace(/^[+\- ]/, "").trim()).digest("hex");
+}
 const scannerFiles = new Set(["scripts/scan-secrets.sh", "scripts/scan-secrets.mjs"]);
 
 const highConfidencePatterns = [
@@ -22,6 +43,9 @@ function isAllowedReference(credentialName, value) {
 	const normalized = value.trim();
 	return (
 		containsEnvironmentReference(normalized) ||
+		// A template interpolation (`Bearer ${auth.apiKey}`) builds the value at
+		// runtime; a literal credential never contains one.
+		/\$\{[^}]+\}/u.test(normalized) ||
 		normalized.startsWith("process.env.") ||
 		normalized.startsWith("<redacted") ||
 		normalized.startsWith("command:") ||
@@ -44,6 +68,7 @@ function scanSource(sourceName, source) {
 	const seen = new Set();
 
 	const addFinding = (index, label) => {
+		if (allowed.has(lineFingerprint(source, index))) return;
 		const line = lineNumberAt(source, index);
 		const key = `${line}:${label}`;
 		if (seen.has(key)) return;

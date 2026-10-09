@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { assertModeOnPosix } from "./platform-test-utils.ts";
 import { apply } from "../src/apply.ts";
 import { jsonEquals } from "../src/json-merge.ts";
-import { JSON_PATCHES, OPTIONAL_PACKAGES, REQUIRED_PACKAGES } from "../src/manifest.ts";
+import { CHROME_DEVTOOLS_MCP_VERSION, JSON_PATCHES } from "../src/manifest.ts";
 import { plan, type PlanOptions, type Step } from "../src/plan.ts";
 
 function makeAgentDir(): string {
@@ -33,9 +33,7 @@ function patchSteps(steps: Step[]): Extract<Step, { kind: "json.patch" }>[] {
 	return steps.filter((step): step is Extract<Step, { kind: "json.patch" }> => step.kind === "json.patch");
 }
 
-function toolDisplayConfigPath(agentDir: string): string {
-	return join(agentDir, "extensions", "pi-tool-display", "config.json");
-}
+const CHROME_ARGS = ["-y", `chrome-devtools-mcp@${CHROME_DEVTOOLS_MCP_VERSION}`, "--no-usage-statistics", "--no-performance-crux"];
 
 test("jsonEquals compares arrays and objects structurally, not by reference", () => {
 	assert.equal(jsonEquals(["left"], ["left"]), true);
@@ -46,140 +44,78 @@ test("jsonEquals compares arrays and objects structurally, not by reference", ()
 	assert.equal(jsonEquals(null, false), false);
 });
 
-test("the background-tasks package ships and every patch target has a distinct id", () => {
-	assert.ok(REQUIRED_PACKAGES.includes("npm:pi-patty-bg-tasks"));
-	assert.ok(REQUIRED_PACKAGES.includes("npm:pi-context-view"));
-	assert.ok(REQUIRED_PACKAGES.includes("npm:@narumitw/pi-btw"));
-	// pi-btw and @narumitw/pi-btw both register /btw; the old one is no longer shipped.
-	assert.ok(!REQUIRED_PACKAGES.includes("npm:pi-btw"));
-	assert.ok(REQUIRED_PACKAGES.includes("npm:pi-web-search"));
-	// pi-web-access registers the same tool names as pi-web-search; pi treats
-	// that as a fatal load error, so the pair must never be declared together.
-	assert.ok(!REQUIRED_PACKAGES.includes("npm:pi-web-access"));
+test("patch targets: settings.json and the chrome-devtools MCP server, distinct ids", () => {
 	const ids = JSON_PATCHES.map((target) => target.id);
 	assert.equal(new Set(ids).size, ids.length);
-	assert.deepEqual(ids, ["pi-tool-display/config.json", "keybindings.json", "settings.json"]);
-});
-
-test("optional packages stay out of the default plan and join only when checked", async () => {
-	assert.deepEqual(
-		OPTIONAL_PACKAGES.map((pkg) => pkg.source),
-		["npm:@narumitw/pi-chrome-devtools"],
-	);
-	for (const pkg of OPTIONAL_PACKAGES) {
-		assert.ok(!REQUIRED_PACKAGES.includes(pkg.source), `${pkg.source} must not be required`);
-	}
-
-	const agentDir = makeAgentDir();
-	try {
-		writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ packages: [] }));
-
-		const withoutExtras = await planIn(agentDir);
-		const defaultAdd = withoutExtras.steps.find(
-			(step): step is Extract<Step, { kind: "settings.packages.add" }> => step.kind === "settings.packages.add",
-		);
-		assert.ok(defaultAdd);
-		for (const pkg of OPTIONAL_PACKAGES) {
-			assert.ok(!defaultAdd.missing.includes(pkg.source), `${pkg.source} must not be planned by default`);
-		}
-
-		const extras = OPTIONAL_PACKAGES.map((pkg) => pkg.source);
-		const withExtras = await planIn(agentDir, { extraPackages: extras });
-		const extrasAdd = withExtras.steps.find(
-			(step): step is Extract<Step, { kind: "settings.packages.add" }> => step.kind === "settings.packages.add",
-		);
-		assert.ok(extrasAdd);
-		for (const source of extras) {
-			assert.ok(extrasAdd.missing.includes(source), `${source} must be planned when checked`);
-		}
-		// A checked extra that duplicates a required package is not planned twice.
-		const duplicated = await planIn(agentDir, { extraPackages: ["npm:pi-wtf", ...extras] });
-		const dupAdd = duplicated.steps.find(
-			(step): step is Extract<Step, { kind: "settings.packages.add" }> => step.kind === "settings.packages.add",
-		);
-		assert.ok(dupAdd);
-		assert.equal(dupAdd.missing.filter((source) => source === "npm:pi-wtf").length, 1);
-	} finally {
-		cleanup(agentDir);
-	}
+	assert.deepEqual(ids, ["settings.json", "mcp.json"]);
+	const chrome = (JSON_PATCHES[1]?.patch.mcpServers as Record<string, Record<string, unknown>>)["chrome-devtools"];
+	assert.equal(chrome?.exposure, "codemode", "browser tools are called from codemode scripts, never declared");
+	assert.deepEqual(chrome?.args, CHROME_ARGS);
+	assert.ok(!("enabled" in (chrome ?? {})), "enabled belongs to the user (/mcp toggles it)");
+	assert.match(CHROME_DEVTOOLS_MCP_VERSION, /^\d+\.\d+\.\d+$/, "the MCP server is pinned, never @latest");
 });
 
 test("existing configs are patched per leaf, keep unrelated keys and modes, and converge", async () => {
 	const agentDir = makeAgentDir();
 	try {
-		const toolDisplayPath = toolDisplayConfigPath(agentDir);
-		const keybindingsPath = join(agentDir, "keybindings.json");
-		mkdirSync(join(agentDir, "extensions", "pi-tool-display"), { recursive: true });
+		const mcpPath = join(agentDir, "mcp.json");
 		writeFileSync(
-			toolDisplayPath,
+			mcpPath,
 			JSON.stringify({
-				enabled: true,
-				registerToolOverrides: { read: true, bash: true, write: true },
-				readOutputMode: "hidden",
-				diffCollapsedLines: 24,
+				autoEnableCodemode: false,
+				mcpServers: {
+					github: { url: "https://api.githubcopilot.com/mcp/" },
+					"chrome-devtools": { command: "npx", args: ["-y", "chrome-devtools-mcp@latest"], enabled: false },
+				},
 			}),
-		);
-		writeFileSync(
-			keybindingsPath,
-			JSON.stringify({ "tui.editor.cursorLeft": ["left", "ctrl+b"], "app.exit": ["ctrl+q"] }),
 		);
 		const settingsPath = join(agentDir, "settings.json");
 		writeFileSync(
 			settingsPath,
-			JSON.stringify({ packages: ["npm:pi-wtf"], theme: "dark", tuiMode: "regular", fullscreenCopyOnSelect: false }),
+			JSON.stringify({ packages: [], theme: "dark", tuiMode: "regular", fullscreenCopyOnSelect: false }),
 		);
-		chmodSync(toolDisplayPath, 0o640);
-		chmodSync(keybindingsPath, 0o640);
+		chmodSync(mcpPath, 0o640);
 
 		const first = await planIn(agentDir);
 		const steps = patchSteps(first.steps);
 		assert.deepEqual(
 			steps.map((step) => step.targetId),
-			["pi-tool-display/config.json", "keybindings.json", "settings.json"],
+			["settings.json", "mcp.json"],
 		);
-		assert.deepEqual(steps[0]?.changes, [
-			{ key: "registerToolOverrides.bash", path: ["registerToolOverrides", "bash"], from: true, to: false },
-		]);
 		// Leaves that already match are not rewritten.
-		assert.deepEqual(steps[2]?.changes, [
+		assert.deepEqual(steps[0]?.changes, [
 			{ key: "tuiMode", path: ["tuiMode"], from: "regular", to: "fullscreen" },
 			{ key: "fullscreenWheelScrollLines", path: ["fullscreenWheelScrollLines"], from: undefined, to: "auto" },
 		]);
-		assert.deepEqual(steps[1]?.changes, [
-			{
-				key: "tui.editor.cursorLeft",
-				path: ["tui.editor.cursorLeft"],
-				from: ["left", "ctrl+b"],
-				to: ["left"],
-			},
-		]);
+		assert.deepEqual(
+			steps[1]?.changes.map((change) => change.key),
+			[
+				"mcpServers.chrome-devtools.args",
+				"mcpServers.chrome-devtools.env.CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS",
+				"mcpServers.chrome-devtools.exposure",
+				"mcpServers.chrome-devtools.description",
+			],
+		);
 
 		const result = await apply({ steps, notes: [], blockers: [] });
 		assert.equal(result.ok, true);
-		assert.deepEqual(
-			result.results.map((entry) => entry.targetId),
-			["pi-tool-display/config.json", "keybindings.json", "settings.json"],
-		);
 
-		const toolDisplay = JSON.parse(readFileSync(toolDisplayPath, "utf8"));
-		assert.deepEqual(toolDisplay.registerToolOverrides, { read: true, bash: false, write: true });
-		assert.equal(toolDisplay.readOutputMode, "hidden");
-		assert.equal(toolDisplay.diffCollapsedLines, 24);
-		assert.equal(toolDisplay.enabled, true);
-		const keybindings = JSON.parse(readFileSync(keybindingsPath, "utf8"));
-		assert.deepEqual(keybindings["tui.editor.cursorLeft"], ["left"]);
-		assert.deepEqual(keybindings["app.exit"], ["ctrl+q"]);
+		const mcp = JSON.parse(readFileSync(mcpPath, "utf8"));
+		assert.equal(mcp.autoEnableCodemode, false);
+		assert.deepEqual(mcp.mcpServers.github, { url: "https://api.githubcopilot.com/mcp/" });
+		assert.equal(mcp.mcpServers["chrome-devtools"].enabled, false, "the user's /mcp toggle survives a sync");
+		assert.deepEqual(mcp.mcpServers["chrome-devtools"].args, CHROME_ARGS);
+		assert.equal(mcp.mcpServers["chrome-devtools"].exposure, "codemode");
 		assert.deepEqual(JSON.parse(readFileSync(settingsPath, "utf8")), {
-			packages: ["npm:pi-wtf"],
+			packages: [],
 			theme: "dark",
 			tuiMode: "fullscreen",
 			fullscreenCopyOnSelect: false,
 			fullscreenWheelScrollLines: "auto",
 		});
-		assertModeOnPosix(toolDisplayPath, 0o640);
-		assertModeOnPosix(keybindingsPath, 0o640);
+		assertModeOnPosix(mcpPath, 0o640);
 
-		// The array-valued keybinding leaf is the idempotence risk: a reference
+		// The array-valued args leaf is the idempotence risk: a reference
 		// comparison would report it as different on every run.
 		const second = await planIn(agentDir);
 		assert.deepEqual(patchSteps(second.steps), []);
@@ -195,24 +131,18 @@ test("absent targets are created holding only the preset's keys", async () => {
 		const steps = patchSteps(first.steps);
 		assert.deepEqual(
 			steps.map((step) => step.targetId),
-			["pi-tool-display/config.json", "keybindings.json", "settings.json"],
+			["settings.json", "mcp.json"],
 		);
-		assert.deepEqual(steps[0]?.changes, [
-			{ key: "registerToolOverrides.bash", path: ["registerToolOverrides", "bash"], from: undefined, to: false },
-		]);
 
 		assert.equal((await apply({ steps, notes: [], blockers: [] })).ok, true);
-		assert.deepEqual(JSON.parse(readFileSync(toolDisplayConfigPath(agentDir), "utf8")), {
-			registerToolOverrides: { bash: false },
-		});
-		assert.deepEqual(JSON.parse(readFileSync(join(agentDir, "keybindings.json"), "utf8")), {
-			"tui.editor.cursorLeft": ["left"],
-		});
 		assert.deepEqual(JSON.parse(readFileSync(join(agentDir, "settings.json"), "utf8")), {
 			tuiMode: "fullscreen",
 			fullscreenWheelScrollLines: "auto",
 			fullscreenCopyOnSelect: false,
 		});
+		const mcp = JSON.parse(readFileSync(join(agentDir, "mcp.json"), "utf8"));
+		assert.deepEqual(Object.keys(mcp), ["mcpServers"]);
+		assert.deepEqual(Object.keys(mcp.mcpServers), ["chrome-devtools"]);
 
 		assert.deepEqual(patchSteps((await planIn(agentDir)).steps), []);
 	} finally {
@@ -223,14 +153,14 @@ test("absent targets are created holding only the preset's keys", async () => {
 test("an unreadable target blocks only its own step", async () => {
 	const agentDir = makeAgentDir();
 	try {
-		writeFileSync(join(agentDir, "keybindings.json"), "{ not json");
+		writeFileSync(join(agentDir, "mcp.json"), "{ not json");
 
 		const result = await planIn(agentDir);
 		assert.equal(result.blockers.length, 1);
-		assert.match(result.blockers[0] ?? "", /^keybindings\.json: .*not valid JSON/);
+		assert.match(result.blockers[0] ?? "", /^mcp\.json: .*not valid JSON/);
 		assert.deepEqual(
 			patchSteps(result.steps).map((step) => step.targetId),
-			["pi-tool-display/config.json", "settings.json"],
+			["settings.json"],
 		);
 	} finally {
 		cleanup(agentDir);

@@ -1,0 +1,55 @@
+{
+  "name": "pi-wtf",
+  "version": "0.3.0",
+  "description": "Recover, rewind, or undo the last user prompt in pi after you realize you messed up.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm test && npm pack --dry-run",
+    "prepublishOnly": "npm run check"
+  },
+  "author": "Travis Pew",
+  "license": "MIT",
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-extension"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/travisp/pi-wtf.git"
+  },
+  "homepage": "https://github.com/travisp/pi-wtf#readme",
+  "bugs": {
+    "url": "https://github.com/travisp/pi-wtf/issues"
+  },
+  "files": [
+    "index.ts",
+    "src",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "0.87.1",
+    "@earendil-works/pi-coding-agent": "0.87.1",
+    "@types/node": "22.20.4",
+    "typescript": "7.0.2"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.87.1",
+    "typebox": "*"
+  }
+}

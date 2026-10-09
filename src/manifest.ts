@@ -8,80 +8,40 @@
  */
 
 import type { JsonObject } from "./json-merge.ts";
-import { getKeybindingsPath, getSettingsPath, getToolDisplayConfigPath } from "./paths.ts";
+import { getMcpConfigPath, getSettingsPath } from "./paths.ts";
 
 /**
  * Extensions that must be present in settings.json `packages[]`.
  *
- * These stay independent entries rather than bundled dependencies so that
- * `pi update --extensions` keeps applying to every one of them: package
- * updates only iterate sources explicitly listed in settings.
+ * Empty: every extension the preset relies on is vendored under vendor/ and
+ * loaded from this package itself (package.json `pi.extensions`), so
+ * `pi update` on the preset updates all of them at once. vendor/UPSTREAM.json
+ * records where each one came from; scripts/upstream.mjs follows upstream.
  *
- * Deliberately absent: `npm:pi-startup-redraw-fix`. It rewrites
- * `\x1b[3J\x1b[2J\x1b[H` into `\x1b[H\x1b[2J\x1b[3J`, but pi's alternate-screen
- * renderer emits `\x1b[2J\x1b[H\x1b[3J`, which never matches its trigger
- * sequence. The patch cannot fire, so it is not shipped.
- *
- * `pi-patty-bg-tasks` overrides the `bash` tool, which pi-tool-display also
- * claims. Two extensions registering one tool name is not a soft conflict: pi
- * reports it as a load ERROR (coding-agent core/resource-loader.ts
- * detectExtensionConflicts) and exits 1 (main.ts), so pi refuses to start at
- * all while both own `bash`. Reordering this list cannot help. The
- * pi-tool-display entry in JSON_PATCHES below is what makes the pair loadable.
- *
- * Deliberately absent: `npm:pi-web-access`. It registers the same tool names
- * as `pi-web-search`, which is the same fatal duplicate-tool error as above,
- * and there is no opt-out on either side. `pi-web-search` is kept because it
- * uses the current model provider's native search (Gemini grounding, xAI,
- * OpenAI Responses, Anthropic) instead of a separate Exa/Brave-style API key.
- *
- * `npm:@lll9p/pi-better-compaction` needs 0.7.3 or newer for CLIProxyAPI: the
- * gateway injects `context_management` into thinking requests and Anthropic
- * refuses it next to `compaction`; 0.7.3 retries without thinking
- * (lll9p/pi-better-compaction#9). Earlier installs used the
- * `git:github.com/zidou-kiyn/pi-better-compaction` fork. pi identifies git
- * packages by URL, so that entry is a different package: the sync lists it as
- * outside the preset and it must be removed, or both copies hook compaction.
+ * Kept as a list so a future third-party package can be required again
+ * without touching the sync code.
  */
-export const REQUIRED_PACKAGES: readonly string[] = [
-	"npm:pi-wtf",
-	"npm:pi-workspace-history",
-	"npm:@ff-labs/pi-fff",
-	"npm:pi-tool-display",
-	"npm:@lll9p/pi-better-compaction",
-	"npm:pi-web-search",
-	"git:github.com/code-yeongyu/pi-apply-patch",
-	"npm:@juicesharp/rpiv-todo",
-	"npm:@juicesharp/rpiv-ask-user-question",
-	"npm:pi-patty-bg-tasks",
-	"npm:pi-context-view",
-	"npm:@narumitw/pi-btw",
-];
+export const REQUIRED_PACKAGES: readonly string[] = [];
 
 /**
  * The preset's own packages[] source.
  *
- * packages[] is managed as a whitelist: after the optional checklist, every
- * entry that is neither required, a checked optional package, nor explicitly
- * kept by the user is planned for removal. The preset itself must never be on
- * that list, or a sync would uninstall the extension running it. A local-path
- * install (`pi install ~/pi-preset`) is recognised separately by resolving the
- * path to this package's root.
+ * packages[] is managed as a whitelist: after the checklist, every entry that
+ * is neither required, a checked optional package, nor explicitly kept by the
+ * user is planned for removal. The preset itself must never be on that list,
+ * or a sync would uninstall the extension running it. A local-path install
+ * (`pi install ~/pi-preset`) is recognised separately by resolving the path to
+ * this package's root.
  */
 export const PRESET_SELF_SOURCE = "git:github.com/zidou-kiyn/pi-preset";
 
 /**
  * Extensions offered as opt-in checkboxes before a sync.
  *
- * These are not part of REQUIRED_PACKAGES: they pull a browser-automation
- * stack that not every machine wants. The sync flow shows them as a checklist
- * (already-installed entries render checked and locked), and only checked
- * entries join the desired package set. Unchecking an installed entry plans its
- * removal, like any other package outside the preset.
- *
- * Deliberately absent: `npm:pi-playwright`. Chrome DevTools covers the same
- * navigate / evaluate / screenshot needs against a real browser without
- * downloading Playwright's own browser bundles.
+ * Empty since the browser extension (@narumitw/pi-chrome-devtools) was
+ * replaced by the official chrome-devtools MCP server (see JSON_PATCHES),
+ * whose tools are reached through codemode instead of being declared. The
+ * checklist still lists packages outside the preset.
  */
 export interface OptionalPackage {
 	/** settings.json packages[] source string. */
@@ -92,13 +52,38 @@ export interface OptionalPackage {
 	description: string;
 }
 
-export const OPTIONAL_PACKAGES: readonly OptionalPackage[] = [
-	{
-		source: "npm:@narumitw/pi-chrome-devtools",
-		label: "Chrome DevTools (@narumitw/pi-chrome-devtools)",
-		description:
-			"Drive a running Chrome through the DevTools Protocol: list pages, navigate, evaluate JS, screenshot.",
-	},
+export const OPTIONAL_PACKAGES: readonly OptionalPackage[] = [];
+
+/**
+ * packages[] entries the preset replaced. A sync always removes them, with or
+ * without the checklist, because keeping one is not a preference: most of
+ * them register the same tool names as their vendored copy, and pi refuses to
+ * start on a duplicate tool name. scripts/migrate-vendored.ts removes them
+ * before the first start with the vendored preset.
+ */
+export interface SupersededPackage {
+	source: string;
+	reason: string;
+}
+
+const BUNDLED = (dir: string) => `bundled in pi-preset (vendor/${dir})`;
+
+export const SUPERSEDED_PACKAGES: readonly SupersededPackage[] = [
+	{ source: "npm:pi-patty-bg-tasks", reason: BUNDLED("pi-patty-bg-tasks") },
+	{ source: "npm:pi-workspace-history", reason: BUNDLED("pi-workspace-history") },
+	{ source: "npm:pi-wtf", reason: BUNDLED("pi-workspace-history/wtf") },
+	{ source: "npm:@lll9p/pi-better-compaction", reason: BUNDLED("pi-better-compaction") },
+	{ source: "git:github.com/zidou-kiyn/pi-better-compaction", reason: BUNDLED("pi-better-compaction") },
+	{ source: "npm:@ff-labs/pi-fff", reason: BUNDLED("pi-fff") },
+	{ source: "npm:@juicesharp/rpiv-todo", reason: BUNDLED("rpiv-todo") },
+	{ source: "npm:@juicesharp/rpiv-ask-user-question", reason: BUNDLED("rpiv-ask-user-question") },
+	{ source: "npm:pi-web-search", reason: BUNDLED("pi-web-search") },
+	{ source: "git:github.com/code-yeongyu/pi-apply-patch", reason: BUNDLED("pi-apply-patch") },
+	{ source: "npm:pi-context-view", reason: BUNDLED("pi-context-view") },
+	{ source: "npm:pi-tool-display", reason: "replaced by the preset's compact-tools extension (both own `edit`)" },
+	{ source: "npm:@narumitw/pi-chrome-devtools", reason: "replaced by the chrome-devtools MCP server in mcp.json" },
+	{ source: "npm:@narumitw/pi-btw", reason: "dropped from the preset" },
+	{ source: "npm:pi-btw", reason: "dropped from the preset" },
 ];
 
 /**
@@ -123,28 +108,10 @@ export interface JsonPatchTarget {
 	why?: string;
 }
 
+/** Pinned like any vendored code; bump it deliberately after checking the changelog. */
+export const CHROME_DEVTOOLS_MCP_VERSION = "1.10.1";
+
 export const JSON_PATCHES: readonly JsonPatchTarget[] = [
-	{
-		// Without this, pi-tool-display and pi-patty-bg-tasks both register `bash`
-		// and pi aborts startup with `Tool "bash" conflicts with ...` (verified in
-		// a sandbox on pi 0.83.0). This is pi-tool-display's own documented opt-out;
-		// every other tool it renders is left untouched.
-		id: "pi-tool-display/config.json",
-		resolvePath: getToolDisplayConfigPath,
-		patch: { registerToolOverrides: { bash: false } },
-		why: "pi refuses to start while both extensions own the bash tool; pi-tool-display keeps read/grep/find/ls/edit/write",
-	},
-	{
-		// pi's default `tui.editor.cursorLeft` is ["left", "ctrl+b"], and
-		// pi-patty-bg-tasks registers ctrl+b unconditionally. The extension wins
-		// the key either way, but pi prints an "Extension shortcut conflict"
-		// warning on every startup until the built-in claim is dropped. A user key
-		// list REPLACES the default list, so ["left"] is what removes ctrl+b.
-		id: "keybindings.json",
-		resolvePath: getKeybindingsPath,
-		patch: { "tui.editor.cursorLeft": ["left"] },
-		why: "drops the emacs-style ctrl+b cursor-left binding so pi stops warning about the pi-patty-bg-tasks shortcut",
-	},
 	{
 		// pi's fullscreen TUI (docs/settings.md). Only these three leaves are
 		// merged; packages[] in the same file is handled by its own step, and
@@ -160,7 +127,40 @@ export const JSON_PATCHES: readonly JsonPatchTarget[] = [
 		},
 		why: "fullscreen TUI with adaptive wheel scrolling; selection is copied with ctrl+x instead of on select",
 	},
+	{
+		// Google's chrome-devtools-mcp through pi's built-in MCP support, with
+		// `codemode` exposure: none of its tools is declared to the model; a
+		// codemode script calls them (tools.mcp__chrome_devtools__*), so one
+		// script can navigate, wait, snapshot, and filter before anything
+		// reaches the context, and the tool declarations never change mid-session.
+		// It starts its own Chrome (a separate profile) on the first browser
+		// call. Telemetry, CrUX lookups, and the npm update check are off.
+		// `enabled` is not owned here, so turning the server off in /mcp
+		// survives later syncs.
+		id: "mcp.json",
+		resolvePath: getMcpConfigPath,
+		patch: {
+			mcpServers: {
+				"chrome-devtools": {
+					command: "npx",
+					args: [
+						"-y",
+						`chrome-devtools-mcp@${CHROME_DEVTOOLS_MCP_VERSION}`,
+						"--no-usage-statistics",
+						"--no-performance-crux",
+					],
+					env: { CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS: "1" },
+					exposure: "codemode",
+					description: "Drive a Chrome browser: navigate, click, fill forms, evaluate JS, screenshots, console, network, performance traces",
+				},
+			},
+		},
+		why: "browser automation through the official chrome-devtools MCP server, called from codemode scripts",
+	},
 ];
 
 /** Extension directory name the packaged footer would collide with if it stayed local. */
 export const LOCAL_FOOTER_DIR_NAME = "vibrant-footer";
+
+/** Skills the package ships that older presets installed from upstream into the user's skill roots. */
+export const BUNDLED_SKILLS: readonly string[] = ["grill-me", "grilling"];

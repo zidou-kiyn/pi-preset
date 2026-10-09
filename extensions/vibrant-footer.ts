@@ -318,19 +318,32 @@ function collectUsage(ctx: ExtensionContext): UsageTotals {
 }
 
 /**
- * Distinct installed packages currently contributing to the session.
+ * Distinct package extensions currently contributing to the session.
  *
  * Tools and slash commands both carry a `sourceInfo`, and package-provided ones
  * are tagged `origin: "package"` — so unioning the two surfaces gives a count
- * that covers packages shipping tools, commands, or both. Packages that only
+ * that covers extensions shipping tools, commands, or both. Extensions that only
  * install a footer or an event hook stay invisible here; there is no public API
  * enumerating loaded extensions.
+ *
+ * Counted per extension, not per package source: the preset vendors its
+ * extension set, so they all share one source. A vendored package
+ * (`vendor/<name>/...`) counts once, any other extension file on its own.
  */
+export function extensionKey(info: { source?: string; path?: string; origin?: string } | undefined): string | undefined {
+    if (!info || info.origin !== "package") return undefined;
+    const path = info.path?.replace(/\\/g, "/");
+    if (path) {
+        const vendored = path.match(/^(.*\/vendor\/[^/]+)\//);
+        return vendored ? vendored[1] : path;
+    }
+    return info.source;
+}
+
 function packageCount(pi: ExtensionAPI): number {
     const sources = new Set<string>();
     const add = (info: { source?: string; path?: string; origin?: string } | undefined) => {
-        if (!info || info.origin !== "package") return;
-        const key = info.source || info.path;
+        const key = extensionKey(info);
         if (key) sources.add(key);
     };
     try {

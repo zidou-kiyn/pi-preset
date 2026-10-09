@@ -1,0 +1,277 @@
+{
+	"$comment": "Upstream of every vendored extension. Managed by scripts/upstream.mjs (status / diff / pull / check). commit = the upstream commit vendor/<dest> is based on; localChanges = what this repository changed on top of it.",
+	"packages": {
+		"pi-patty-bg-tasks": {
+			"repo": "https://github.com/patty-io/pi-patty-bg-tasks",
+			"path": "",
+			"track": {
+				"branch": "main"
+			},
+			"commit": "697010eaa88ca1b861fce554a149a5f019a7439a",
+			"version": "2.0.0",
+			"license": "MIT",
+			"dest": "vendor/pi-patty-bg-tasks",
+			"include": [
+				"index.ts",
+				"src/**",
+				"package.json",
+				"LICENSE",
+				"README.md"
+			],
+			"localChanges": [
+				"Vendored from the unreleased v2.0.0 on main (npm still ships 1.1.6).",
+				"spawn.ts/bash.ts: a foreground command keeps its child ref'd, so headless `pi -p` no longer exits on the first bash call; it is unref'd once it moves to the background.",
+				"timeout-policy.ts (new), bash.ts, bash-params.ts: foreground commands move to the background after 30s by default and at most 60s (PI_PRESET_BASH_BG_DEFAULT / PI_PRESET_BASH_BG_CAP, `off` = upstream timing); the timeout parameter and a bash guideline say it backgrounds rather than kills.",
+				"src/__tests__/preset-local.test.ts (new): tests for both changes, including a headless keepAlive repro."
+			]
+		},
+		"pi-workspace-history": {
+			"repo": "https://github.com/wcldyx/pi-workspace-history",
+			"path": "",
+			"track": {
+				"branch": "main"
+			},
+			"commit": "23bad130b60f233f05da5e96e67e69952061d6ec",
+			"version": "0.5.0",
+			"license": "MIT",
+			"dest": "vendor/pi-workspace-history",
+			"include": [
+				".pi/extensions/workspace-history.ts",
+				"package.json",
+				"LICENSE",
+				"README.md",
+				"CHANGELOG.md"
+			],
+			"localChanges": []
+		},
+		"pi-wtf": {
+			"repo": "https://github.com/travisp/pi-wtf",
+			"path": "",
+			"track": {
+				"tags": "v*"
+			},
+			"commit": "49f75cb2776af480277344794d49b6cc0f3870cd",
+			"version": "0.3.0",
+			"license": "MIT",
+			"dest": "vendor/pi-workspace-history/wtf",
+			"include": [
+				"index.ts",
+				"src/**",
+				"package.json",
+				"LICENSE",
+				"README.md",
+				"CHANGELOG.md"
+			],
+			"localChanges": [
+				"Lives inside vendor/pi-workspace-history: /fuck rewinds through navigateTree, which workspace-history intercepts to offer restoring the files too."
+			]
+		},
+		"pi-better-compaction": {
+			"repo": "https://github.com/lll9p/pi-better-compaction",
+			"path": "",
+			"track": {
+				"branch": "main"
+			},
+			"commit": "724f91cd10795d005f0f00e0c399f94f9d03ad93",
+			"version": "0.7.4",
+			"license": "MIT",
+			"dest": "vendor/pi-better-compaction",
+			"include": [
+				"index.ts",
+				"src/**",
+				"package.json",
+				"LICENSE",
+				"README.md"
+			],
+			"exclude": [
+				"**/*.test.ts"
+			],
+			"localChanges": []
+		},
+		"pi-fff": {
+			"repo": "https://github.com/dmtrKovalenko/fff",
+			"path": "packages/pi-fff",
+			"track": {
+				"tags": "v*"
+			},
+			"commit": "95fd777c2529fc7b4d7572dabff64cc07268f2c5",
+			"version": "0.11.0",
+			"license": "MIT",
+			"dest": "vendor/pi-fff",
+			"include": [
+				"src/**",
+				"pi-fff.schema.json",
+				"package.json",
+				"README.md"
+			],
+			"rootFiles": [
+				"LICENSE"
+			],
+			"localChanges": [
+				"Only the TypeScript extension is vendored; the native search library stays an npm dependency (@ff-labs/fff-node, pinned in the root package.json)."
+			]
+		},
+		"rpiv-todo": {
+			"repo": "https://github.com/juicesharp/rpiv-mono",
+			"path": "packages/rpiv-todo",
+			"track": {
+				"tags": "v*"
+			},
+			"commit": "7c9bc924c5bfd148f36d7ebc9f7bd0a9469d633f",
+			"version": "2.12.0",
+			"license": "MIT",
+			"dest": "vendor/rpiv-todo",
+			"include": [
+				"*.ts",
+				"state/**",
+				"tool/**",
+				"view/**",
+				"locales/**",
+				"package.json",
+				"LICENSE",
+				"README.md"
+			],
+			"exclude": [
+				"**/*.test.ts",
+				"**/test-fixtures.ts"
+			],
+			"localChanges": []
+		},
+		"rpiv-ask-user-question": {
+			"repo": "https://github.com/juicesharp/rpiv-mono",
+			"path": "packages/rpiv-ask-user-question",
+			"track": {
+				"tags": "v*"
+			},
+			"commit": "7c9bc924c5bfd148f36d7ebc9f7bd0a9469d633f",
+			"version": "2.12.0",
+			"license": "MIT",
+			"dest": "vendor/rpiv-ask-user-question",
+			"include": [
+				"*.ts",
+				"state/**",
+				"tool/**",
+				"view/**",
+				"locales/**",
+				"package.json",
+				"LICENSE",
+				"README.md"
+			],
+			"exclude": [
+				"**/*.test.ts",
+				"**/test-fixtures.ts"
+			],
+			"localChanges": []
+		},
+		"rpiv-config": {
+			"repo": "https://github.com/juicesharp/rpiv-mono",
+			"path": "packages/rpiv-config",
+			"track": {
+				"tags": "v*"
+			},
+			"commit": "7c9bc924c5bfd148f36d7ebc9f7bd0a9469d633f",
+			"version": "2.12.0",
+			"license": "MIT",
+			"dest": "vendor/rpiv-config",
+			"include": [
+				"index.ts",
+				"config.ts",
+				"package.json",
+				"README.md"
+			],
+			"rootFiles": [
+				"LICENSE"
+			],
+			"localChanges": [
+				"Shared library for the two rpiv extensions; resolved through a file: dependency in the root package.json."
+			]
+		},
+		"pi-web-search": {
+			"repo": "https://github.com/ttttmr/pi-web-search",
+			"path": "",
+			"track": {
+				"branch": "main"
+			},
+			"commit": "4277d3f3be5d2a2b6de911eec730516d14bc4084",
+			"version": "1.7.0",
+			"license": "MIT",
+			"dest": "vendor/pi-web-search",
+			"include": [
+				"src/**",
+				"package.json",
+				"README.md"
+			],
+			"localChanges": []
+		},
+		"pi-apply-patch": {
+			"repo": "https://github.com/code-yeongyu/pi-apply-patch",
+			"path": "",
+			"track": {
+				"branch": "main"
+			},
+			"commit": "fe83e1129c47050c9ed221e236c18ddffa5b3cd5",
+			"version": "0.1.4",
+			"license": "MIT",
+			"dest": "vendor/pi-apply-patch",
+			"include": [
+				"src/**",
+				"package.json",
+				"LICENSE",
+				"NOTICE",
+				"README.md",
+				"CHANGELOG.md"
+			],
+			"localChanges": [
+				"package.json: typebox moved from dependencies to peerDependencies (pi provides it; the bundled copy triggered a startup warning)."
+			]
+		},
+		"pi-context-view": {
+			"repo": "https://github.com/dimk90/pi-context-view",
+			"path": "",
+			"track": {
+				"tags": "v*"
+			},
+			"commit": "b183316ffc7c6b7fb03ae6ecbbf783a75ee7308c",
+			"version": "0.6.0",
+			"license": "MIT",
+			"dest": "vendor/pi-context-view",
+			"include": [
+				"src/**",
+				"package.json",
+				"LICENSE",
+				"README.md"
+			],
+			"localChanges": []
+		},
+		"termius-mcp": {
+			"repo": "https://github.com/MiaM1ku/termius-mcp",
+			"path": "",
+			"track": {
+				"branch": "main"
+			},
+			"commit": "94126dedffc43e4b47586058cb9575a3930d09c9",
+			"version": "3.1.0",
+			"license": "BSD-3-Clause",
+			"dest": "vendor/termius-mcp",
+			"include": [
+				"termius/**",
+				"tests/unit/**",
+				"setup.py",
+				"pyproject.toml",
+				"MANIFEST.in",
+				"LICENSE",
+				"AUTHORS",
+				"README.md",
+				"dev-requirements.txt"
+			],
+			"localChanges": [
+				"mcp/tools.py: no tool takes or returns a secret. login, login_complete, and logout are removed (sign-in is /termius login in pi, through json_login.py); sync has no password argument; inventory lists snippet labels only.",
+				"mcp/tools.py + redact.py (new): every tool result and error is scrubbed of vault secrets (identity passwords, key passphrases, private keys, the vault password) and any PEM private key block.",
+				"core/ssh_exec.py: host keys are pinned on first use in ~/.termius/known_hosts (TERMIUS_KNOWN_HOSTS); a changed key is refused. Upstream used AutoAddPolicy.",
+				"json_login.py (new) + main.py: `termius login-json` reads one JSON request on stdin (email / google / status / logout) and answers otp_required / approve_required, so pi can drive sign-in without argv, env, or the model.",
+				"mcp/server.py, sync.py, vault.py: messages point at /termius login instead of the removed login tool.",
+				"tests/unit: login-tool tests replaced; preset_local_test.py (new) covers the changes above."
+			]
+		}
+	}
+}

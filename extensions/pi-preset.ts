@@ -1,14 +1,15 @@
 /**
  * /pi-preset — the preset's single visual control panel.
  *
- * One TUI menu replaces the former /preset-sync, /preset-skills-sync, and
- * /preset-models-add commands:
+ * One TUI menu:
  *
- *   1. Sync preset       — optional-extension checklist, then the diff-first sync
- *   2. Grilling skills   — install or refresh the upstream grill-me/grilling pair
- *   3. Models template   — replace models.json with the preset template and set
+ *   1. Sync preset       — package checklist, then the diff-first sync
+ *   2. Models template   — replace models.json with the preset template and set
  *                          the default provider/model (TUI only)
- *   4. Install the font  — sends the font-install prompt to the current model
+ *   3. Install the font  — sends the font-install prompt to the current model
+ *
+ * The grill-me / grilling skills ship inside the package (skills/), so there
+ * is no install step for them any more.
  *
  * Escape at the menu (or any later prompt) writes nothing. Non-interactive
  * modes (print, json) render the sync dry-run plan, matching the old
@@ -25,20 +26,13 @@ import { FONT_FAMILY, sendFontInstallPrompt } from "../src/font-prompt.ts";
 import { runPresetModelsTemplate } from "../src/models-template-run.ts";
 import { type DescribedOption, DescribedSelectComponent } from "../src/preset-ui.ts";
 import { runPresetSync } from "../src/preset-sync-run.ts";
-import { runPresetSkillsSync } from "../src/skills-sync-run.ts";
 
 const MENU_OPTIONS: readonly DescribedOption[] = [
 	{
 		id: "sync",
 		label: "Sync preset",
 		description:
-			"Packages, config keys, and footer. Starts with the optional browser-extension checklist, shows a full diff, and writes only after confirmation.",
-	},
-	{
-		id: "skills",
-		label: "Install / refresh grilling skills",
-		description:
-			"Installs or refreshes the upstream grill-me and grilling pair via the official skills CLI. Uses network access; shows a plan and asks first.",
+			"Packages, config keys (including the chrome-devtools MCP server), and footer. Starts with a checklist of packages outside the preset, shows a full diff, and writes only after confirmation.",
 	},
 	{
 		id: "models",
@@ -77,7 +71,7 @@ async function selectMenuAction(ctx: ExtensionCommandContext): Promise<string | 
 
 export default function piPresetExtension(pi: ExtensionAPI): void {
 	pi.registerCommand("pi-preset", {
-		description: "Preset control panel: sync packages/config, grilling skills, models.json template, font",
+		description: "Preset control panel: sync packages/config, models.json template, font",
 		handler: async (_args, ctx) => {
 			// print/json: no dialogs exist, so the only useful output is the sync
 			// dry-run plan — runPresetSync renders exactly that and stops.
@@ -90,9 +84,6 @@ export default function piPresetExtension(pi: ExtensionAPI): void {
 			switch (action) {
 				case "sync":
 					await runPresetSync(ctx);
-					return;
-				case "skills":
-					await runPresetSkillsSync(ctx);
 					return;
 				case "models":
 					await runPresetModelsTemplate(ctx);
