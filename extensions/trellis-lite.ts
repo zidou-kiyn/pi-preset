@@ -34,7 +34,9 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { readTrellisConfig } from "../src/trellis-lite/config.ts";
-import { detectLegacy, findProjectRoot } from "../src/trellis-lite/root.ts";
+import { applyInit, developerId, gitToplevel, gitUserName, planInit } from "../src/trellis-lite/init.ts";
+import { today } from "../src/trellis-lite/journal.ts";
+import { detectLegacy, findProjectRoot, readDeveloper } from "../src/trellis-lite/root.ts";
 import { buildSnapshot, SECTION_NAME } from "../src/trellis-lite/snapshot.ts";
 import {
 	buildInjection,
@@ -164,6 +166,30 @@ export default function trellisLite(pi: ExtensionAPI): void {
 					}
 				}
 				ctx.ui.notify(lines.join("\n"), "info");
+				return;
+			}
+			if (sub === "init") {
+				const root = project(ctx.cwd)?.root ?? gitToplevel(ctx.cwd) ?? ctx.cwd;
+				let developer = readDeveloper(root);
+				if (!developer) {
+					const suggested = developerId(gitUserName(root) ?? "");
+					const answer = ctx.hasUI ? await ctx.ui.input("Developer name (journal directory)", suggested) : suggested;
+					developer = developerId(answer?.trim() || suggested);
+					if (!developer) {
+						ctx.ui.notify("No developer name given; nothing created.", "warning");
+						return;
+					}
+				}
+				const steps = planInit(root, developer, today(), new Date().toISOString().slice(0, 19));
+				if (steps.length === 0) {
+					ctx.ui.notify(`${root} is already initialized.`, "info");
+					return;
+				}
+				const summary = steps.map((step) => `${step.append ? "append" : "create"} ${step.path}`).join("\n");
+				if (ctx.hasUI && !(await ctx.ui.confirm("Initialize trellis-lite?", `${root}\n\n${summary}`))) return;
+				applyInit(root, steps);
+				projects.clear();
+				ctx.ui.notify(`${summary}\n\nNot committed (see git status). Run /reload to load the trellis-lite skills.`, "info");
 				return;
 			}
 			ctx.ui.notify(`Unknown subcommand "${sub}". Use status, init, or migrate.`, "warning");
