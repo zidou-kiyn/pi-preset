@@ -122,6 +122,42 @@ test("guard blocks local access to the vault cache, keychain, and process memory
 	}
 });
 
+test("guard blocks running the server's code outside the MCP tools", () => {
+	const home = "/home/u";
+	const blocked = [
+		"/home/u/.pi/agent/termius-mcp/venv/bin/python -c 'print(1)'",
+		"~/.pi/agent/termius-mcp/venv/bin/termius-mcp",
+		"termius-mcp < req.json",
+		"termius login",
+		"echo '{\"action\":\"sync\"}' | termius login-json",
+		"cd /tmp && termius-mcp",
+		"x=$(termius hosts)",
+		"PYTHONPATH=vendor/termius-mcp python3 -m termius.main",
+		"python3 - <<'PY'\nfrom termius.runtime import Runtime\nPY",
+		"python3 -c 'import termius'",
+		"uv run --with-editable vendor/termius-mcp python script.py",
+		"cd vendor/termius-mcp && python3 scripts/anything.py",
+		"cat ~/.pi/agent/termius-mcp/config.json",
+	];
+	for (const command of blocked) {
+		assert.equal(guardToolCall("bash", { command }, home).block, true, command);
+	}
+	assert.equal(guardToolCall("read", { path: "/home/u/.pi/agent/termius-mcp/config.json" }, home).block, true);
+	const allowed = [
+		"npm run test:termius",
+		"cd vendor/termius-mcp && uv run --isolated --no-project --with-editable . --with pytest python -m pytest -q tests/unit",
+		"git commit -m 'feat(termius): proxies'",
+		"node scripts/upstream.mjs check termius-mcp",
+		"grep -rn termius src",
+		"ls vendor/termius-mcp/termius",
+		"python3 scripts/other.py",
+	];
+	for (const command of allowed) {
+		assert.equal(guardToolCall("bash", { command }, home).block, false, command);
+	}
+	assert.equal(guardToolCall("read", { path: "vendor/termius-mcp/termius/core/proxy.py" }, home).block, false);
+});
+
 test("the vendored server hash is stable and covers the Python source", () => {
 	const first = sourceHash(VENDOR_DIR);
 	assert.match(first, /^[0-9a-f]{64}$/);

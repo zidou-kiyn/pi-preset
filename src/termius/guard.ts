@@ -12,6 +12,15 @@
  * fine. termius's own `files` tool is checked too: its local_path must not
  * upload the vault cache to a remote host.
  *
+ * Running the server's own code is blocked as well: launching the installed
+ * server or CLI, importing the `termius` package, or running Python against
+ * the vendored source other than its test suite. The server decrypts the
+ * vault with the remembered password, so any script on top of it can read
+ * every credential, and calling it directly also skips pi's approval modes.
+ * The agent reaches Termius only through the MCP tools, where approvals and
+ * output redaction apply. The installed server directory (its config holds
+ * a proxy URL that may carry a password) is off limits to path tools too.
+ *
  * It is a second line, not an isolation boundary: an agent determined to
  * reach the secrets as the same OS user could obfuscate the path. It stops the
  * ordinary ways (a `cat`, a `read`, a keychain lookup) and makes intent visible.
@@ -79,6 +88,31 @@ function mentionsTermiusDir(text: string, home: string): boolean {
 	return /(^|[\s"'=:/])\.termius(\/|["'\s;|&)]|$)/.test(normalized);
 }
 
+/** Commands that run the Termius server code directly. */
+const SERVER_CODE = [
+	// the installed server environment
+	/termius-mcp[\\/](venv|config\.json)|\.pi[\\/]agent[\\/]termius-mcp/i,
+	// the server or CLI as a command (start of a command, or after ; & | $( `)
+	/(^|[;&|]|\$\(|`)\s*(\S*[\\/])?termius(-mcp)?(\.exe)?(\s|$)/i,
+	// the package from Python
+	/-m\s+termius\b|\b(import|from)\s+termius\b|\btermius\.(main|json_login|runtime|vault|sync|keychain|session|cloud|core|mcp)\b|\blogin-json\b/i,
+];
+const VENDORED_SOURCE = /vendor[\\/]termius-mcp/i;
+const RUNS_PYTHON = /\b(python[\d.]*|uv\s+run|uvx|pipx?\s+run)\b/i;
+const RUNS_TESTS = /\bpytest\b/i;
+
+function runsServerCode(command: string): boolean {
+	if (SERVER_CODE.some((pattern) => pattern.test(command))) return true;
+	return VENDORED_SOURCE.test(command) && RUNS_PYTHON.test(command) && !RUNS_TESTS.test(command);
+}
+
+function mentionsServerDir(text: string): boolean {
+	return /[\\/]\.pi[\\/]agent[\\/]termius-mcp([\\/]|$)|^~[\\/]\.pi[\\/]agent[\\/]termius-mcp/i.test(text.replace(/\\/g, "/"));
+}
+
+const SERVER_REASON =
+	"Blocked by pi-preset: this runs the Termius MCP server's code directly, which can decrypt every stored credential and skips the approval modes. Use the termius MCP tools (status, hosts, host, exec, files); tests run with `npm run test:termius`.";
+
 const DIR_REASON =
 	"Blocked by pi-preset: ~/.termius holds the Termius MCP server's encrypted vault cache and secrets. Use the termius MCP tools (status, hosts, exec, files) instead; the user signs in with /termius login.";
 
@@ -98,8 +132,10 @@ export function guardToolCall(toolName: string, input: unknown, home = homedir()
 	}
 
 	if ([...paths, ...commands].some((text) => mentionsTermiusDir(text, home))) return { block: true, reason: DIR_REASON };
+	if (paths.some(mentionsServerDir)) return { block: true, reason: SERVER_REASON };
 
 	for (const command of commands) {
+		if (runsServerCode(command)) return { block: true, reason: SERVER_REASON };
 		if (KEYCHAIN_TOOLS.test(command) && /termius/i.test(command)) {
 			return {
 				block: true,
