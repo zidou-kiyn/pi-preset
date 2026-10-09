@@ -31,8 +31,8 @@
  * they are active. The segment is hidden only when MCP support is disabled.
  *
  * pi-workspace-history: its plain `⟲ history` status is taken over and drawn
- * on the aux line as a history glyph (error-toned `snapshot failed` when its
- * snapshots break), instead of on the generic extension-status line.
+ * on the aux line as a success-toned history glyph (error-toned `snapshot
+ * failed` when its snapshots break), instead of on the generic status line.
  *
  * Icons only by default; PI_PRESET_FOOTER_LABELS=1 restores the word labels
  * (in/out/cache r/w/hit/ttl/warm/pkg/mcp) whenever they fit in two lines.
@@ -416,9 +416,9 @@ function historySegment(t: ThemeLike, status: string | undefined, icons: IconSet
     if (!text) return null;
     if (/fail/i.test(text)) return seg(t, icons.history, "error", "snapshot failed", "error");
     if (/^⟲\s*history$/.test(text)) {
-        return showWordLabels() ? seg(t, icons.history, "syntaxString", "history", "dim") : t.fg("syntaxString", icons.history);
+        return showWordLabels() ? seg(t, icons.history, "success", "history", "dim") : t.fg("success", icons.history);
     }
-    return seg(t, icons.history, "syntaxString", text.replace(/^⟲\s*/, ""), "dim");
+    return seg(t, icons.history, "success", text.replace(/^⟲\s*/, ""), "dim");
 }
 
 // ── the signature: ramp meter ───────────────────────────────────────────────
