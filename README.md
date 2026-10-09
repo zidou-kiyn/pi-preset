@@ -146,6 +146,8 @@ Google's [chrome-devtools-mcp](https://github.com/ChromeDevTools/chrome-devtools
 /termius logout    sign out and wipe the local host cache
 ```
 
+**Lifetime.** pi starts each MCP server in its own process group and ends the group when the session ends, also on SIGTERM / SIGHUP (closing the terminal); if pi is killed outright, the servers see their input close and exit. Checked for chrome-devtools (including the Chrome it launched) and Termius with SIGTERM, SIGHUP, and SIGKILL: nothing was left a second later. The Termius server also exits within a second when pi dies during a long `exec`, instead of finishing the command first.
+
 **Setup.** The server goes into its own environment under `~/.pi/agent/termius-mcp/venv`, built with [uv](https://docs.astral.sh/uv/) (which also fetches a Python when there is none) or a local Python 3.9+. It works the same on Linux, macOS, and Windows. When a preset update changes the vendored code, the next session reinstalls it.
 
 **Sign-in.** `/termius login` asks in pi's own masked prompts and hands the answers to the server process on stdin (`termius login-json`). They never pass through the model, the MCP protocol, the command line, or the environment. Two-factor accounts are asked for the authenticator code; a "approve this device" request waits until you approve it in the Termius app. The vault password is remembered in the OS keychain (an encrypted file where there is none), so later sessions sync on their own. Signing in also pulls the host list right away, so `/termius status` and the agent see your hosts at once; if that first pull fails, the sign-in still stands and `/termius sync` retries it.

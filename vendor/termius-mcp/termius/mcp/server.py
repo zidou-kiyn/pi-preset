@@ -4,7 +4,10 @@ from __future__ import unicode_literals
 
 import json
 import logging
+import os
 import sys
+import threading
+import time
 
 from .. import __version__
 from ..runtime import Runtime
@@ -121,9 +124,37 @@ def _rpc_result(message_id, result):
     return {'jsonrpc': '2.0', 'id': message_id, 'result': result}
 
 
+def watch_parent(interval=1.0, getppid=os.getppid, exit_now=os._exit, sleep=time.sleep):
+    """Exit when the client process is gone (pi-preset).
+
+    End of stdin already stops the server, but only between requests: a
+    request in progress (a long ``exec``) would keep the server and its SSH
+    connections alive after the client was killed. On POSIX the parent
+    changes when it dies (the server is re-parented), so a daemon thread
+    exits the process then. Returns the thread, or None on Windows.
+    """
+    if os.name == 'nt':
+        return None
+    parent = getppid()
+
+    def run():
+        while True:
+            sleep(interval)
+            if getppid() != parent:
+                LOGGER.warning('Client process %s is gone; exiting.', parent)
+                exit_now(0)
+                return
+
+    thread = threading.Thread(target=run, name='parent-watch', daemon=True)
+    thread.start()
+    return thread
+
+
 def run_stdio(runtime=None, stdin=None, stdout=None):
     """Serve MCP over stdin/stdout until EOF."""
     runtime = runtime or Runtime()
+    if stdin is None:
+        watch_parent()
     stdin = stdin or sys.stdin.buffer
     stdout = stdout or sys.stdout.buffer
     while True:

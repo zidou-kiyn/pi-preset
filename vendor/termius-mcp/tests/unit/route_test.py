@@ -366,5 +366,22 @@ class RoutingTest(unittest.TestCase):
                 ssh_exec.connect_host(target, cfg, timeout=5)
 
 
+class ParentWatchTest(unittest.TestCase):
+    def test_exits_once_the_parent_changes(self):
+        from termius.mcp.server import watch_parent
+        parents = iter([100, 100, 100, 1])
+        exited = threading.Event()
+        codes = []
+
+        def exit_now(code):
+            codes.append(code)
+            exited.set()
+
+        thread = watch_parent(interval=0, getppid=lambda: next(parents, 1), exit_now=exit_now, sleep=lambda _: None)
+        self.assertTrue(exited.wait(5))
+        thread.join(5)
+        self.assertEqual(codes, [0])
+
+
 if __name__ == '__main__':
     unittest.main()
