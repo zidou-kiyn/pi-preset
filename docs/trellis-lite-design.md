@@ -168,6 +168,19 @@ Then trellis-lite does nothing (no section, skills, or injection) and notifies o
 
 The root is the existing project root, else the git top level, else `cwd`.
 
+### 8.1 Data format changes
+
+The best format wins; backward compatibility is not a goal. When a better on-disk format is found (spec frontmatter, journal, `.developer`, task layout), the code switches to it outright and reads and writes only the new format. Legacy readers, fallbacks, and dual-format code are not written. Old data is upgraded once instead:
+
+- **Every format change ships with its migration, in the same commit.** A change that alters the on-disk format without one is not done.
+- **Version marker.** The first such change introduces `.trellis/.lite-format` (a single integer; absent means 0, today's format). Later changes bump it.
+- **Ordered, one-way steps.** `trellis-lite upgrade` runs the steps from the project's version to the current one. Like `migrate`, it prints a dry-run plan first and applies only with `--apply --yes` inside git on a clean tree, so `git` is the undo. It never commits. `/trellis-lite upgrade` and `/trellis-lite` status show the plan.
+- **No misreading.** In a project below the current version, the extension stays idle and says once per session that `/trellis-lite upgrade` is needed. It does not guess at old data.
+- **Trellis.** Compatibility with Trellis's formats was a means for migration, not a constraint. If the best format diverges from Trellis's, `migrate` converts Trellis data straight to the current format.
+- Steps are tested on fixtures of every older version up to current.
+
+This is not Trellis's `init/update/migrations` machinery (§13). There are no template hashes, no per-host files, and no update of installed assets. Only the project's own data is upgraded, and only when its format changed.
+
 ## 9. Migrating from Trellis
 
 ### 9.1 Who does what
@@ -309,3 +322,4 @@ See [`trellis-lite-upstream.md`](trellis-lite-upstream.md): baselines, watched p
 | 4 | Document language | English, like the README |
 | 5 | break-loop and brainstorm | Folded into `trellis-spec`; `trellis-plan` uses `grilling` |
 | 6 | Research and `mem` | Research listed when present; no `mem` |
+| 7 | Data format changes | Best format wins, no backward compatibility in the code; every format change ships with a one-way `upgrade` step and a version marker (§8.1) |
