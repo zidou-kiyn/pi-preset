@@ -109,7 +109,9 @@ npm run upstream -- check                  # what differs locally from the recor
 
 `pull` merges file by file with `git merge-file`: files changed only upstream are replaced, files changed on both sides get conflict markers, and the recorded commit moves. It never commits; review with `git diff`, run `npm test`, and update `localChanges` in `UPSTREAM.json` when a local change is dropped or added. Upstream clones are cached in `~/.cache/pi-preset-upstream`.
 
-In this repository, `/preset-upstream [package...]` ([`.pi/prompts/preset-upstream.md`](.pi/prompts/preset-upstream.md)) has the agent do the whole round. It checks the vendored packages, the pinned chrome-devtools-mcp, and the hand-maintained skills, reports the changes against `localChanges`, and asks before it pulls, resolves, and tests. It never commits. trellis-lite has its own `/trellis-lite-upstream`.
+The vendored packages are maintained copies, not mirrors. Upstream changes are reviewed one by one and taken, adapted, or skipped. A skipped change is recorded as `Not taken from upstream …` in `localChanges`. `pull` is one way to carry changes over; porting the chosen ones by hand is the other.
+
+In this repository, `/preset-upstream [package... | mcp | skills | trellis]` ([`.pi/prompts/preset-upstream.md`](.pi/prompts/preset-upstream.md)) has the agent do the whole round for everything the preset maintains: vendored packages, the pinned chrome-devtools-mcp, the skills, and trellis-lite's clean-room references. It judges each upstream change against our local changes, asks what to carry over, then applies, records, and tests it. It never commits.
 
 ### Background commands: `pi-patty-bg-tasks`
 
@@ -208,7 +210,7 @@ There is no per-turn injection, no tool, no task state, no subagent, and no Pyth
 2. The agent diffs each kept file against the original template of your Trellis version and moves what the project added: procedures (a release flow) into `.pi/prompts/<name>.md`, standing rules into `AGENTS.md`; Trellis mechanics are dropped. Every write waits for your confirmation.
 3. It lists references to removed machinery in specs and `AGENTS.md`, suggests `paths:` for specs, and proposes a commit message. Nothing is committed without your approval.
 
-**Following upstream.** trellis-lite follows Trellis (beta and stable) and mini-trellis for behavior and format changes, not code: `node scripts/check-upstream-trellis.mjs` lists what changed on the watched paths since the recorded baselines, and [`docs/trellis-lite-upstream.md`](docs/trellis-lite-upstream.md) holds the evaluation rules and the decision log. In this repository, `/trellis-lite-upstream` has the agent review the changes. Run it monthly or after an upstream release.
+**Following upstream.** trellis-lite follows Trellis (beta and stable) and mini-trellis for behavior and format changes, not code: `node scripts/check-upstream-trellis.mjs` lists what changed on the watched paths since the recorded baselines, and [`docs/trellis-lite-upstream.md`](docs/trellis-lite-upstream.md) holds the evaluation rules and the decision log. In this repository, `/preset-upstream trellis` has the agent review the changes under the clean-room rules. Run it monthly or after an upstream release.
 
 ## Skills
 
