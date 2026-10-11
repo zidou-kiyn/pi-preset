@@ -6,7 +6,7 @@
 
 ## 0. Name
 
-`trellis-lite`: the name says that it works with existing `.trellis/` data. The README states that it is not a Mindfold product. Commands are `/trellis-lite` and `/trellis-lite-migrate`; skills use the `trellis-` prefix; switches use `PI_PRESET_TRELLIS*`.
+`trellis-lite`: the name says that it works with existing `.trellis/` data. `docs/trellis-lite.md` states that it is not a Mindfold product. Commands are `/trellis-lite` and `/trellis-lite-migrate`; skills use the `trellis-` prefix; switches use `PI_PRESET_TRELLIS*`.
 
 ## 1. Research findings
 

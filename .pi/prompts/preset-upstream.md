@@ -52,9 +52,9 @@ Then update `localChanges`:
 - reword entries that changed;
 - add `Not taken from upstream <sha>: <what> (<why>)` for each skipped change, so `npm run upstream -- check` does not show it as an unexplained difference.
 
-Update the README Extensions table too.
+Update the vendored-package table in `docs/extensions.md` too.
 
-**chrome-devtools-mcp.** Bump the constant and both versions in `README.md`. Adjust args or env if the changelog requires it.
+**chrome-devtools-mcp.** Bump the constant and the version in `docs/mcp.md` and `docs/setup.md`. Adjust args or env if the changelog requires it.
 
 **Skills.** Port the chosen changes by hand, keeping the adaptations listed in `skills/NOTICE.md`. Update its commit, date, and change list.
 
