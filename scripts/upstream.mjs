@@ -279,8 +279,18 @@ function cmdCheck(manifest, names) {
 function cmdStatus(manifest, names) {
 	for (const name of names) {
 		const entry = entryOf(manifest, name);
-		const dir = ensureClone(entry);
-		const head = trackedHead(dir, entry);
+		let dir;
+		let head;
+		try {
+			dir = ensureClone(entry);
+			head = trackedHead(dir, entry);
+		} catch (err) {
+			// One broken entry (renamed branch, deleted repo) must not hide the rest.
+			const msg = String(err.stderr || err.message).trim().split("\n")[0];
+			console.log(`${name}: ERROR ${msg} (check track in vendor/UPSTREAM.json)`);
+			process.exitCode = 1;
+			continue;
+		}
 		const pathspec = entry.path ? [entry.path] : ["."];
 		const log =
 			head.commit === entry.commit

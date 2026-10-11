@@ -255,7 +255,7 @@
 			"repo": "https://github.com/MiaM1ku/termius-mcp",
 			"path": "",
 			"track": {
-				"branch": "main"
+				"tags": "v*"
 			},
 			"commit": "94126dedffc43e4b47586058cb9575a3930d09c9",
 			"version": "3.1.0",

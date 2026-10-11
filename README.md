@@ -109,6 +109,8 @@ npm run upstream -- check                  # what differs locally from the recor
 
 `pull` merges file by file with `git merge-file`: files changed only upstream are replaced, files changed on both sides get conflict markers, and the recorded commit moves. It never commits; review with `git diff`, run `npm test`, and update `localChanges` in `UPSTREAM.json` when a local change is dropped or added. Upstream clones are cached in `~/.cache/pi-preset-upstream`.
 
+In this repository, `/preset-upstream [package...]` ([`.pi/prompts/preset-upstream.md`](.pi/prompts/preset-upstream.md)) has the agent do the whole round. It checks the vendored packages, the pinned chrome-devtools-mcp, and the hand-maintained skills, reports the changes against `localChanges`, and asks before it pulls, resolves, and tests. It never commits. trellis-lite has its own `/trellis-lite-upstream`.
+
 ### Background commands: `pi-patty-bg-tasks`
 
 Brings Claude Code's background-task flow to pi: a foreground `bash` command that runs past its timeout slides into the background and keeps running, **ctrl+shift+b** (or `/bg`) backgrounds it on demand, every finished job sends one `<task-notification>` the moment it exits, and `jobs` / `monitor` / `agent_bg` / `/bg-list` manage what is running. The vendored copy is the unreleased 2.0.0 from `main` (npm still has 1.1.6): no `job_decide` prompt any more, no ctrl+b binding (so no shortcut conflict with pi's cursor key), signal deaths reported as killed instead of completed. Background tasks are killed when the session ends, including `/reload`.
