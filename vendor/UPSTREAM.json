@@ -124,8 +124,8 @@
 			"track": {
 				"tags": "v*"
 			},
-			"commit": "7c9bc924c5bfd148f36d7ebc9f7bd0a9469d633f",
-			"version": "2.12.0",
+			"commit": "ce6d3530410812ca504ec294995581a52170f9e1",
+			"version": "2.15.0",
 			"license": "MIT",
 			"dest": "vendor/rpiv-todo",
 			"include": [
@@ -143,7 +143,7 @@
 				"**/test-fixtures.ts"
 			],
 			"localChanges": [
-				"todo.ts, tool/types.ts: guidelines condensed from 8 rules to 2 and the description/field texts shortened; behavior unchanged."
+				"todo.ts, tool/types.ts: guidelines condensed from 9 rules to 2 and the description/field texts shortened; batch create (tasks[], v2.15) is a clause in the tool description plus one item-field description instead of a ninth guideline and long field texts; behavior unchanged."
 			]
 		},
 		"rpiv-ask-user-question": {
@@ -152,8 +152,8 @@
 			"track": {
 				"tags": "v*"
 			},
-			"commit": "7c9bc924c5bfd148f36d7ebc9f7bd0a9469d633f",
-			"version": "2.12.0",
+			"commit": "ce6d3530410812ca504ec294995581a52170f9e1",
+			"version": "2.15.0",
 			"license": "MIT",
 			"dest": "vendor/rpiv-ask-user-question",
 			"include": [
@@ -180,8 +180,8 @@
 			"track": {
 				"tags": "v*"
 			},
-			"commit": "7c9bc924c5bfd148f36d7ebc9f7bd0a9469d633f",
-			"version": "2.12.0",
+			"commit": "ce6d3530410812ca504ec294995581a52170f9e1",
+			"version": "2.15.0",
 			"license": "MIT",
 			"dest": "vendor/rpiv-config",
 			"include": [

@@ -9,8 +9,8 @@ Everything except the preset's own `extensions/` is vendored under [`vendor/`](.
 | `pi-wtf` 0.3.0 | [travisp/pi-wtf](https://github.com/travisp/pi-wtf) | `/fuck` (`?`, `!`): abort, rewind to before the last prompt, put it back in the editor | lives in `vendor/pi-workspace-history/wtf` |
 | `pi-better-compaction` 0.7.4 | [lll9p/pi-better-compaction](https://github.com/lll9p/pi-better-compaction) | provider-native compaction (see below) | — |
 | `pi-fff` 0.11.0 | [dmtrKovalenko/fff](https://github.com/dmtrKovalenko/fff) `packages/pi-fff` | `ffgrep` / `fffind`: frecency-ranked, git-aware search | condensed prompt; native library stays an npm dependency |
-| `rpiv-todo` 2.12.0 | [juicesharp/rpiv-mono](https://github.com/juicesharp/rpiv-mono) | `todo` task list and overlay | condensed prompt |
-| `rpiv-ask-user-question` 2.12.0 | same | `ask_user_question` structured questions (up to 4 per call) | condensed prompt |
+| `rpiv-todo` 2.15.0 | [juicesharp/rpiv-mono](https://github.com/juicesharp/rpiv-mono) | `todo` task list and overlay | condensed prompt |
+| `rpiv-ask-user-question` 2.15.0 | same | `ask_user_question` structured questions (up to 4 per call) | condensed prompt |
 | `pi-web-search` 1.7.0 + `main` `97f182a` | [ttttmr/pi-web-search](https://github.com/ttttmr/pi-web-search) | `web_search` through the current provider's native search; no extra API key | — |
 | `pi-apply-patch` 0.1.4 | [code-yeongyu/pi-apply-patch](https://github.com/code-yeongyu/pi-apply-patch) | Codex `apply_patch` for OpenAI models | `typebox` as a peer dependency |
 | `pi-context-view` 0.8.0 | [dimk90/pi-context-view](https://github.com/dimk90/pi-context-view) | `/context`: what fills the context, including tool definitions and injections | — |

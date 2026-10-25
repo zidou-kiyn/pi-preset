@@ -13,22 +13,24 @@
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { loadConfig, validateGuidanceFields } from "./config.js";
-import { formatStatusLabel, t } from "./state/i18n-bridge.js";
-import { selectTasksByStatus, selectTodoCounts, selectVisibleTasks } from "./state/selectors.js";
-import { applyTaskMutation } from "./state/state-reducer.js";
-import { commitState, getRenderState, getState, sid } from "./state/store.js";
-import { buildToolResult } from "./tool/response-envelope.js";
+import { loadConfig, validateGuidanceFields } from "./config.ts";
+import { formatStatusLabel, t } from "./state/i18n-bridge.ts";
+import { selectTasksByStatus, selectTodoCounts, selectVisibleTasks } from "./state/selectors.ts";
+import { applyTaskMutation, changesState } from "./state/state-reducer.ts";
+import { commitState, getRenderState, getState, sid } from "./state/store.ts";
+import { prepareTodoArguments } from "./tool/normalize-params.ts";
+import { buildToolResult } from "./tool/response-envelope.ts";
 import {
 	COMMAND_NAME,
 	ERR_REQUIRES_INTERACTIVE,
 	MSG_NO_TODOS,
+	STATE_ENTRY_TYPE,
 	type TaskMutationParams,
 	TOOL_LABEL,
 	TOOL_NAME,
 	TodoParamsSchema,
-} from "./tool/types.js";
-import { formatCommandTaskLine, renderTodoCall, renderTodoResult } from "./view/format.js";
+} from "./tool/types.ts";
+import { formatCommandTaskLine, renderTodoCall, renderTodoResult } from "./view/format.ts";
 
 // English fallbacks for localized /todos section headers — the box-drawing
 // decoration is part of the localized string so translators can adjust spacing.
@@ -41,12 +43,12 @@ const SECTION_COMPLETED = "── Completed ──";
 // importing from `./todo.js`. New code may opt into deeper imports.
 // ---------------------------------------------------------------------------
 
-export { isTransitionValid } from "./state/invariants.js";
-export { applyTaskMutation } from "./state/state-reducer.js";
-export { __resetState, getNextId, getTodos, setActiveRenderSession, sid } from "./state/store.js";
-export { deriveBlocks, detectCycle } from "./state/task-graph.js";
-export type { Task, TaskAction, TaskDetails, TaskStatus } from "./tool/types.js";
-export { TOOL_NAME } from "./tool/types.js";
+export { isTransitionValid } from "./state/invariants.ts";
+export { applyTaskMutation } from "./state/state-reducer.ts";
+export { __resetState, getNextId, getTodos, setActiveRenderSession, sid } from "./state/store.ts";
+export { deriveBlocks, detectCycle } from "./state/task-graph.ts";
+export type { Task, TaskAction, TaskDetails, TaskStatus } from "./tool/types.ts";
+export { TOOL_NAME } from "./tool/types.ts";
 
 // ---------------------------------------------------------------------------
 // Tool registration
@@ -58,7 +60,7 @@ export const DEFAULT_PROMPT_SNIPPET = "Manage a task list to track multi-step pr
 export const DEFAULT_PROMPT_GUIDELINES: string[] = [
 	"Use `todo` for work with 3+ steps or when the user gives a list of tasks; skip it for trivial or conversational requests. Subjects are short and imperative.",
 	"Keep exactly one task in_progress (with activeForm), set it before starting, and mark it completed as soon as it is done, never in batches. Leave it in_progress while tests fail or work is partial, and add a task for the blocker.",
-]
+];
 
 export function registerTodoTool(pi: ExtensionAPI): void {
 	const guidance = validateGuidanceFields(loadConfig().guidance);
@@ -66,15 +68,23 @@ export function registerTodoTool(pi: ExtensionAPI): void {
 		name: TOOL_NAME,
 		label: TOOL_LABEL,
 		description:
-			'Task list for multi-step work. Actions: create, update (status/fields/dependencies), list (deleted hidden unless includeDeleted), get, delete, clear. Status: pending → in_progress → completed, or deleted. Change status with update, e.g. {"action":"update","id":3,"status":"completed"}.',
+			'Task list for multi-step work. Actions: create (one task, or several independent ones via tasks[], instead of subject), update (status/fields/dependencies), list (deleted hidden unless includeDeleted), get, delete, clear. Status: pending → in_progress → completed, or deleted. Change status with update, e.g. {"action":"update","id":3,"status":"completed"}.',
 		promptSnippet: guidance.promptSnippet ?? DEFAULT_PROMPT_SNIPPET,
 		promptGuidelines: guidance.promptGuidelines ?? DEFAULT_PROMPT_GUIDELINES,
 		parameters: TodoParamsSchema,
+		// Undo a double-encoded tasks[] before Pi validates it (#244 shape).
+		prepareArguments: prepareTodoArguments,
 
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			const result = applyTaskMutation(getState(sid(ctx)), params.action, params as TaskMutationParams);
 			commitState(sid(ctx), result.state);
-			return buildToolResult(params.action, params as TaskMutationParams, result.state, result.op);
+			const toolResult = buildToolResult(params.action, params as TaskMutationParams, result.state, result.op);
+			// Persist the snapshot as a custom entry on the calling session's branch, however the
+			// tool was reached: a call made through another tool (`ctx.executeTool`, e.g. codemode)
+			// never lands as a standalone `toolResult`, so its `details` alone would not survive
+			// replay. Pi's own codemode persists its `store()` the same way.
+			if (changesState(result.op)) pi.appendEntry(STATE_ENTRY_TYPE, toolResult.details);
+			return toolResult;
 		},
 
 		// renderCall reflects the FOREGROUND slot, not the calling session's. Pi's
@@ -89,8 +99,8 @@ export function registerTodoTool(pi: ExtensionAPI): void {
 			return renderTodoCall(args as never, theme, getRenderState());
 		},
 
-		renderResult(result, _opts, theme, _context) {
-			return renderTodoResult(result, theme);
+		renderResult(result, _opts, theme, context) {
+			return renderTodoResult(result, theme, context?.isError);
 		},
 	});
 }
