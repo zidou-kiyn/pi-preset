@@ -16,7 +16,8 @@
  *     only the actions that apply: sign in or sign out, turn on or off, mode,
  *     proxy. The first /termius installs the server; updates reinstall on
  *     session start. The vault syncs on its own (on sign-in and whenever the
- *     agent uses hosts and the last pull is over a minute old), so there is
+ *     agent's hosts/host calls find the cache over 10 minutes old, its
+ *     exec/files/inventory calls over TERMIUS_SYNC_TTL, 60 s), so there is
  *     no sync item. Typed subcommands (`/termius mode auto`, `login`, `sync`,
  *     …) still work,
  *   - gates exec/files by the approval mode (review / auto / dangerously),
