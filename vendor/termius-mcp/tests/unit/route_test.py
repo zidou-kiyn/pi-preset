@@ -271,6 +271,39 @@ class HostChainTest(unittest.TestCase):
         self.assertIsNone(data['proxy'])
         self.assertTrue(data['ssh_command'].startswith('ssh -J jump@bastion.example:2222 '), data['ssh_command'])
 
+    def test_exec_resolves_the_chain_then_runs_without_the_lock(self):
+        with self.storage:
+            self._host('bastion', 1, self._config(101, port=2222, username='jump'))
+            self._host('inner', 2, self._config(102))
+        self._apply([{'id': 9, 'ssh_config': 102, 'hosts_chain': [1]}])
+        seen = {}
+
+        def fake_run(target, command, timeout=60, route=None, cancel=None):
+            seen['target'], seen['route'] = target, route
+            # Another thread can take the lock while SSH runs.
+            got = []
+
+            def probe():
+                got.append(self.runtime.lock.acquire(timeout=1))
+                if got[0]:
+                    self.runtime.lock.release()
+
+            thread = threading.Thread(target=probe)
+            thread.start()
+            thread.join()
+            seen['lock_free'] = got[0]
+            return {'host': target.label, 'exit_code': 0, 'stdout': '', 'stderr': ''}
+
+        with patch('termius.mcp.tools._auto_sync', return_value={}), \
+                patch('termius.mcp.tools.run_host_command', fake_run):
+            call_tool(self.runtime, 'exec', {'name': 'inner', 'command': 'true'})
+        self.assertEqual(seen['target'].label, 'inner')
+        self.assertEqual(
+            [(hop.label, hop.port, hop.username) for hop in seen['route']],
+            [('bastion', 2222, 'jump')],
+        )
+        self.assertTrue(seen['lock_free'])
+
 
 # ── connection routing ──────────────────────────────────────────────────────
 
@@ -299,24 +332,24 @@ class _FakeClient(object):
 
 
 class RoutingTest(unittest.TestCase):
-    def _host(self, label, port=None):
-        host = Host(label=label, address='{}.example'.format(label))
-        return host, SshConfig(port=port, identity=Identity(username='u'))
+    def _host(self, label, port=None, address=None):
+        host = Host(label=label, address=address or '{}.example'.format(label))
+        return ssh_exec.ssh_target(host, SshConfig(port=port, identity=Identity(username='u')))
 
     def test_jumps_chain_channels_and_skip_the_proxy(self):
         log = []
 
-        def fake_connect(host, config, timeout, sock, role):
-            log.append(('connect', host.label, sock, role))
-            return _FakeClient(log, host.label), 'u'
+        def fake_connect(target, timeout, sock, role, cancel, deadline):
+            log.append(('connect', target.label, sock, role))
+            return _FakeClient(log, target.label)
 
-        a, a_cfg = self._host('a')
-        b, b_cfg = self._host('b', port=2200)
-        target, target_cfg = self._host('target', port=22)
+        a = self._host('a')
+        b = self._host('b', port=2200)
+        target = self._host('target', port=22)
         with patch.object(ssh_exec, '_connect_single', side_effect=fake_connect), \
                 patch.object(ssh_exec, 'open_via_proxy') as proxy_open, \
                 patch.dict('os.environ', {'TERMIUS_MCP_PROXY': 'socks5://127.0.0.1:1'}):
-            client, _ = ssh_exec.connect_host(target, target_cfg, timeout=5, route=[(a, a_cfg), (b, b_cfg)])
+            client, _ = ssh_exec.connect_host(target, timeout=5, route=[a, b])
         proxy_open.assert_not_called()
         self.assertEqual(log, [
             ('connect', 'a', None, 'jump host '),
@@ -331,39 +364,72 @@ class RoutingTest(unittest.TestCase):
     def test_a_failing_hop_closes_the_earlier_ones(self):
         log = []
 
-        def fake_connect(host, config, timeout, sock, role):
-            if host.label == 'target':
+        def fake_connect(target, timeout, sock, role, cancel, deadline):
+            if target.label == 'target':
                 raise ssh_exec.SshExecError('nope')
-            return _FakeClient(log, host.label), 'u'
+            return _FakeClient(log, target.label)
 
-        a, a_cfg = self._host('a')
-        target, target_cfg = self._host('target')
+        a = self._host('a')
+        target = self._host('target')
         with patch.object(ssh_exec, '_connect_single', side_effect=fake_connect):
             with self.assertRaises(ssh_exec.SshExecError):
-                ssh_exec.connect_host(target, target_cfg, timeout=5, route=[(a, a_cfg)])
+                ssh_exec.connect_host(target, timeout=5, route=[a])
         self.assertIn(('close', 'a'), log)
 
+    def test_a_cancel_mid_chain_closes_the_earlier_hops(self):
+        from termius.core.ssh_control import CancelToken, SshCancelled
+        log = []
+        token = CancelToken()
+
+        def fake_connect(target, timeout, sock, role, cancel, deadline):
+            if target.label == 'target':
+                token.cancel()
+                cancel.check()
+            return _FakeClient(log, target.label)
+
+        a = self._host('a')
+        target = self._host('target')
+        with patch.object(ssh_exec, '_connect_single', side_effect=fake_connect):
+            with self.assertRaises(SshCancelled):
+                ssh_exec.connect_host(target, timeout=5, route=[a], cancel=token)
+        self.assertIn(('close', 'a'), log)
+
+    def test_hops_never_wait_past_the_deadline(self):
+        from termius.core.ssh_control import Deadline
+        stages = []
+
+        def fake_connect(target, timeout, sock, role, cancel, deadline):
+            stages.append(ssh_exec._stage_timeout(timeout, deadline))
+            return _FakeClient([], target.label)
+
+        with patch.object(ssh_exec, '_connect_single', side_effect=fake_connect):
+            ssh_exec.connect_host(
+                self._host('target'), timeout=60, route=[self._host('a')],
+                deadline=Deadline(3),
+            )
+        self.assertTrue(all(1 <= stage <= 3 for stage in stages), stages)
+
     def test_direct_hosts_use_the_proxy_unless_bypassed(self):
-        target, cfg = self._host('target', port=2022)
-        with patch.object(ssh_exec, '_connect_single', return_value=(_FakeClient([], 't'), 'u')) as connect, \
+        target = self._host('target', port=2022)
+        with patch.object(ssh_exec, '_connect_single', return_value=_FakeClient([], 't')) as connect, \
                 patch.object(ssh_exec, 'open_via_proxy', return_value='proxied-sock') as proxy_open, \
                 patch.dict('os.environ', {'TERMIUS_MCP_PROXY': 'socks5://127.0.0.1:1'}):
-            client, _ = ssh_exec.connect_host(target, cfg, timeout=5)
+            client, _ = ssh_exec.connect_host(target, timeout=5)
             proxy_open.assert_called_once()
             self.assertEqual(proxy_open.call_args[0][1:3], ('target.example', 2022))
-            self.assertEqual(connect.call_args[0][3], 'proxied-sock')
+            self.assertEqual(connect.call_args[0][2], 'proxied-sock')
             self.assertEqual(client.route, ['proxy socks5://127.0.0.1:1 (/termius proxy)'])
 
-            private, private_cfg = Host(label='lan', address='192.168.1.9'), cfg
+            private = self._host('lan', address='192.168.1.9')
             proxy_open.reset_mock()
-            ssh_exec.connect_host(private, private_cfg, timeout=5)
+            ssh_exec.connect_host(private, timeout=5)
             proxy_open.assert_not_called()
 
     def test_a_broken_proxy_setting_is_an_ssh_error(self):
-        target, cfg = self._host('target')
+        target = self._host('target')
         with patch.dict('os.environ', {'TERMIUS_MCP_PROXY': 'gopher://x:1'}):
             with self.assertRaises(ssh_exec.SshExecError):
-                ssh_exec.connect_host(target, cfg, timeout=5)
+                ssh_exec.connect_host(target, timeout=5)
 
 
 class ParentWatchTest(unittest.TestCase):

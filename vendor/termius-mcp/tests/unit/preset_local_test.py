@@ -72,7 +72,10 @@ class ToolHardeningTest(unittest.TestCase):
             'stdout': 'password=Sup3rSecret! pass=keypass99\n' + PEM,
             'stderr': '',
         }
+        # The fixture key is not a parseable key; credentials are resolved
+        # before the (mocked) SSH call, so skip parsing it.
         with patch('termius.mcp.tools.ensure_fresh', return_value={}), \
+                patch('termius.core.ssh_exec._load_pkey', return_value=None), \
                 patch('termius.mcp.tools.run_host_command', return_value=dict(fake)):
             data, _ = call_tool(self.runtime, 'exec', {'name': 'web', 'command': 'cat secrets'})
         self.assertNotIn('Sup3rSecret!', json.dumps(data))
