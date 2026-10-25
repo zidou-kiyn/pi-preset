@@ -7,8 +7,11 @@
  * command output with vault secrets redacted, never a password or key.
  *
  * This extension:
- *   - registers the server (codemode exposure) once it is installed,
- *   - /termius setup | login | sync | status | mode | proxy | logout,
+ *   - registers the server (codemode exposure) once it is installed, unless
+ *     /termius disable turned it off (saved in its config.json, so it holds
+ *     in every session; pi's /mcp can only switch an extension-registered
+ *     server off for the current session),
+ *   - /termius setup | login | sync | status | mode | proxy | enable | disable | logout,
  *   - gates exec/files by the approval mode (review / auto / dangerously),
  *   - blocks other tools from reading ~/.termius, the keychain entry, or
  *     process memory (src/termius/guard.ts).
@@ -39,6 +42,7 @@ import {
 	install,
 	installState,
 	installUv,
+	isEnabled,
 	type LoginResponse,
 	loginJson,
 	readConfig,
@@ -61,8 +65,12 @@ export default function termiusExtension(pi: ExtensionAPI): void {
 	/** Hosts the user allowed for the rest of this session. */
 	const allowedHosts = new Set<string>();
 	let installing: Promise<void> | undefined;
+	let registered = false;
 
+	/** (Re)start the server with the current config; a no-op while disabled. */
 	const register = () => {
+		if (!isEnabled(config)) return;
+		registered = true;
 		pi.registerMcpServer(SERVER, {
 			command: serverBinary(),
 			args: [],
@@ -71,6 +79,13 @@ export default function termiusExtension(pi: ExtensionAPI): void {
 			description:
 				"SSH into the user's Termius hosts: list hosts, run remote commands, SFTP files. Credentials stay in the server; output has vault secrets redacted.",
 		});
+	};
+
+	/** Disconnect the server and drop its tools for this session. */
+	const unregister = () => {
+		if (!registered) return;
+		registered = false;
+		pi.unregisterMcpServer(SERVER);
 	};
 
 	if (installState() !== "missing") register();
@@ -93,7 +108,10 @@ export default function termiusExtension(pi: ExtensionAPI): void {
 	pi.on("session_start", async (_event, ctx) => {
 		config = readConfig();
 		allowedHosts.clear();
-		if (installState() === "outdated") {
+		// Another session may have run /termius enable or disable since this one loaded.
+		if (!isEnabled(config)) unregister();
+		else if (!registered && installState() !== "missing") register();
+		if (isEnabled(config) && installState() === "outdated") {
 			reinstall(ctx, "the vendored server changed; reinstalling").catch((error: Error) =>
 				ctx.ui.notify(`termius: reinstall failed. ${error.message}`, "error"),
 			);
@@ -225,7 +243,12 @@ export default function termiusExtension(pi: ExtensionAPI): void {
 			await installUv();
 		}
 		await reinstall(ctx, "installing the MCP server");
-		ctx.ui.notify("termius: next, sign in with /termius login.", "info");
+		ctx.ui.notify(
+			isEnabled(config)
+				? "termius: next, sign in with /termius login."
+				: "termius: installed, but disabled; /termius enable starts the MCP server. Sign in with /termius login.",
+			"info",
+		);
 	};
 
 	const sync = async (ctx: ExtensionCommandContext) => {
@@ -252,6 +275,9 @@ export default function termiusExtension(pi: ExtensionAPI): void {
 		const state = installState();
 		const lines = [
 			`install: ${state}${state === "missing" ? " (run /termius setup)" : ""}`,
+			isEnabled(config)
+				? "MCP server: enabled in every session (/termius disable turns it off)"
+				: "MCP server: disabled in every session (/termius enable turns it on)",
 			`mode: ${config.mode} (${MODE_HELP[config.mode]})`,
 			`proxy: ${describeProxy(config)}; hosts with a Termius jump host chain always connect to the first jump host directly`,
 		];
@@ -329,6 +355,30 @@ export default function termiusExtension(pi: ExtensionAPI): void {
 		ctx.ui.notify(`termius: proxy ${describeProxy(config)}. Applies to hosts without a jump host chain.`, "info");
 	};
 
+	const setEnabled = async (ctx: ExtensionCommandContext, enabled: boolean) => {
+		if (isEnabled(config) !== enabled) {
+			const next = { ...config };
+			if (enabled) delete next.enabled;
+			else next.enabled = false;
+			config = next;
+			writeConfig(config);
+		}
+		if (!enabled) {
+			unregister();
+			allowedHosts.clear();
+			ctx.ui.notify("termius: MCP server disabled in every session; /termius enable turns it back on.", "info");
+			return;
+		}
+		if (installState() === "missing") {
+			ctx.ui.notify("termius: enabled; run /termius setup to install the MCP server.", "info");
+			return;
+		}
+		// Sessions skip the update reinstall while disabled; catch up now.
+		if (installState() === "outdated") await reinstall(ctx, "the vendored server changed; reinstalling");
+		else if (!registered) register();
+		ctx.ui.notify("termius: MCP server enabled in every session.", "info");
+	};
+
 	const logout = async (ctx: ExtensionCommandContext) => {
 		if (installState() === "missing") return;
 		if (ctx.hasUI && !(await ctx.ui.confirm("termius: sign out?", "Removes the session, the remembered vault password, and the local host cache."))) return;
@@ -337,10 +387,11 @@ export default function termiusExtension(pi: ExtensionAPI): void {
 		register();
 	};
 
-	const SUBCOMMANDS = ["setup", "login", "sync", "status", "mode", "proxy", "logout"] as const;
+	const SUBCOMMANDS = ["setup", "login", "sync", "status", "mode", "proxy", "enable", "disable", "logout"] as const;
 
 	pi.registerCommand("termius", {
-		description: "Termius SSH via MCP: setup, login, sync, status, mode (review|auto|dangerously), proxy, logout",
+		description:
+			"Termius SSH via MCP: setup, login, sync, status, mode (review|auto|dangerously), proxy, enable / disable (every session), logout",
 		getArgumentCompletions: (prefix) => {
 			const [first, second] = prefix.trimStart().split(/\s+/);
 			if (first === "mode" && second !== undefined) {
@@ -350,7 +401,10 @@ export default function termiusExtension(pi: ExtensionAPI): void {
 			return matches.length > 0 ? matches.map((value) => ({ value, label: value })) : null;
 		},
 		handler: async (args, ctx) => {
-			let [sub, value] = args.trim().split(/\s+/).filter(Boolean);
+			const words = args.trim().split(/\s+/).filter(Boolean);
+			const value = words[1];
+			// undefined: no subcommand typed, or the picker below was dismissed.
+			let sub: string | undefined = words[0];
 			if (!sub && ctx.hasUI) {
 				sub = await ctx.ui.select("termius", [...SUBCOMMANDS]);
 			}
@@ -368,6 +422,10 @@ export default function termiusExtension(pi: ExtensionAPI): void {
 						return await setMode(ctx, value);
 					case "proxy":
 						return await setProxy(ctx, value);
+					case "enable":
+						return await setEnabled(ctx, true);
+					case "disable":
+						return await setEnabled(ctx, false);
 					case "logout":
 						return await logout(ctx);
 					case undefined:

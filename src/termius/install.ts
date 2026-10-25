@@ -258,6 +258,12 @@ export async function loginJson(request: Record<string, unknown>): Promise<Login
 
 export interface TermiusConfig extends ProxySettings {
 	mode: ApprovalMode;
+	/** `false` = /termius disable: the MCP server is not registered in any session. Absent = enabled. */
+	enabled?: false;
+}
+
+export function isEnabled(config: TermiusConfig): boolean {
+	return config.enabled !== false;
 }
 
 export function readConfig(): TermiusConfig {
@@ -266,6 +272,7 @@ export function readConfig(): TermiusConfig {
 		const config: TermiusConfig = { mode: isApprovalMode(data.mode) ? data.mode : DEFAULT_APPROVAL_MODE };
 		if (typeof data.proxy === "string" && data.proxy.trim()) config.proxy = data.proxy.trim();
 		if (Array.isArray(data.proxyBypass)) config.proxyBypass = data.proxyBypass.filter((item: unknown) => typeof item === "string");
+		if (data.enabled === false) config.enabled = false;
 		return config;
 	} catch {
 		return { mode: DEFAULT_APPROVAL_MODE };

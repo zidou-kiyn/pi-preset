@@ -18,9 +18,12 @@ Google's [chrome-devtools-mcp](https://github.com/ChromeDevTools/chrome-devtools
 /termius mode      review | auto | dangerously
 /termius proxy     system | off | socks5://… | http://…  (proxy for hosts without a jump host)
 /termius sync      pull the host list from Termius Cloud now (sign-in already does this once)
-/termius status    install state, account, host count, last sync, mode
+/termius status    install state, on/off, account, host count, last sync, mode
+/termius disable   stop the MCP server and keep it off in every session (enable turns it back on)
 /termius logout    sign out and wipe the local host cache
 ```
+
+**On and off.** pi registers Termius from this extension, not from `mcp.json`, and pi's `/mcp` saves on/off for such a server only for the current session. `/termius disable` disconnects it at once and writes `"enabled": false` to the server's `config.json` (next to its venv), so later sessions, `/reload`, and other open sessions at their next start leave it off; `/termius enable` starts it again. The local guard that keeps other tools away from `~/.termius` and the keychain entry stays active either way.
 
 **Lifetime.** pi starts each MCP server in its own process group and ends the group when the session ends, also on SIGTERM / SIGHUP (closing the terminal); if pi is killed outright, the servers see their input close and exit. Checked for chrome-devtools (including the Chrome it launched) and Termius with SIGTERM, SIGHUP, and SIGKILL: nothing was left a second later. The Termius server also exits within a second when pi dies during a long `exec`, instead of finishing the command first.
 
