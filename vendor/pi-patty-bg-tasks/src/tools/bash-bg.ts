@@ -13,6 +13,7 @@ import { appendFileSync } from "node:fs";
 import type { BackgroundRegistry } from "../state.ts";
 import { isTerminalStatus, type UiContext } from "../types.ts";
 import { killProcessTree, spawnWithFileOutput } from "../spawn.ts";
+import { sessionShellPath } from "../shell.ts";
 import { add, createRunningJob, newJobId, logPathFor } from "../registry.ts";
 import {
     assertJobSlot, detectBlockedSleep, isAutoBackgroundAllowed, isBlankCommand,
@@ -55,6 +56,7 @@ export function registerBashBgTool(pi: ExtensionAPI, reg: BackgroundRegistry): v
             const logPath = logPathFor(id);
             const spawned = spawnWithFileOutput({
                 command: p.command, cwd: ctx2.cwd, logPath,
+                shellPath: sessionShellPath(pi),
             });
 
             const job = createRunningJob({

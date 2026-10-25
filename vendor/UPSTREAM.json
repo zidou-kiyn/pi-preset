@@ -25,7 +25,10 @@
 				"src/__tests__/preset-local.test.ts (new): tests for both changes, including a headless keepAlive repro.",
 				"tools/{bash,bash-bg,jobs,monitor,agent-bg}.ts: prompt guidelines deduplicated and condensed (sleep / one-vs-per-event / jobs actions were repeated across tools); jobs actions described once in its description.",
 				"tools/bash.ts, output.ts, types.ts: a foreground command reports an empty partial result at once and streams its log from the start every 250ms (upstream: nothing for 2s, then 1s polls), so pi's bash renderer shows the live Elapsed clock and output for quiet commands too.",
-				"registry.ts, spawn.ts, monitor-ws.ts: job logs go to a per-user <tmpdir>/pi-bg-<uid> directory (0700, owner and symlink checked) with 0600 files; upstream used a shared world-readable /tmp/pi-bg that any local user could read or pre-create."
+				"registry.ts, spawn.ts, monitor-ws.ts: job logs go to a per-user <tmpdir>/pi-bg-<uid> directory (0700, owner and symlink checked) with 0600 files; upstream used a shared world-readable /tmp/pi-bg that any local user could read or pre-create.",
+				"shell.ts (new), spawn.ts, monitor-source.ts, tools/{bash,bash-bg,monitor}.ts: `command` spawns run in the shell from pi's exported getShellConfig with the session's shellPath (pi.getSettings(): project .pi/settings.json over the global file), writing the command to stdin for commandTransport \"stdin\" shells; upstream ran `bash -c` through a PATH lookup, which ignored shellPath and on Windows with WSL picked C:\\Windows\\System32\\bash.exe ahead of Git Bash, which exits 1 with an empty log when detached with file output, so every bash / bash_bg / monitor call returned \"(no output yet)\". `file` spawns (agent_bg) are unchanged.",
+				"spawn.ts: killProcessTree kills the whole tree on Windows with System32 taskkill /F /T (process.kill(-pid) has no process groups there and only the shell died); POSIX is unchanged. Children get windowsHide.",
+				"src/__tests__/shell.test.ts (new): shellPath is used by spawn and by bash / bash_bg / monitor, stdin transport, a simulated Windows PATH with System32\\bash.exe first, and taskkill."
 			]
 		},
 		"pi-workspace-history": {

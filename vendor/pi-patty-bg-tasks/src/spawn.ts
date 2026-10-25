@@ -1,8 +1,9 @@
 // src/spawn.ts
 import { spawn } from "node:child_process";
 import { closeSync, openSync, unlinkSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, win32 } from "node:path";
 import { ensurePrivateLogDir } from "./registry.ts";
+import { resolveShellInvocation, type ShellResolver } from "./shell.ts";
 
 /** How the child ended: an exit code, or the signal that killed it. Node
  *  reports `code === null` when the child died by signal (external kill, OOM),
@@ -26,9 +27,10 @@ export interface SpawnResult {
  * Claude Code pattern: the kernel writes output to disk with zero JS in the
  * data path. Progress is read back by polling the file tail separately.
  *
- * Pass `command` to run `bash -c <command>`, or `file`/`fileArgs` to exec a
- * binary directly (e.g. agent_bg launching `pi -p`). The child is detached so
- * the whole process group can be signalled.
+ * Pass `command` to run it in the user's shell (pi's getShellConfig, honouring
+ * `shellPath`; pi-preset), or `file`/`fileArgs` to exec a binary directly
+ * (e.g. agent_bg launching `pi -p`). The child is detached so the whole
+ * process group can be signalled.
  */
 export function spawnWithFileOutput(args: {
     command?: string;
@@ -48,7 +50,22 @@ export function spawnWithFileOutput(args: {
      * tool call. Background spawns keep the default (unref'd immediately).
      */
     keepAlive?: boolean;
+    /**
+     * The session's shellPath setting (pi-preset). Only used with `command`;
+     * callers read it with sessionShellPath(pi). Unset = pi's default lookup.
+     */
+    shellPath?: string;
+    /** Test seam: replaces pi's getShellConfig. */
+    resolveShell?: ShellResolver;
 }): SpawnResult {
+    // Resolve the shell before opening any fd: getShellConfig throws when the
+    // configured shellPath does not exist or no bash is found, and that error
+    // (with its hint to set shellPath) is what the caller should see.
+    const invocation = args.file
+        ? { bin: args.file, args: args.fileArgs ?? [], stdin: undefined }
+        : resolveShellInvocation(args.command ?? "", args.shellPath, args.resolveShell);
+    const commandFromStdin = invocation.stdin !== undefined;
+
     ensureLogDir(args.logPath);
     const outFd = openSync(args.logPath, "w", 0o600);
     let errFd: number;
@@ -59,21 +76,25 @@ export function spawnWithFileOutput(args: {
         throw err;
     }
 
-    const [bin, binArgs]: [string, string[]] = args.file
-        ? [args.file, args.fileArgs ?? []]
-        : ["bash", ["-c", args.command ?? ""]];
-
     let proc;
     try {
-        proc = spawn(bin, binArgs, {
-            stdio: ["ignore", outFd, errFd],
+        proc = spawn(invocation.bin, invocation.args, {
+            // stdin carries the command for commandTransport "stdin" shells.
+            stdio: [commandFromStdin ? "pipe" : "ignore", outFd, errFd],
             cwd: args.cwd,
             detached: true,
+            windowsHide: true,
             env: { ...process.env },
         });
     } finally {
         closeSync(outFd);
         if (errFd !== outFd) closeSync(errFd);
+    }
+
+    if (commandFromStdin && proc.stdin) {
+        // EPIPE when the shell exits before reading is reported by 'exit'.
+        proc.stdin.on("error", () => {});
+        proc.stdin.end(invocation.stdin);
     }
 
     // Build the exit promise and attach the 'error' listener BEFORE any throw,
@@ -132,16 +153,50 @@ function ensureLogDir(logPath: string): void {
 /**
  * Kill an entire process group via negative PID signal.
  * Falls back to direct PID kill if group kill fails.
- */export function killProcessTree(
+ *
+ * pi-preset: Windows has no process groups (`process.kill(-pid)` throws and the
+ * fallback killed only the shell, orphaning its children), so there the whole
+ * tree is force-killed with `taskkill /F /T`, as pi's own killProcessTree does
+ * (it is not exported from the package root). `signal` is ignored there.
+ */
+export function killProcessTree(
     pid: number | undefined,
     signal: NodeJS.Signals = "SIGTERM"
 ): void {
     if (typeof pid !== "number" || pid <= 0) return;
+    if (process.platform === "win32") {
+        killWindowsTree(pid);
+        return;
+    }
     try {
         process.kill(-pid, signal);
     } catch {
         try {
             process.kill(pid, signal);
+        } catch {
+            /* already dead */
+        }
+    }
+}
+
+/** Spawner for taskkill; replaceable in tests. */
+export const windowsKill = { spawn };
+
+function killWindowsTree(pid: number): void {
+    // The trusted System32 binary, so cleanup never depends on PATH.
+    const taskkill = win32.join(process.env.SystemRoot || "C:\\Windows", "System32", "taskkill.exe");
+    try {
+        const child = windowsKill.spawn(taskkill, ["/F", "/T", "/PID", String(pid)], {
+            stdio: "ignore",
+            detached: true,
+            windowsHide: true,
+        });
+        // A failed spawn emits 'error' asynchronously; never let it crash pi.
+        child.once("error", () => {});
+        child.unref();
+    } catch {
+        try {
+            process.kill(pid);
         } catch {
             /* already dead */
         }

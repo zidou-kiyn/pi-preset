@@ -27,6 +27,7 @@ import {
     type UiContext,
 } from "../types.ts";
 import { spawnWithFileOutput, killProcessTree, type SpawnExit } from "../spawn.ts";
+import { sessionShellPath } from "../shell.ts";
 import { streamLog } from "../output.ts";
 import { showBackgroundHint, clearBackgroundHint } from "../hint.ts";
 import {
@@ -149,6 +150,8 @@ async function runForeground(args: {
         command,
         cwd: ctx.cwd,
         logPath,
+        // pi-preset: the session's shellPath, not a PATH lookup of "bash".
+        shellPath: sessionShellPath(pi),
         // pi-preset: hold the event loop while the command is in the foreground
         // (headless `pi -p` exits otherwise); released once it is backgrounded.
         keepAlive: true,
@@ -333,6 +336,7 @@ function spawnBackground(args: {
         command: args.command,
         cwd: args.cwd,
         logPath,
+        shellPath: sessionShellPath(args.pi),
     });
 
     const job = createRunningJob({

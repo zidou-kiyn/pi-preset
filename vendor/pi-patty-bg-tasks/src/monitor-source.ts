@@ -31,12 +31,15 @@ export function spawnCommandSource(args: {
     cwd: string;
     logPath: string;
     errPath: string;
+    /** The session's shellPath setting (pi-preset). */
+    shellPath?: string;
 }): MonitorSource {
     const spawned = spawnWithFileOutput({
         command: args.command,
         cwd: args.cwd,
         logPath: args.logPath,
         errPath: args.errPath,
+        shellPath: args.shellPath,
     });
     return {
         logPath: args.logPath,

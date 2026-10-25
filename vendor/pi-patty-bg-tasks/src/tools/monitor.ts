@@ -24,6 +24,7 @@ import {
 } from "../monitor-source.ts";
 import { startMonitorSession } from "../monitor-session.ts";
 import { textBlock } from "../format.ts";
+import { sessionShellPath } from "../shell.ts";
 
 type MonitorCtx = UiContext & { cwd: string };
 
@@ -117,6 +118,7 @@ export function registerMonitorTool(pi: ExtensionAPI, reg: BackgroundRegistry): 
                       cwd: mctx.cwd,
                       logPath,
                       errPath: errPathFor(id),
+                      shellPath: sessionShellPath(pi),
                   });
 
             const job = createRunningJob({
