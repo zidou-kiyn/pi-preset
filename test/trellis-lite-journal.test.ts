@@ -204,3 +204,42 @@ test("/trellis-lite init creates the skeleton after confirmation", async () => {
 		cleanup();
 	}
 });
+
+test("/trellis-lite menu: status on top, init only when needed, back to the menu after it", async () => {
+	const { root, cleanup } = makeTree({ "repo/README.md": "" });
+	try {
+		execFileSync("git", ["init", "-q", join(root, "repo")]);
+		execFileSync("git", ["-C", join(root, "repo"), "config", "user.name", "Test User"]);
+		const pi = fakePi();
+		trellisLite(pi.api);
+		const screens: string[] = [];
+		const keys = ["1", "ESC"]; // init, then leave
+		const ctx = fakeCtx(join(root, "repo"), { mode: "tui" });
+		const KEYS: Record<string, string> = { "tui.select.up": "UP", "tui.select.down": "DOWN", "tui.select.confirm": "ENTER", "tui.select.cancel": "ESC" };
+		Object.assign(ctx.ui, {
+			custom: (factory: (...args: unknown[]) => { render(w: number): string[]; handleInput(d: string): void }) =>
+				new Promise((resolve) => {
+					const screen = factory(
+						{ requestRender() {} },
+						{ fg: (_c: string, t: string) => t, bold: (t: string) => t },
+						{ matches: (data: string, id: string) => KEYS[id] === data },
+						resolve,
+					);
+					screens.push(screen.render(100).join("\n"));
+					screen.handleInput(keys.shift() ?? "ESC");
+				}),
+		});
+		await pi.commands.get("trellis-lite")!.handler("", ctx);
+		assert.equal(screens.length, 2);
+		assert.match(screens[0]!, /Not a Trellis project/u);
+		assert.match(screens[0]!, /→ +Initialize trellis-lite here/u);
+		assert.doesNotMatch(screens[0]!, /Migrate|project-memory section/u);
+		assert.match(screens[1]!, /Project: /u);
+		assert.match(screens[1]!, /Not committed/u, "the init result is shown in the menu");
+		assert.match(screens[1]!, /→ +Show the project-memory section/u);
+		assert.doesNotMatch(screens[1]!, /Initialize|Migrate/u);
+		assert.equal(ctx.notes.length, 0, "results go to the menu, not the chat");
+	} finally {
+		cleanup();
+	}
+});

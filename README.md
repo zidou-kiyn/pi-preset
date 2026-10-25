@@ -16,7 +16,7 @@ Restart pi and run `/pi-preset`, the control panel:
 2. **Apply models.json template**: providers, models, and the default model. See [docs/models.md](docs/models.md).
 3. **Install the Maple Mono NF CN font (ask pi)**: the status bar needs a Nerd Font.
 
-For SSH through your Termius hosts, run `/termius setup` and `/termius login` once.
+For SSH through your Termius hosts, open `/termius` once: it installs the server, then sign in from the same menu.
 
 To update, run `pi update git:github.com/zidou-kiyn/pi-preset` (plain `pi update` updates only pi itself). Then restart pi or run `/reload`.
 

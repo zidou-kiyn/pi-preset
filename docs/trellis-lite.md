@@ -12,7 +12,10 @@ It acts only in a Trellis project: the nearest directory above the session's wor
 There is no per-turn injection, no tool, no task state, no subagent, and no Python. On a copy of a real Trellis project (16 specs, 34 journal sessions, no open task), the first request went from 15,070 tokens with Trellis 0.6.17 to 8,860 after migrating; trellis-lite's own share is about 630 tokens (section and three skill entries).
 
 ```
-/trellis-lite            status: project root, the section as sent, path-scoped specs and frontmatter errors
+/trellis-lite            menu: status on top (root, section size, path-scoped specs, frontmatter errors);
+                         Initialize only when .trellis/ or .developer is missing, migrate items only
+                         while old Trellis assets are installed, else "Show the project-memory section"
+/trellis-lite status     the same status plus the section as sent, as one message
 /trellis-lite init       create what is missing: .trellis/spec/index.md, .developer, the first journal, .gitignore entry
 /trellis-lite migrate    dry-run plan for leaving Trellis (read-only)
 /trellis-lite-migrate    let the agent carry out the migration, asking before each change

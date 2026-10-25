@@ -30,16 +30,47 @@ export function installDir(): string {
 	return join(getAgentDir(), "termius-mcp");
 }
 
+/**
+ * Each version of the server gets its own environment, `venv-<hash>`, named
+ * after the source hash. An update builds the new one next to the old and
+ * switches the stamp only once it works, so a server still running from the
+ * old environment (this session's, or another pi window's) never blocks it;
+ * on Windows a running termius.exe cannot be overwritten. Installs from
+ * before this scheme used a plain `venv`, which stays valid until the next
+ * update.
+ */
+const LEGACY_VENV = "venv";
+
+interface Stamp {
+	sourceHash?: string;
+	venv?: string;
+	installedAt?: string;
+}
+
+function readStamp(): Stamp | undefined {
+	try {
+		return JSON.parse(readFileSync(stampPath(), "utf8")) as Stamp;
+	} catch {
+		return undefined;
+	}
+}
+
+/** The environment the stamp points at (the one the server runs from). */
 export function venvDir(): string {
-	return join(installDir(), "venv");
+	const name = readStamp()?.venv;
+	return join(installDir(), name && /^venv(-[0-9a-f]+)?$/.test(name) ? name : LEGACY_VENV);
+}
+
+function binaryIn(venv: string): string {
+	return IS_WINDOWS ? join(venv, "Scripts", "termius.exe") : join(venv, "bin", "termius");
+}
+
+function pythonIn(venv: string): string {
+	return IS_WINDOWS ? join(venv, "Scripts", "python.exe") : join(venv, "bin", "python");
 }
 
 export function serverBinary(): string {
-	return IS_WINDOWS ? join(venvDir(), "Scripts", "termius.exe") : join(venvDir(), "bin", "termius");
-}
-
-function venvPython(): string {
-	return IS_WINDOWS ? join(venvDir(), "Scripts", "python.exe") : join(venvDir(), "bin", "python");
+	return binaryIn(venvDir());
 }
 
 function stampPath(): string {
@@ -84,12 +115,36 @@ export type InstallState = "missing" | "outdated" | "current";
 
 export function installState(): InstallState {
 	if (!existsSync(serverBinary())) return "missing";
+	return readStamp()?.sourceHash === sourceHash() ? "current" : "outdated";
+}
+
+/**
+ * Remove environments older than the current one and the one before it.
+ * The previous one is kept because another pi window may still run a server
+ * from it (deleting its files would break its later imports). A directory
+ * that is still in use (Windows) is left for the next cleanup.
+ */
+export function removeOldEnvironments(): string[] {
+	const current = readStamp()?.venv ?? LEGACY_VENV;
+	let entries: { name: string; mtime: number }[];
 	try {
-		const stamp = JSON.parse(readFileSync(stampPath(), "utf8"));
-		return stamp.sourceHash === sourceHash() ? "current" : "outdated";
+		entries = readdirSync(installDir(), { withFileTypes: true })
+			.filter((entry) => entry.isDirectory() && /^venv(-[0-9a-f]+)?$/.test(entry.name) && entry.name !== current)
+			.map((entry) => ({ name: entry.name, mtime: statSync(join(installDir(), entry.name)).mtimeMs }));
 	} catch {
-		return "outdated";
+		return [];
 	}
+	entries.sort((a, b) => b.mtime - a.mtime);
+	const removed: string[] = [];
+	for (const { name } of entries.slice(1)) {
+		try {
+			rmSync(join(installDir(), name), { recursive: true, force: true });
+			removed.push(name);
+		} catch {
+			// In use; the next cleanup tries again.
+		}
+	}
+	return removed;
 }
 
 // ── tools: uv or python ─────────────────────────────────────────────────────
@@ -180,6 +235,13 @@ export async function install(options: InstallOptions = {}): Promise<void> {
 	const source = join(installDir(), "src");
 	rmSync(source, { recursive: true, force: true });
 	cpSync(VENDOR_DIR, source, { recursive: true, filter: (path) => !isSkipped(path.split(/[\\/]/).pop() ?? "") });
+	const hash = sourceHash();
+	const name = `venv-${hash.slice(0, 12)}`;
+	const venv = join(installDir(), name);
+	const python = pythonIn(venv);
+	// A leftover from a failed attempt at this same version: start clean. It is
+	// never the environment the stamp points at (that one would be current).
+	if (venv !== venvDir()) rmSync(venv, { recursive: true, force: true });
 	const uv = findUv();
 	const step = async (label: string, command: string, args: string[]) => {
 		log(label);
@@ -188,7 +250,7 @@ export async function install(options: InstallOptions = {}): Promise<void> {
 	};
 
 	if (uv) {
-		await step("Creating the Python environment (uv)", uv, ["venv", "--quiet", "--allow-existing", "--python", "3.12", venvDir()]);
+		await step("Creating the Python environment (uv)", uv, ["venv", "--quiet", "--allow-existing", "--python", "3.12", venv]);
 		// --refresh-package: uv caches the wheel it built from a local directory
 		// and would reuse it after a .py-only change.
 		await step("Installing termius-mcp", uv, [
@@ -196,7 +258,7 @@ export async function install(options: InstallOptions = {}): Promise<void> {
 			"install",
 			"--quiet",
 			"--python",
-			venvPython(),
+			python,
 			"--reinstall-package",
 			"termius-mcp",
 			"--refresh-package",
@@ -204,17 +266,20 @@ export async function install(options: InstallOptions = {}): Promise<void> {
 			source,
 		]);
 	} else {
-		const python = findPython();
-		if (!python) {
+		const system = findPython();
+		if (!system) {
 			throw new Error(`Neither uv nor Python 3.9+ was found. Install uv with:\n  ${uvInstallerCommand().display}`);
 		}
-		const pyArgs = IS_WINDOWS && python === "py" ? ["-3"] : [];
-		if (!existsSync(venvPython())) await step("Creating the Python environment (venv)", python, [...pyArgs, "-m", "venv", venvDir()]);
-		await step("Installing termius-mcp", venvPython(), ["-m", "pip", "install", "--quiet", "--upgrade", "--force-reinstall", "--no-deps", source]);
-		await step("Installing dependencies", venvPython(), ["-m", "pip", "install", "--quiet", source]);
+		const pyArgs = IS_WINDOWS && system === "py" ? ["-3"] : [];
+		if (!existsSync(python)) await step("Creating the Python environment (venv)", system, [...pyArgs, "-m", "venv", venv]);
+		await step("Installing termius-mcp", python, ["-m", "pip", "install", "--quiet", "--upgrade", "--force-reinstall", "--no-deps", source]);
+		await step("Installing dependencies", python, ["-m", "pip", "install", "--quiet", source]);
 	}
-	if (!existsSync(serverBinary())) throw new Error(`Install finished but ${serverBinary()} is missing`);
-	writeFileSync(stampPath(), `${JSON.stringify({ sourceHash: sourceHash(), installedAt: new Date().toISOString() }, null, 2)}\n`);
+	if (!existsSync(binaryIn(venv))) throw new Error(`Install finished but ${binaryIn(venv)} is missing`);
+	// Switch only now: until here the previous environment stays in use.
+	const stamp: Stamp = { sourceHash: hash, venv: name, installedAt: new Date().toISOString() };
+	writeFileSync(stampPath(), `${JSON.stringify(stamp, null, 2)}\n`);
+	removeOldEnvironments();
 }
 
 export async function installUv(): Promise<void> {

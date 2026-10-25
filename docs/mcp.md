@@ -12,15 +12,19 @@ Google's [chrome-devtools-mcp](https://github.com/ChromeDevTools/chrome-devtools
 
 [`vendor/termius-mcp`](../vendor/termius-mcp) is [MiaM1ku/termius-mcp](https://github.com/MiaM1ku/termius-mcp) (Python, BSD, a fork of the official Termius CLI), hardened here, and [`extensions/termius.ts`](../extensions/termius.ts) installs and registers it. The agent can list your Termius hosts and run commands or move files on them over SSH with the hosts' own usernames, passwords, and keys, without ever seeing those secrets.
 
+`/termius` opens one menu. The top shows the live state (install, on/off, account, host count, last sync, approval mode) and fills in as it arrives; below are only the actions that apply: **Sign in** or **Sign out**, **Turn the MCP server on/off**, **Approval mode** and **Proxy** (sub-menus with ✓ on the current value). ↑↓ wrap around, number keys pick, Esc goes back one level; after an action the menu returns with its result on top. The first `/termius` installs the server on its own (it only asks when uv has to be installed first). There is no sync item: signing in pulls the host list, and the server pulls again whenever the agent uses hosts and the last pull is over a minute old.
+
+Typed subcommands skip the menu:
+
 ```
-/termius setup     install the server (one step; installs uv first if neither uv nor Python 3.9+ is there)
 /termius login     sign in: email + password, or Google; asks for the 2FA code / app approval when Termius wants one
-/termius mode      review | auto | dangerously
-/termius proxy     system | off | socks5://… | http://…  (proxy for hosts without a jump host)
-/termius sync      pull the host list from Termius Cloud now (sign-in already does this once)
-/termius status    install state, on/off, account, host count, last sync, mode
-/termius disable   stop the MCP server and keep it off in every session (enable turns it back on)
 /termius logout    sign out and wipe the local host cache
+/termius enable    start the MCP server and keep it on in every session (disable: off in every session)
+/termius mode      review | auto | dangerously   (no value: the sub-menu)
+/termius proxy     system | off | socks5://… | http://…  (proxy for hosts without a jump host)
+/termius status    the menu's status lines as one message (also in print mode)
+/termius sync      pull the host list now
+/termius setup     install the server (installs uv first if neither uv nor Python 3.9+ is there)
 ```
 
 **On and off.** pi registers Termius from this extension, not from `mcp.json`, and pi's `/mcp` saves on/off for such a server only for the current session. `/termius disable` disconnects it at once and writes `"enabled": false` to the server's `config.json` (next to its venv), so later sessions, `/reload`, and other open sessions at their next start leave it off; `/termius enable` starts it again. The local guard that keeps other tools away from `~/.termius` and the keychain entry stays active either way.
@@ -29,9 +33,9 @@ Google's [chrome-devtools-mcp](https://github.com/ChromeDevTools/chrome-devtools
 
 **Timeouts and cancelling.** The `timeout` of `exec` and `files` (default 60 s) caps the whole call, every jump host included. A command that is still running then has its channel closed, and the agent gets the output so far with `timed_out: true` (the remote process may keep running). Each call runs in its own thread, so a long `exec` does not hold up `status` or other calls. Pressing Esc in pi cancels the call and closes its SSH connections.
 
-**Setup.** The server goes into its own environment under `~/.pi/agent/termius-mcp/venv`, built with [uv](https://docs.astral.sh/uv/) (which also fetches a Python when there is none) or a local Python 3.9+. It works the same on Linux, macOS, and Windows. When a preset update changes the vendored code, the next session reinstalls it.
+**Setup.** The server goes into its own environment under `~/.pi/agent/termius-mcp/venv-<hash>`, built with [uv](https://docs.astral.sh/uv/) (which also fetches a Python when there is none) or a local Python 3.9+. It works the same on Linux, macOS, and Windows. When a preset update changes the vendored code, the next session builds a new environment next to the old one and moves its server over once the build succeeded (`installed.json` names the current one). Rebuilding in place failed on Windows, where a server still running in another pi window keeps its `termius.exe` locked; now that old environment is only removed later, keeping the current and the newest previous one, and skipped while still in use.
 
-**Sign-in.** `/termius login` asks in pi's own masked prompts and hands the answers to the server process on stdin (`termius login-json`). They never pass through the model, the MCP protocol, the command line, or the environment. Two-factor accounts are asked for the authenticator code; a "approve this device" request waits until you approve it in the Termius app. The vault password is remembered in the OS keychain (an encrypted file where there is none), so later sessions sync on their own. Signing in also pulls the host list right away, so `/termius status` and the agent see your hosts at once; if that first pull fails, the sign-in still stands and `/termius sync` retries it.
+**Sign-in.** `/termius login` asks in pi's own masked prompts and hands the answers to the server process on stdin (`termius login-json`). They never pass through the model, the MCP protocol, the command line, or the environment. Two-factor accounts are asked for the authenticator code; a "approve this device" request waits until you approve it in the Termius app. The vault password is remembered in the OS keychain (an encrypted file where there is none), so later sessions sync on their own. Signing in also pulls the host list right away, so the menu and the agent see your hosts at once; if that first pull fails, the sign-in still stands and the next host call retries it.
 
 **What the model gets.** Seven tools: `status`, `sync`, `hosts`, `host`, `exec`, `files` (SFTP list/stat/read/get/put/write/mkdir/rm/rename), `inventory`. Compared with upstream:
 

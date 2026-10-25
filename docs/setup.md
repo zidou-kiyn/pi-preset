@@ -4,7 +4,7 @@ What `/pi-preset` does, how the preset manages `packages[]` and config, and how 
 
 ## The control panel
 
-`/pi-preset` is the preset's single visual control panel — a TUI menu with three entries:
+`/pi-preset` is the preset's single visual control panel: a TUI menu with the sync state at the top ("in sync", or what a sync would change) and three entries. After a sync or the models template, the menu comes back with the result on top; Esc closes it.
 
 1. **Sync preset** — config keys, the chrome-devtools MCP server, and `packages[]` cleanup. Starts with a checklist of installed packages that are not part of the preset (unchecked, i.e. removed, by default), then shows a diff of everything it would change and writes nothing until you confirm.
 2. **Apply models.json template** — replaces `~/.pi/agent/models.json` with the preset's providers and sets the default provider and model (see [models.json template](models.md)).
@@ -12,7 +12,7 @@ What `/pi-preset` does, how the preset manages `packages[]` and config, and how 
 
 After a sync that removed packages, restart pi — and do that before touching `/config` in the same session (see [Design notes](development.md#design-notes)).
 
-For SSH through your Termius hosts, run `/termius setup` and `/termius login` once (see [SSH](mcp.md#ssh-the-termius-mcp-server)).
+For SSH through your Termius hosts, open `/termius` once (it installs the server) and sign in there (see [SSH](mcp.md#ssh-the-termius-mcp-server)).
 
 ## What Sync preset does
 

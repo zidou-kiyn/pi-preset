@@ -1,0 +1,277 @@
+/**
+ * The menu every preset command uses (/termius, /pi-preset, /trellis-lite):
+ * a bordered panel modeled on pi's own /mcp manager.
+ *
+ *   - status lines under the title, rebuilt whenever the caller signals (so a
+ *     status fetched in the background appears without reopening the menu);
+ *   - a notice line for the result of the last action;
+ *   - items that wrap around with ↑↓, a number key picks an item directly,
+ *     and the highlighted item's description is shown below the list;
+ *   - Esc leaves this level only: callers loop, so an action returns to the
+ *     menu and Esc in a sub-menu returns to its parent.
+ *
+ * pi's ctx.ui.select clamps at both ends and has no status area, which is why
+ * the commands do not use it in the TUI. RPC hosts have no custom components
+ * and get a plain select instead.
+ */
+
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { type Component, type KeybindingsManager, type TUI, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import type { PresetTheme } from "./preset-ui.ts";
+
+export interface MenuItem {
+	value: string;
+	label: string;
+	/** Shown below the list while the item is highlighted. */
+	description?: string;
+	/** Current value, right of the label (e.g. the active mode). */
+	hint?: string;
+}
+
+export type NoticeType = "info" | "success" | "warning" | "error";
+
+export interface Notice {
+	text: string;
+	type: NoticeType;
+}
+
+export interface MenuSpec {
+	title: string;
+	/** Status lines under the title. */
+	status?: readonly string[];
+	/** Result of the last action. */
+	notice?: Notice;
+	items: readonly MenuItem[];
+	/** Item to highlight when the menu opens. */
+	selected?: string;
+	/** What Esc does here, for the footer ("close" or "back"). */
+	cancelLabel?: string;
+}
+
+/** Re-render when `notify` is called; returns an unsubscribe function. */
+export type MenuSubscribe = (notify: () => void) => () => void;
+
+const NOTICE_COLOR: Record<NoticeType, string> = {
+	info: "muted",
+	success: "success",
+	warning: "warning",
+	error: "error",
+};
+
+function fit(text: string, width: number): string {
+	return width <= 0 ? "" : truncateToWidth(text, width, "");
+}
+
+/** Word wrap that keeps long words (paths, URLs) by hard-splitting them. */
+export function wrapPlain(text: string, width: number): string[] {
+	if (width <= 0) return [];
+	const lines: string[] = [];
+	for (const paragraph of text.split("\n")) {
+		let current = "";
+		for (const word of paragraph.split(/\s+/)) {
+			if (!word) continue;
+			let rest = word;
+			while (visibleWidth(rest) > width) {
+				if (current) {
+					lines.push(current);
+					current = "";
+				}
+				lines.push(rest.slice(0, width));
+				rest = rest.slice(width);
+			}
+			const candidate = current ? `${current} ${rest}` : rest;
+			if (visibleWidth(candidate) <= width) current = candidate;
+			else {
+				lines.push(current);
+				current = rest;
+			}
+		}
+		lines.push(current);
+	}
+	while (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
+	return lines;
+}
+
+export class MenuComponent implements Component {
+	private readonly build: () => MenuSpec;
+	private readonly theme: PresetTheme;
+	private readonly keybindings: KeybindingsManager;
+	private readonly requestRender: () => void;
+	private readonly done: (value: string | undefined) => void;
+	private cursorValue: string | undefined;
+	private settled = false;
+
+	constructor(
+		build: () => MenuSpec,
+		theme: PresetTheme,
+		keybindings: KeybindingsManager,
+		requestRender: () => void,
+		done: (value: string | undefined) => void,
+	) {
+		this.build = build;
+		this.theme = theme;
+		this.keybindings = keybindings;
+		this.requestRender = requestRender;
+		this.done = done;
+		this.cursorValue = build().selected;
+	}
+
+	/** Index of the highlighted item in `items`, keeping it on the same value across rebuilds. */
+	private cursor(items: readonly MenuItem[]): number {
+		const index = items.findIndex((item) => item.value === this.cursorValue);
+		return index === -1 ? 0 : index;
+	}
+
+	handleInput(data: string): void {
+		if (this.settled) return;
+		const { items } = this.build();
+		if (this.keybindings.matches(data, "tui.select.cancel")) {
+			this.finish(undefined);
+			return;
+		}
+		if (items.length === 0) return;
+		const index = this.cursor(items);
+		if (this.keybindings.matches(data, "tui.select.up")) {
+			this.cursorValue = items[index === 0 ? items.length - 1 : index - 1]!.value;
+		} else if (this.keybindings.matches(data, "tui.select.down")) {
+			this.cursorValue = items[index === items.length - 1 ? 0 : index + 1]!.value;
+		} else if (this.keybindings.matches(data, "tui.select.confirm")) {
+			this.finish(items[index]!.value);
+			return;
+		} else if (/^[1-9]$/.test(data) && Number(data) <= items.length) {
+			this.finish(items[Number(data) - 1]!.value);
+			return;
+		} else {
+			return;
+		}
+		this.requestRender();
+	}
+
+	render(width: number): string[] {
+		const spec = this.build();
+		const { theme } = this;
+		const inner = Math.max(1, width - 2);
+		const border = theme.fg("accent", "─".repeat(Math.max(0, width)));
+		const lines: string[] = [border, fit(` ${theme.fg("accent", theme.bold(spec.title))}`, width)];
+		for (const line of spec.status ?? []) {
+			for (const row of wrapPlain(line, inner)) lines.push(fit(` ${theme.fg("muted", row)}`, width));
+		}
+		if (spec.notice) {
+			for (const row of wrapPlain(spec.notice.text, inner)) {
+				lines.push(fit(` ${theme.fg(NOTICE_COLOR[spec.notice.type], row)}`, width));
+			}
+		}
+		lines.push("");
+		const index = this.cursor(spec.items);
+		const labelWidth = Math.max(0, ...spec.items.map((item) => visibleWidth(item.label)));
+		spec.items.forEach((item, i) => {
+			const active = i === index;
+			const number = spec.items.length > 1 && i < 9 ? `${i + 1}.` : "  ";
+			const label = item.hint ? item.label + " ".repeat(labelWidth - visibleWidth(item.label)) : item.label;
+			const row = `${active ? "→" : " "} ${theme.fg("dim", number)} ${active ? theme.fg("accent", label) : label}`;
+			lines.push(fit(item.hint ? `${row}  ${theme.fg("dim", item.hint)}` : row, width));
+		});
+		const description = spec.items[index]?.description;
+		if (description) {
+			lines.push("");
+			for (const row of wrapPlain(description, Math.max(1, width - 3))) lines.push(fit(`   ${theme.fg("dim", row)}`, width));
+		}
+		lines.push("");
+		lines.push(fit(` ${theme.fg("dim", `↑↓ move · Enter or 1-9 select · Esc ${spec.cancelLabel ?? "close"}`)}`, width));
+		lines.push(border);
+		return lines;
+	}
+
+	invalidate(): void {}
+
+	private finish(value: string | undefined): void {
+		if (this.settled) return;
+		this.settled = true;
+		this.done(value);
+	}
+}
+
+/**
+ * Show one menu screen. Resolves with the chosen item's value, or undefined
+ * for Esc. In RPC mode (no custom components) a plain select stands in.
+ */
+export async function showMenu(
+	ctx: Pick<ExtensionContext, "mode" | "ui">,
+	build: () => MenuSpec,
+	subscribe?: MenuSubscribe,
+): Promise<string | undefined> {
+	if (ctx.mode !== "tui") {
+		const spec = build();
+		const title = [spec.title, ...(spec.status ?? []), ...(spec.notice ? [spec.notice.text] : [])].join("\n");
+		const labels = spec.items.map((item) => (item.hint ? `${item.label} (${item.hint})` : item.label));
+		const picked = await ctx.ui.select(title, labels);
+		return picked === undefined ? undefined : spec.items[labels.indexOf(picked)]?.value;
+	}
+	let unsubscribe: (() => void) | undefined;
+	try {
+		return await ctx.ui.custom<string | undefined>((tui: TUI, theme, keybindings, done) => {
+			const menu = new MenuComponent(build, theme, keybindings, () => tui.requestRender(), done);
+			unsubscribe = subscribe?.(() => tui.requestRender());
+			return menu;
+		});
+	} finally {
+		unsubscribe?.();
+	}
+}
+
+/**
+ * Show a choice between values, the current one ticked. For settings such
+ * as an approval mode. Resolves with the value, or undefined for Esc.
+ */
+export function chooseValue(
+	ctx: Pick<ExtensionContext, "mode" | "ui">,
+	title: string,
+	options: readonly { value: string; label: string; description?: string }[],
+	current: string | undefined,
+	status?: readonly string[],
+): Promise<string | undefined> {
+	return showMenu(ctx, () => ({
+		title,
+		status,
+		items: options.map((option) => ({
+			value: option.value,
+			label: `${option.value === current ? "✓" : " "} ${option.label}`,
+			description: option.description,
+		})),
+		selected: current,
+		cancelLabel: "back",
+	}));
+}
+
+/**
+ * A view of `ctx` whose ui.notify() lands in `onNotice` instead of the chat,
+ * so an existing flow that reports through notify can run from a menu and
+ * have its result shown there. Everything else passes through to `ctx`.
+ */
+export function captureNotices<T extends { ui: object }>(ctx: T, onNotice: (notice: Notice) => void): T {
+	const bind = (target: object, key: PropertyKey) => {
+		const value = Reflect.get(target, key, target);
+		return typeof value === "function" ? value.bind(target) : value;
+	};
+	const ui = new Proxy(ctx.ui, {
+		get: (target, key) =>
+			key === "notify"
+				? (text: string, type: "info" | "warning" | "error" = "info") => onNotice({ text, type })
+				: bind(target, key),
+	});
+	return new Proxy(ctx, { get: (target, key) => (key === "ui" ? ui : bind(target, key)) });
+}
+
+/** A tiny observable for status that arrives in the background. */
+export class Signal {
+	private listeners = new Set<() => void>();
+
+	subscribe: MenuSubscribe = (notify) => {
+		this.listeners.add(notify);
+		return () => this.listeners.delete(notify);
+	};
+
+	emit(): void {
+		for (const listener of this.listeners) listener();
+	}
+}

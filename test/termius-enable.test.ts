@@ -73,7 +73,7 @@ test("disable unregisters now, persists, and later sessions do not register", as
 	await first.run("disable");
 	assert.deepEqual(first.calls, ["register termius", "unregister termius"]);
 	assert.equal(JSON.parse(readFileSync(configFile(), "utf8")).enabled, false);
-	assert.match(first.notes.at(-1)!, /disabled in every session/);
+	assert.match(first.notes.at(-1)!, /off in every session/);
 
 	const next = load();
 	await next.startSession();
