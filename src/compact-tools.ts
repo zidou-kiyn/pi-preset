@@ -11,8 +11,11 @@
  * are the base definition's own.
  */
 
-import type { ToolDefinition, ToolRenderContext } from "@earendil-works/pi-coding-agent";
+import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
+
+/** The renderers' context argument (pi 1.4 no longer exports the type by name). */
+type ToolRenderContext = Parameters<NonNullable<ToolDefinition<any, any, any>["renderCall"]>>[2];
 
 /** Builds the "… N more lines" line with the theme of the current render. */
 export type HiddenLinesHint = (hidden: number, theme: any) => string;
