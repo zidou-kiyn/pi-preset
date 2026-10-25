@@ -9,22 +9,31 @@ import {
 	BUILT_IN_TOOLS_LABEL,
 	type ContextUsageSnapshot,
 	INSTRUCTION_FILES_LABEL,
-	type InvisibleReasoningEstimate,
-	type InitialSnapshot,
 	type InjectionItem,
+	type InjectionSnapshot,
+	type InvisibleReasoningEstimate,
 	type ReportedContextUsage,
 	SKILLS_LABEL,
 	SYSTEM_PROMPT_LABEL,
 	type UsageCategory,
 	type UsagePreviewEntry,
 } from "./model.ts";
+import { isSameModel, type ModelIdentity } from "./model-identity.ts";
 
-/** Everything computeUsage needs; messages must already be synthetic-filtered. */
+/**
+ * Everything computeUsage needs; messages must already be synthetic-filtered and
+ * carry the latest request's conversation changes.
+ */
 export interface UsageInputs {
-	snapshot: InitialSnapshot;
+	snapshot: InjectionSnapshot;
 	messages: ContextEvent["messages"];
 	reported?: ReportedContextUsage;
 	modelLabel?: string;
+	/**
+	 * The next request's model; thinking of other models is left out, as Pi drops it.
+	 * Omit to count all thinking.
+	 */
+	nextRequestModel?: ModelIdentity;
 	computedAt?: Date;
 	/** Auto-compaction reserve (settings `reserveTokens`); omit when auto-compaction is disabled. */
 	autoCompactReserveTokens?: number;
@@ -33,15 +42,14 @@ export interface UsageInputs {
 /**
  * Estimate the current/next-request context composition. Prompt and tool
  * categories come from the caller's current-state snapshot; message categories are
- * classified from the live session context. System messages have already been
+ * classified from the session messages with the latest request's changes. System messages have already been
  * replayed into that snapshot and must not count again. Empty categories are dropped and
  * every aggregate equals the exact sum of its children.
  */
 export function computeUsage(inputs: UsageInputs): ContextUsageSnapshot {
-	const prompt = classifyPromptCategories(inputs.snapshot);
 	const categories = [
-		...prompt.categories,
-		...classifyMessages(inputs.messages, requestOnlyMessages(inputs.snapshot), prompt.promptAdditions),
+		...classifyPromptCategories(inputs.snapshot),
+		...classifyMessages(inputs.messages, inputs.nextRequestModel),
 	].filter((category) => category.tokens > 0);
 	return {
 		computedAt: inputs.computedAt ?? new Date(),
@@ -81,17 +89,12 @@ export function toReportedUsage(usage: ContextUsage | undefined): ReportedContex
 	};
 }
 
-/** Prompt-derived categories, plus the additions the Extensions category adopts. */
-interface PromptCategories {
-	readonly categories: UsageCategory[];
-	/** Prompt text appended by extensions, kept out of pi's own System Prompt total. */
-	readonly promptAdditions: UsageCategory[];
-}
-
-/** Map frozen snapshot items to prompt/tool/instruction/skill categories. */
-function classifyPromptCategories(snapshot: InitialSnapshot): PromptCategories {
+/**
+ * Map frozen snapshot items to prompt/tool/instruction/skill categories. System
+ * Prompt counts all of its text, including what extensions added to it.
+ */
+function classifyPromptCategories(snapshot: InjectionSnapshot): UsageCategory[] {
 	const systemPrompt: UsageCategory[] = [];
-	const promptAdditions: UsageCategory[] = [];
 	const builtInTools: UsageCategory[] = [];
 	const customTools: UsageCategory[] = [];
 	const mcpTools: UsageCategory[] = [];
@@ -103,10 +106,6 @@ function classifyPromptCategories(snapshot: InitialSnapshot): PromptCategories {
 				case "base-prompt":
 				case "append-prompt":
 					systemPrompt.push(leafFromItem(item));
-					break;
-				case "prompt-addition":
-					// Named by owner, because Extensions groups contributors rather than content.
-					promptAdditions.push({ ...leafFromItem(item), label: item.source.label });
 					break;
 				case "tool":
 					if (item.source.native) builtInTools.push(...breakdownFromItem(item));
@@ -120,24 +119,21 @@ function classifyPromptCategories(snapshot: InitialSnapshot): PromptCategories {
 					skills.push(...breakdownFromItem(item));
 					break;
 				case "message":
-					// Initial custom messages live in the session; classifyMessages counts them.
+					// Custom messages live in the session; classifyMessages counts them.
 					break;
 			}
 		}
 	}
 	// Categories follow the order pi assembles them into a request: prompt text,
 	// context files, and skills first, then the tool definitions sent alongside.
-	return {
-		categories: withoutEmpty([
-			aggregate("system-prompt", SYSTEM_PROMPT_LABEL, systemPrompt),
-			aggregate("context-files", INSTRUCTION_FILES_LABEL, contextFiles),
-			aggregate("skills", SKILLS_LABEL, skills),
-			aggregate("built-in-tools", BUILT_IN_TOOLS_LABEL, builtInTools),
-			aggregate("custom-tools", "Custom Tools", customTools),
-			aggregate("mcp-tools", "MCP Tools", mcpTools),
-		]),
-		promptAdditions,
-	};
+	return withoutEmpty([
+		aggregate("system-prompt", SYSTEM_PROMPT_LABEL, systemPrompt),
+		aggregate("context-files", INSTRUCTION_FILES_LABEL, contextFiles),
+		aggregate("skills", SKILLS_LABEL, skills),
+		aggregate("built-in-tools", BUILT_IN_TOOLS_LABEL, builtInTools),
+		aggregate("custom-tools", "Custom Tools", customTools),
+		aggregate("mcp-tools", "MCP Tools", mcpTools),
+	]);
 }
 
 /** Best-effort MCP attribution from the only public provenance field available. */
@@ -145,18 +141,16 @@ function isMcpTool(item: InjectionItem): boolean {
 	return /(^|[^a-z])mcp([^a-z]|$)/i.test(`${item.source.id} ${item.source.label}`);
 }
 
-/** Collect frozen messages that existed only in the captured outgoing request. */
-function requestOnlyMessages(snapshot: InitialSnapshot): InjectionItem[] {
-	return snapshot.groups.flatMap((group) =>
-		group.items.filter((item) => item.kind === "message" && item.requestOnly === true && item.systemMessage === undefined)
-	);
-}
+/** Tool-result shape narrowed out of the context event union. */
+type ToolResultContextMessage = Extract<ContextEvent["messages"][number], { role: "toolResult" }>;
 
-/** Classify live session messages and frozen request-only injections with preview entries. */
+/** Custom-message shape narrowed out of the context event union. */
+type CustomContextMessage = Extract<ContextEvent["messages"][number], { role: "custom" }>;
+
+/** Classify session and request messages with preview entries; `nextRequestModel` keeps only its own thinking. */
 function classifyMessages(
 	messages: ContextEvent["messages"],
-	requestOnly: readonly InjectionItem[],
-	promptAdditions: readonly UsageCategory[],
+	nextRequestModel: ModelIdentity | undefined,
 ): UsageCategory[] {
 	const user: UsagePreviewEntry[] = [];
 	const assistantText: UsagePreviewEntry[] = [];
@@ -164,17 +158,9 @@ function classifyMessages(
 	const assistantToolCalls: UsagePreviewEntry[] = [];
 	const bashExecutions: UsagePreviewEntry[] = [];
 	const compacted: UsagePreviewEntry[] = [];
-	const toolResults = new Map<string, UsagePreviewEntry[]>();
-	const customMessages = new Map<string, UsagePreviewEntry[]>();
+	const toolResults: ToolResultContextMessage[] = [];
+	const customMessages: CustomContextMessage[] = [];
 
-	for (const item of requestOnly) {
-		appendEntry(customMessages, item.source.label, {
-			breadcrumb: [item.label],
-			tokens: item.tokens,
-			text: item.text,
-			jsonSpan: item.jsonSpan,
-		});
-	}
 	for (const message of messages) {
 		switch (message.role) {
 			case "system":
@@ -191,7 +177,10 @@ function classifyMessages(
 			case "assistant": {
 				const texts = message.content.flatMap((block) => (block.type === "text" ? [block.text] : []));
 				assistantText.push(...blockEntries(message.timestamp, "text", texts));
-				assistantThinking.push(...thinkingEntries(message));
+				// Pi drops another model's thinking and tool-call signatures; like deleted content, it gets no preview
+				if (nextRequestModel === undefined || isSameModel(message, nextRequestModel)) {
+					assistantThinking.push(...thinkingEntries(message));
+				}
 				for (const block of message.content) {
 					if (block.type !== "toolCall") continue;
 					const args = JSON.stringify(block.arguments);
@@ -207,20 +196,10 @@ function classifyMessages(
 				break;
 			}
 			case "toolResult":
-				appendEntry(toolResults, message.toolName, {
-					timestamp: message.timestamp,
-					breadcrumb: [message.toolName],
-					tokens: estimateTokens(message),
-					text: contentToText(message.content),
-				});
+				toolResults.push(message);
 				break;
 			case "custom":
-				appendEntry(customMessages, message.customType, {
-					timestamp: message.timestamp,
-					breadcrumb: [message.customType],
-					tokens: estimateTokens(message),
-					text: contentToText(message.content),
-				});
+				customMessages.push(message);
 				break;
 			case "bashExecution": {
 				const tokens = transformedTokens(message);
@@ -255,7 +234,7 @@ function classifyMessages(
 	}
 
 	const toolOutput = aggregate("tool-output", "Tool Output", withoutEmpty([
-		...leavesFromMap("tool-result", toolResults),
+		...leavesFromGroups("tool-result", Map.groupBy(toolResults, (message) => message.toolName)),
 		leaf("bash-executions", "Bash Executions", bashExecutions),
 	]));
 	return withoutEmpty([
@@ -264,11 +243,9 @@ function classifyMessages(
 		leaf("assistant-thinking", "Assistant Thinking", assistantThinking),
 		leaf("tool-calls", "Tool Calls", assistantToolCalls),
 		toolOutput,
-		// One category per contributing extension, whether it sent messages or appended prompt text.
-		aggregate("extensions", "Extensions", [
-			...promptAdditions,
-			...leavesFromMap("custom-message", customMessages),
-		]),
+		// One category per injected customType
+		aggregate("extensions", "Extensions",
+			leavesFromGroups("custom-message", Map.groupBy(customMessages, (message) => message.customType))),
 		leaf("compacted-data", "Compacted Data", compacted),
 	]);
 }
@@ -296,6 +273,7 @@ function leafFromItem(item: InjectionItem): UsageCategory {
 			jsonSpan: item.jsonSpan,
 			// Tool parts stay a preview breakdown of the same estimate, never separate entries.
 			sections: item.sections,
+			change: item.change,
 		}],
 	};
 }
@@ -461,20 +439,20 @@ function withoutEmpty(categories: Array<UsageCategory | undefined>): UsageCatego
 	return categories.filter((category): category is UsageCategory => category !== undefined && category.tokens > 0);
 }
 
-/** Accumulate a preview entry under a map key. */
-function appendEntry(
-	totals: Map<string, UsagePreviewEntry[]>,
-	key: string,
-	entry: UsagePreviewEntry,
-): void {
-	const entries = totals.get(key);
-	if (entries === undefined) totals.set(key, [entry]);
-	else entries.push(entry);
-}
-
-/** Leaves from accumulated per-key preview entries. */
-function leavesFromMap(idPrefix: string, totals: Map<string, UsagePreviewEntry[]>): UsageCategory[] {
-	return [...totals.entries()].map(([label, entries]) => leaf(`${idPrefix}:${label}`, label, entries));
+/** One leaf per group key, with a preview entry for each of its messages. */
+function leavesFromGroups(
+	idPrefix: string,
+	groups: ReadonlyMap<string, ReadonlyArray<ToolResultContextMessage | CustomContextMessage>>,
+): UsageCategory[] {
+	return [...groups].map(([label, messages]) => {
+		const entries = messages.map((message) => ({
+			timestamp: message.timestamp,
+			breadcrumb: [label],
+			tokens: estimateTokens(message),
+			text: contentToText(message.content),
+		}));
+		return leaf(`${idPrefix}:${label}`, label, entries);
+	});
 }
 
 /** Same chars/4 heuristic pi's estimateTokens uses for text content. */

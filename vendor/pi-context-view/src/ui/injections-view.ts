@@ -1,15 +1,18 @@
 /**
- * Focused `/context injections` view: hierarchical Initial snapshot rows. The
- * Runtime label stays hidden until the runtime-inspection roadmap step.
+ * Focused `/context injections` view: hierarchical rows of the latest request
+ * snapshot. The Runtime label stays hidden until the runtime-inspection roadmap step.
  */
 import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-agent";
 import { Key, matchesKey, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 
-import type { InitialSnapshot, InjectionItem } from "../model.ts";
+import type { InjectionItem, InjectionSnapshot, TokenDiff } from "../model.ts";
+import type { GuardResult } from "../snapshot.ts";
 import { normalizeInlineText, normalizePreviewText } from "../text.ts";
 import {
 	buildInjectionRows,
 	collectItemsById,
+	filterInjections,
+	type InjectionFilterMode,
 	type InjectionRow,
 	ListNavigator,
 	PreviewScroller,
@@ -18,11 +21,13 @@ import { expandJsonSpan } from "./json-preview.ts";
 import {
 	BODY_INDENT,
 	calculateViewport,
+	capNoticeLines,
 	DEFAULT_TERMINAL_ROWS,
 	descriptionBlockRows,
+	fitHintRow,
 	fitLine,
 	fitToTerminalHeight,
-	hintRow,
+	type Hint,
 	isPageBackKey,
 	isPageForwardKey,
 	isStepBackKey,
@@ -32,32 +37,76 @@ import {
 	STEP_KEY_HINT,
 	wrapDescriptionLines,
 } from "./layout.ts";
-import { type ContextMarker, droppedMarker, markerLegendLines, movedMarker } from "./markers.ts";
+import {
+	type DiffBase,
+	diffMarker,
+	formatDiffAdded,
+	formatDiffRemoved,
+	stateMarkers,
+} from "./markers.ts";
+import {
+	descriptionNoteLines, findingNotes, injectionsNotes, payloadCheck, payloadCheckLabel, requestOriginLabel,
+} from "./notes.ts";
+import {
+	findMatches,
+	highlightLine,
+	labelMatches,
+	MATCH_STEP_KEY_HINT,
+	matchStatus,
+	PreviewSearch,
+	SEARCH_KEY,
+	searchableContent,
+	SearchPrompt,
+} from "./search.ts";
 import { previewBodyLines, previewLegendLines } from "./section-preview.ts";
+import { statusBarLines } from "./status-bar.ts";
 import { DEFAULT_WHEEL_SCROLL_LINES, parseWheelDirection, readWheelScrollLines } from "./wheel.ts";
 
 /**
- * List frame rows excluding the collapsible description: both borders and their
- * blank rows, one header row, and the hint row above its own blank row.
+ * List frame rows excluding the status bar and the collapsible description:
+ * both borders and their blank rows, one header row, the fixed total with its
+ * preceding blank row, and the hint row above its own blank row.
  */
-const LIST_FIXED_LINE_COUNT = 8;
+const LIST_FIXED_LINE_COUNT = 10;
+/** Rows configuration notices may occupy before they start crowding out the list. */
+const MAX_NOTICE_LINES = 3;
 const PREVIEW_FIXED_LINE_COUNT = 8;
-const LIST_DESCRIPTION = "Injections into the model context for the first turn, with token estimates.";
+/** Where a diff-only row's changes count, in place of its preview estimate. */
+const DIFF_ONLY_NOTE = "counted in System Prompt";
 /** List rows that must stay visible for the description to keep its own rows. */
 const LIST_DESCRIPTION_MIN_ROWS = 26;
 const CURSOR_COLUMN_WIDTH = 2;
 const MAX_TOKEN_VALUE_COLUMN = 54;
 const TOKEN_LEADER_GAP = 4;
+/** Spaces before each diff column, after the value column. */
+const DIFF_COLUMN_GAP = 2;
+/** Lines kept above a match scrolled into view, so it is read in context. */
+const SEARCH_CONTEXT_LINES = 2;
+const EMPTY_FILTER_MESSAGE = "No injections match the filter.";
 
 /** Everything the Injections view renders. */
 export interface InjectionsViewInput {
-	readonly snapshot: InitialSnapshot;
+	readonly snapshot: InjectionSnapshot;
 	readonly degradedReason?: string;
+	/** Non-fatal problems shown under the header, such as ignored configuration entries. */
+	readonly notices?: readonly string[];
+	/** True when no request was captured yet and configuration disables the silent probe. */
+	readonly probingDisabled?: boolean;
+	/** True when a silent probe captured the request, not a real turn. */
+	readonly probe?: boolean;
+	/** Payload comparison of the request; absent for the degraded fallback, which has no request. */
+	readonly guard?: GuardResult;
 }
 
-/** Shared token-value column measured after the fixed cursor column. */
+/** Shared token-value and diff columns measured after the fixed cursor column. */
 interface InjectionColumns {
 	readonly value: number;
+	/** Width of the largest formatted estimate in the whole tree, including TOTAL. */
+	readonly valueWidth: number;
+	/** Width of the widest `+N` in the whole tree; 0 when no row adds tokens. */
+	readonly addedWidth: number;
+	/** Width of the widest `-N` in the whole tree; 0 when no row removes tokens. */
+	readonly removedWidth: number;
 }
 
 /** Open the Injections view as a fullscreen overlay. */
@@ -91,9 +140,18 @@ export class InjectionsView {
 	private readonly done: (result: undefined) => void;
 	private readonly getTerminalRows: () => number;
 	private readonly wheelScrollLines: number;
-	private readonly rows: InjectionRow[];
-	private readonly navigator: ListNavigator;
+	/** Unfiltered rows; they fix the value column so filtering never shifts it. */
+	private readonly allRows: InjectionRow[];
+	private rows: InjectionRow[];
+	private navigator: ListNavigator;
+	/** Unfiltered selection and scroll from before the filter, restored when the query is cleared or canceled. */
+	private unfilteredNavigator: ListNavigator | undefined;
 	private readonly itemsById: Map<string, InjectionItem>;
+	private readonly filter = new SearchPrompt();
+	private filterMode: InjectionFilterMode = "name";
+	/** Searchable content per item id, built on first use by a content filter. */
+	private readonly contentById = new Map<string, string>();
+	private readonly previewSearch = new PreviewSearch();
 	private readonly previewScroller = new PreviewScroller();
 	private previewItem: InjectionItem | undefined;
 	private previewLines: string[] | undefined;
@@ -114,8 +172,9 @@ export class InjectionsView {
 		this.done = done;
 		this.getTerminalRows = getTerminalRows;
 		this.wheelScrollLines = wheelScrollLines;
-		this.rows = buildInjectionRows(input.snapshot);
-		this.navigator = new ListNavigator(this.rows.length, 1, this.rows.length - 2);
+		this.allRows = buildInjectionRows(input.snapshot);
+		this.rows = this.allRows;
+		this.navigator = listNavigator(this.rows);
 		this.itemsById = collectItemsById(input.snapshot);
 	}
 
@@ -124,8 +183,19 @@ export class InjectionsView {
 			this.handlePreviewInput(data);
 			return;
 		}
+		if (this.filter.editing) {
+			this.handleFilterInput(data);
+			return;
+		}
 		if (matchesKey(data, Key.escape) || data === "q") {
-			this.done(undefined);
+			if (this.filter.active) this.clearFilter();
+			else this.done(undefined);
+			return;
+		}
+		if (data === SEARCH_KEY) {
+			if (!this.filter.active) this.unfilteredNavigator = this.navigator;
+			this.filter.edit();
+			this.clearCache();
 			return;
 		}
 		// One notch moves the selection one row, like a single step key.
@@ -147,7 +217,7 @@ export class InjectionsView {
 		} else if (matchesKey(data, Key.home)) {
 			if (this.navigator.moveTo(0)) this.clearCache();
 		} else if (matchesKey(data, Key.end)) {
-			if (this.navigator.moveTo(this.rows.length - 1)) this.clearCache();
+			if (this.navigator.moveTo(this.navigator.selectableCount - 1)) this.clearCache();
 		}
 	}
 
@@ -170,36 +240,43 @@ export class InjectionsView {
 		const theme = this.theme;
 		const border = theme.fg("border", "─".repeat(Math.max(1, width)));
 		const headerLines = this.headerLines(width);
+		const filterLines = this.filterLines(width);
 		const warningLines = this.degradedWarningLines(width);
-		const availableRows = Math.max(
-			1,
-			terminalRows - LIST_FIXED_LINE_COUNT - (headerLines.length - 1) - warningLines.length,
-		);
+		// A blank row separates warnings from the list; the emergency frame drops it with the other spacing
+		const warningRows = warningLines.length === 0 ? 0 : warningLines.length + 1;
+		// The status bar never collapses: the list and the description give way to it
+		const statusLines = this.statusLines(width);
+		const statusRows = descriptionBlockRows(statusLines);
+		const prefixRows = headerLines.length - 1 + filterLines.length + warningRows;
+		const availableRows = Math.max(1, terminalRows - LIST_FIXED_LINE_COUNT - prefixRows - statusRows);
 		const descriptionLines = this.fittedDescriptionLines(width, availableRows);
-		const extraLineCount = headerLines.length - 1 + warningLines.length + descriptionBlockRows(descriptionLines);
-		const viewport = calculateViewport(this.rows.length, terminalRows, LIST_FIXED_LINE_COUNT, extraLineCount);
+		const extraLineCount = prefixRows + statusRows + descriptionBlockRows(descriptionLines);
+		const viewport = calculateViewport(
+			this.navigator.selectableCount, terminalRows, LIST_FIXED_LINE_COUNT, extraLineCount,
+		);
 		this.navigator.setVisibleCount(viewport.visibleCount);
-		const lines: string[] = [border, "", ...headerLines, "", ...warningLines];
-		const listLines = this.listLines(width);
+		const lines: string[] = [
+			border, "", ...headerLines, "", ...filterLines, ...warningLines, ...(warningRows > 0 ? [""] : []),
+		];
+		const listLines = this.navigator.selectableCount === 0
+			? [this.fit(theme.fg("muted", `${BODY_INDENT}${EMPTY_FILTER_MESSAGE}`), width)]
+			: this.listLines(width);
 		lines.push(...listLines);
 		if (viewport.showScroll) lines.push(this.scrollLine(width));
-		const paddingCount = viewport.visibleCount - listLines.length;
-		for (let pad = 0; pad < paddingCount; pad++) lines.push("");
-		if (descriptionLines.length > 0) lines.push("", ...descriptionLines);
-		lines.push("");
-		lines.push(
-			this.fit(
-				hintRow(this.theme, [
-					[STEP_KEY_HINT, "Navigate"],
-					["Enter", "Preview"],
-					["Esc", "Close"],
-				]),
-				width,
-			),
-		);
-		lines.push("", border);
+		const total = this.totalLine(width);
+		lines.push("", total);
+		if (statusLines.length > 0) lines.push("", ...statusLines);
+		const hints = fitHintRow(theme, this.listHints(), width);
+		const tail = [...(descriptionLines.length > 0 ? ["", ...descriptionLines] : []), "", hints, "", border];
+		// Fill the terminal so the overlay hides the chat, keeping the list, total, and bar together
+		while (lines.length + tail.length < terminalRows) lines.push("");
+		lines.push(...tail);
 
-		const fittedLines = fitToTerminalHeight(lines, terminalRows, border);
+		const fittedLines = lines.length <= terminalRows ? lines : compactListLines({
+			border, header: this.headerLines(width, true), filter: filterLines.slice(0, 1), warnings: warningLines,
+			selected: listLines[this.navigator.selected - this.navigator.offset],
+			total, status: statusLines, hints, terminalRows,
+		});
 		this.cachedWidth = width;
 		this.cachedTerminalRows = terminalRows;
 		this.cachedLines = fittedLines;
@@ -211,11 +288,183 @@ export class InjectionsView {
 		this.clearCache();
 	}
 
+	// === List filter ===
+
+	/**
+	 * Keys while the filter prompt is open: printable keys edit the query,
+	 * the arrow and page keys still move the selection, Tab switches between
+	 * names and content, Enter keeps the filter and opens the selected row,
+	 * and Escape drops the filter.
+	 */
+	private handleFilterInput(data: string): void {
+		if (matchesKey(data, Key.escape)) {
+			this.cancelFilter();
+			return;
+		}
+		if (matchesKey(data, Key.enter)) {
+			if (this.filter.active) {
+				this.filter.submit();
+				this.openPreview();
+			} else {
+				this.cancelFilter();
+			}
+			this.clearCache();
+			return;
+		}
+		if (matchesKey(data, Key.tab)) {
+			this.filterMode = this.filterMode === "name" ? "content" : "name";
+			this.applyFilter();
+			return;
+		}
+		const wheel = parseWheelDirection(data);
+		if (wheel !== undefined) {
+			if (this.navigator.moveBy(wheel)) this.clearCache();
+		} else if (matchesKey(data, Key.up)) {
+			if (this.navigator.moveBy(-1)) this.clearCache();
+		} else if (matchesKey(data, Key.down)) {
+			if (this.navigator.moveBy(1)) this.clearCache();
+		} else if (matchesKey(data, Key.pageUp)) {
+			if (this.navigator.page(-1)) this.clearCache();
+		} else if (matchesKey(data, Key.pageDown)) {
+			if (this.navigator.page(1)) this.clearCache();
+		} else if (this.filter.type(data)) {
+			this.applyFilter();
+		} else {
+			// The cursor may have moved without changing the query.
+			this.clearCache();
+		}
+	}
+
+	/** Rebuild rows for the current query, selecting the first row that matched itself. */
+	private applyFilter(): void {
+		const pattern = this.filter.pattern;
+		if (pattern === undefined) {
+			this.restoreUnfilteredRows();
+			return;
+		}
+		const filtered = filterInjections(this.input.snapshot, {
+			mode: this.filterMode,
+			nameMatches: (label) => labelMatches(label, pattern),
+			contentMatches: (item) => pattern.test(this.contentOf(item)),
+		});
+		const rows = buildInjectionRows(this.input.snapshot, filtered);
+		this.rows = rows;
+		this.navigator = listNavigator(rows);
+		this.navigator.moveTo(Math.max(0, rows.findIndex((row) => isMatchedRow(row))));
+		this.clearCache();
+	}
+
+	/** Drop the filter and restore every row, keeping the selected row selected. */
+	private clearFilter(): void {
+		const selected = this.selectedRowKey();
+		this.filter.clear();
+		this.unfilteredNavigator = undefined;
+		this.showRows(this.allRows, selected);
+	}
+
+	/** Drop the filter being typed and return to the selection and scroll from before it. */
+	private cancelFilter(): void {
+		this.filter.clear();
+		this.restoreUnfilteredRows();
+		this.unfilteredNavigator = undefined;
+	}
+
+	/** Show every row with the navigator saved before filtering, or keep the selected row without one. */
+	private restoreUnfilteredRows(): void {
+		if (this.unfilteredNavigator === undefined) {
+			this.showRows(this.allRows, this.selectedRowKey());
+			return;
+		}
+		this.rows = this.allRows;
+		this.navigator = this.unfilteredNavigator;
+		this.clearCache();
+	}
+
+	/** Replace the visible rows and reselect the row with `key`, or the first row. */
+	private showRows(rows: InjectionRow[], key: string | undefined): void {
+		this.rows = rows;
+		this.navigator = listNavigator(rows);
+		this.navigator.moveTo(Math.max(0, rows.findIndex((row) => rowKey(row) === key)));
+		this.clearCache();
+	}
+
+	private selectedRowKey(): string | undefined {
+		if (this.navigator.selectableCount === 0) return undefined;
+		const row = this.rows[this.navigator.selected];
+		return row === undefined ? undefined : rowKey(row);
+	}
+
+	/**
+	 * Searchable content of one item, cached for repeated keystrokes. JSON runs
+	 * expand as the preview shows them, so a query that keeps a row also finds
+	 * its match once the preview opens.
+	 */
+	private contentOf(item: InjectionItem): string {
+		let content = this.contentById.get(item.id);
+		if (content === undefined) {
+			const parts = item.sections?.length ? item.sections : [item];
+			content = searchableContent(parts.map((part) => expandJsonSpan(part.text, part.jsonSpan)).join(""));
+			this.contentById.set(item.id, content);
+		}
+		return content;
+	}
+
+	/** Prompt row and its trailing blank row, shown while a filter is typed or kept. */
+	private filterLines(width: number): string[] {
+		if (!this.filter.editing && !this.filter.active) return [];
+		const count = this.rows.filter(isMatchedRow).length;
+		const status = matchStatus(this.filter.active, count, undefined);
+		return [this.filter.renderAfter(this.theme, width, this.filterModeSwitcher(), status), ""];
+	}
+
+	/**
+	 * `◉ Name | ○ Content >` lead of the filter prompt, marked like pi's own scope toggles:
+	 * the active mode `◉` in bold accent, the other `○` dim.
+	 */
+	private filterModeSwitcher(): string {
+		const theme = this.theme;
+		const mode = (value: InjectionFilterMode, label: string): string =>
+			value === this.filterMode ? theme.bold(theme.fg("accent", `◉ ${label}`)) : theme.fg("dim", `○ ${label}`);
+		return `${mode("name", "Name")}${theme.fg("dim", " | ")}${mode("content", "Content")}${theme.fg("dim", " > ")}`;
+	}
+
+	/** List hints for the plain list, an open filter prompt, or a kept filter. */
+	private listHints(): Hint[] {
+		if (this.filter.editing) {
+			// The prompt shows both modes; the hint only names the key that switches them
+			return [
+				["↑↓", "Navigate"],
+				["Tab", "Mode"],
+				["Enter", "Preview"],
+				["Esc", "Clear"],
+			];
+		}
+		return [
+			[STEP_KEY_HINT, "Navigate"],
+			["Enter", "Preview"],
+			[SEARCH_KEY, "Filter", true],
+			["Esc", this.filter.active ? "Clear" : "Close"],
+		];
+	}
+
 	// === Preview mode ===
 
 	private handlePreviewInput(data: string): void {
+		if (this.previewSearch.prompt.editing) {
+			this.handlePreviewSearchInput(data);
+			return;
+		}
 		if (matchesKey(data, Key.escape) || data === "q") {
 			this.closePreview();
+			return;
+		}
+		if (data === SEARCH_KEY) {
+			this.previewSearch.edit(this.previewScroller.offset);
+			this.clearCache();
+			return;
+		}
+		if (data === "n" || data === "N") {
+			if (this.previewSearch.step(data === "n" ? 1 : -1)) this.clearCache();
 			return;
 		}
 		const wheel = parseWheelDirection(data);
@@ -238,6 +487,36 @@ export class InjectionsView {
 		}
 	}
 
+	/**
+	 * Keys while the preview search prompt is open: printable keys edit the
+	 * query, the arrow and page keys still scroll, Enter keeps the query, and
+	 * Escape drops it.
+	 */
+	private handlePreviewSearchInput(data: string): void {
+		const search = this.previewSearch;
+		const wheel = parseWheelDirection(data);
+		if (matchesKey(data, Key.escape)) {
+			search.clear();
+		} else if (matchesKey(data, Key.enter)) {
+			if (search.prompt.active) search.prompt.submit();
+			else search.clear();
+		} else if (wheel !== undefined) {
+			this.previewScroller.scrollBy(wheel * this.wheelScrollLines);
+		} else if (matchesKey(data, Key.up)) {
+			this.previewScroller.scrollBy(-1);
+		} else if (matchesKey(data, Key.down)) {
+			this.previewScroller.scrollBy(1);
+		} else if (matchesKey(data, Key.pageUp)) {
+			this.previewScroller.page(-1);
+		} else if (matchesKey(data, Key.pageDown)) {
+			this.previewScroller.page(1);
+		} else {
+			search.type(data);
+		}
+		this.clearCache();
+	}
+
+	/** Open the selected item; a content filter carries its query into the preview search. */
 	private openPreview(): void {
 		const row = this.rows[this.navigator.selected];
 		if (row?.kind !== "item") return;
@@ -246,11 +525,17 @@ export class InjectionsView {
 		this.previewItem = item;
 		this.clearPreviewContent();
 		this.previewScroller.reset();
+		this.previewSearch.clear();
+		if (this.filter.active && this.filterMode === "content") {
+			this.previewSearch.prompt.set(this.filter.query);
+			this.previewSearch.restart();
+		}
 		this.clearCache();
 	}
 
 	private closePreview(): void {
 		this.previewItem = undefined;
+		this.previewSearch.clear();
 		this.clearPreviewContent();
 		this.clearCache();
 	}
@@ -265,45 +550,74 @@ export class InjectionsView {
 		const theme = this.theme;
 		const border = theme.fg("border", "─".repeat(Math.max(1, width)));
 		const wrapped = this.getPreviewLines(width, item);
+		const search = this.previewSearch;
+		const searchRowCount = search.prompt.editing || search.prompt.active ? 2 : 0;
 		const descriptionLines = previewLegendLines(theme, [item], {
 			width,
-			availableRows: terminalRows - PREVIEW_FIXED_LINE_COUNT,
+			availableRows: terminalRows - PREVIEW_FIXED_LINE_COUNT - searchRowCount,
 			contentLineCount: wrapped.length,
-		});
+		}, findingNotes([item, ...(item.children ?? [])]).map((note) => note.text), previewDiffBase(item));
 		const viewport = calculateViewport(
-			wrapped.length, terminalRows, PREVIEW_FIXED_LINE_COUNT, descriptionBlockRows(descriptionLines),
+			wrapped.length,
+			terminalRows,
+			PREVIEW_FIXED_LINE_COUNT,
+			searchRowCount + descriptionBlockRows(descriptionLines),
 		);
 		this.previewScroller.setExtent(wrapped.length, viewport.visibleCount);
+		const revealLine = search.sync(wrapped);
+		if (revealLine !== undefined) this.previewScroller.reveal(revealLine, SEARCH_CONTEXT_LINES);
+		const searchLines = searchRowCount === 0
+			? []
+			: [search.prompt.render(theme, width, "Search", search.status), ""];
 
 		const lines: string[] = [border, ""];
 		const title = theme.fg("accent", theme.bold(normalizeInlineText(item.label)));
 		const source = normalizeInlineText(item.source.label);
-		const meta = theme.fg("muted", `${source} · ${item.tokens.toLocaleString("en-US")} tokens`);
-		const marker = item.moved === true ? movedMarker(theme) : "";
-		const fitsMarker = visibleWidth(title) + visibleWidth(meta) + visibleWidth(marker) + 2 <= width;
-		lines.push(this.spread(title, `${meta}${fitsMarker ? marker : ""} `, width));
-		lines.push("");
+		const meta = theme.fg("muted", item.diffOnly === true
+			? source
+			: `${source} · ${item.tokens.toLocaleString("en-US")} tokens`);
+		const diff = diffMarker(theme, item.diff);
+		const note = item.diffOnly === true
+			? theme.fg("dim", " · ") + theme.fg("muted", DIFF_ONLY_NOTE)
+			: "";
+		const marker = stateMarkers(theme, {
+			moved: item.moved, change: item.change, forcedEdit: item.forcedEdit, requestOnly: item.requestOnly,
+		});
+		// Drop the marker first when space runs out, then the accounting note, then the diff
+		const headerWidth = visibleWidth(title) + visibleWidth(meta) + 2;
+		const fitsDiff = headerWidth + visibleWidth(diff) <= width;
+		const fitsNote = fitsDiff && headerWidth + visibleWidth(diff) + visibleWidth(note) <= width;
+		const fitsMarker = fitsNote && headerWidth + visibleWidth(diff) + visibleWidth(note) + visibleWidth(marker) <= width;
+		lines.push(this.spread(title,
+			`${meta}${fitsDiff ? diff : ""}${fitsNote ? note : ""}${fitsMarker ? marker : ""} `, width));
+		lines.push("", ...searchLines);
 
 		const start = this.previewScroller.offset;
 		for (let index = start; index < start + viewport.visibleCount; index++) {
-			lines.push(wrapped[index] ?? "");
+			lines.push(search.highlight(theme, wrapped[index] ?? "", index));
 		}
 
 		if (viewport.showScroll) lines.push(this.previewScrollLine(width, wrapped.length));
 		if (descriptionLines.length > 0) lines.push("", ...descriptionLines);
 		lines.push("");
-		lines.push(
-			this.fit(
-				hintRow(this.theme, [
-					[STEP_KEY_HINT, "Scroll"],
-					["PgUp/PgDn", "Page"],
-					["Esc", "Back"],
-				]),
-				width,
-			),
-		);
+		lines.push(fitHintRow(this.theme, this.previewHints(), width));
 		lines.push("", border);
 		return fitToTerminalHeight(lines, terminalRows, border);
+	}
+
+	/** Preview hints for plain scrolling, an open search prompt, or a kept search. */
+	private previewHints(): Hint[] {
+		const prompt = this.previewSearch.prompt;
+		if (prompt.editing) return [["↑↓", "Scroll"], ["Enter", "Done"], ["Esc", "Clear"]];
+		if (prompt.active) {
+			return [
+				[STEP_KEY_HINT, "Scroll"],
+				[MATCH_STEP_KEY_HINT, "Next/Prev"],
+				[SEARCH_KEY, "Search", true],
+				["Esc", "Back"],
+			];
+		}
+		return [[STEP_KEY_HINT, "Scroll"], ["PgUp/PgDn", "Page"], [SEARCH_KEY, "Search", true], ["Esc", "Back"]];
 	}
 
 	private getPreviewLines(width: number, item: InjectionItem): string[] {
@@ -344,16 +658,27 @@ export class InjectionsView {
 		);
 	}
 
-	/** Keep title/label together when possible; give the narrow label its own breathing room. */
-	private headerLines(width: number): string[] {
+	/** Keep capture origin and payload attention visible, wrapping below the title rather than omitting status. */
+	private headerLines(width: number, compact = false): string[] {
 		const theme = this.theme;
-		const title = theme.fg("accent", theme.bold("Context Injections"));
 		const separator = theme.fg("dim", " · ");
-		// Runtime remains unimplemented, so only the Initial label is shown.
-		const tabs = theme.fg("mdHeading", theme.bold("[INITIAL]"));
-		const combined = `${title}${separator}${tabs}`;
-		if (visibleWidth(combined) <= width) return [this.fit(combined, width)];
-		return [this.fit(title, width), "", this.fit(tabs, width)];
+		const probe = this.input.probe === true;
+		const label = theme.fg("mdHeading", theme.bold(requestOriginLabel(probe)));
+		const payloadState = payloadCheck(this.input.guard);
+		const status = payloadState === undefined ? ""
+			: theme.fg("muted", "Payload") + theme.fg("dim", `: ${payloadCheckLabel(payloadState)}`);
+		// An emergency frame drops the title, never the origin or payload attention
+		if (compact) return wrapTextWithAnsi(`${label}${status === "" ? "" : separator + status}`, Math.max(1, width));
+		const title = theme.fg("accent", theme.bold("Context Injections"));
+		const combined = `${title}${separator}${label}`;
+		const lines = visibleWidth(combined) <= width
+			? [combined]
+			: [this.fit(title, width), "", ...wrapTextWithAnsi(label, Math.max(1, width))];
+		if (status === "") return lines;
+		if (lines.length === 1 && visibleWidth(combined) + visibleWidth(status) < width) {
+			return [this.spread(combined, status, width)];
+		}
+		return [...lines, ...wrapDescriptionLines(theme, status, "dim", width)];
 	}
 
 	/** Render the current hierarchy viewport against one stable, nearby value column. */
@@ -379,19 +704,55 @@ export class InjectionsView {
 		return lines;
 	}
 
-	/** Choose the earliest useful shared value column, capped on wide terminals. */
+	/** Render the fixed snapshot total with the hierarchy's shared value column and no cursor. */
+	private totalLine(width: number): string {
+		const row = this.rows.at(-1);
+		if (row?.kind !== "total") return "";
+		const contentWidth = Math.max(1, width - CURSOR_COLUMN_WIDTH);
+		const content = this.injectionLine(row, this.injectionColumns(contentWidth), contentWidth, false);
+		return this.fit(`${BODY_INDENT}${content}`, width);
+	}
+
+	/** Mark a name filter's query inside the rendered label of a row it matched. */
+	private highlightLabel(row: InjectionRow, label: string): string {
+		const pattern = this.filter.pattern;
+		if (pattern === undefined || this.filterMode !== "name" || !isMatchedRow(row)) return label;
+		const ranges = findMatches([label], pattern)
+			.flatMap((match) => match.segments)
+			.map((segment) => ({ start: segment.start, end: segment.end, current: false }));
+		return ranges.length === 0 ? label : highlightLine(this.theme, label, ranges);
+	}
+
+	/**
+	 * Choose the earliest useful shared value column, capped on wide terminals,
+	 * and size the diff columns from the widest `+N` and `-N` in the whole tree,
+	 * unfiltered so a filter never shifts them.
+	 */
 	private injectionColumns(width: number): InjectionColumns {
-		const contentRows = this.rows.filter((row) => row.kind !== "separator");
+		const contentRows = this.allRows.filter((row) => row.kind !== "separator");
 		const labelWidth = Math.max(1, ...contentRows.map((row) => visibleWidth(this.plainRowLabel(row))));
 		const tokenWidth = Math.max(
 			1,
-			...contentRows.map((row) => row.tokens.toLocaleString("en-US").length),
+			...contentRows.filter((row) => !isDiffOnly(row)).map((row) => row.tokens.toLocaleString("en-US").length),
 		);
+		const diffs = contentRows.map(rowDiff);
 		const idealValue = Math.min(MAX_TOKEN_VALUE_COLUMN, labelWidth + TOKEN_LEADER_GAP);
-		return { value: Math.max(1, Math.min(idealValue, width - tokenWidth)) };
+		return {
+			value: Math.max(1, Math.min(idealValue, width - tokenWidth)),
+			valueWidth: tokenWidth,
+			addedWidth: Math.max(0, ...diffs.map((diff) => diff !== undefined && diff.added > 0
+				? formatDiffAdded(diff.added).length : 0)),
+			removedWidth: Math.max(0, ...diffs.map((diff) => diff !== undefined && diff.removed > 0
+				? formatDiffRemoved(diff.removed).length : 0)),
+		};
 	}
 
-	/** One hierarchy row with dim leaders and a full token estimate when width permits. */
+	/**
+	 * One hierarchy row with dim leaders and a full token estimate when width
+	 * permits, then its diff columns and state markers. A diff-only row has no
+	 * estimate: its leaders run through the value column. Narrow widths drop the
+	 * diff columns whole for every row, and a marker that does not fit.
+	 */
 	private injectionLine(
 		row: Exclude<InjectionRow, { readonly kind: "separator" }>,
 		columns: InjectionColumns,
@@ -399,52 +760,87 @@ export class InjectionsView {
 		selected: boolean,
 	): string {
 		const labelWidth = Math.max(1, columns.value - 1);
-		const left = fitLine(this.styledRowLabel(row, selected), labelWidth);
-		const leader = this.tokenLeader(columns.value - visibleWidth(left));
-		const value = row.tokens.toLocaleString("en-US");
+		const left = this.highlightLabel(row, fitLine(this.styledRowLabel(row, selected, labelWidth), labelWidth));
+		const diffOnly = isDiffOnly(row);
+		const value = diffOnly ? "" : row.tokens.toLocaleString("en-US").padStart(columns.valueWidth);
+		const leader = this.tokenLeader(
+			columns.value - visibleWidth(left) + (diffOnly ? columns.valueWidth : 0),
+			!diffOnly,
+		);
 		const tokens = row.kind === "total"
 			? this.theme.bold(this.theme.fg("text", value))
 			: this.theme.fg(selected ? "accent" : "muted", value);
-		const line = `${left}${leader}${tokens}`;
-		return fitLine(`${line}${this.rowMarker(row, columns.value + value.length, width)}`, width);
+		const marker = this.rowMarker(row);
+		const diff = rowDiff(row);
+		let lineWidth = columns.value + columns.valueWidth;
+		let diffs = "";
+		const diffWidth = diffColumnsWidth(columns);
+		// Blank diff columns only keep a following marker aligned
+		if (diffWidth > 0 && lineWidth + diffWidth <= width && (diff !== undefined || marker.length > 0)) {
+			diffs = this.diffColumns(diff, columns, marker.length > 0);
+			lineWidth += diffWidth;
+		}
+		const fittedMarker = lineWidth + visibleWidth(marker) <= width ? marker : "";
+		return fitLine(`${left}${leader}${tokens}${diffs}${fittedMarker}`, width);
 	}
 
-	/** State marker after the estimate, dropped whole rather than truncated when it does not fit. */
-	private rowMarker(
-		row: Exclude<InjectionRow, { readonly kind: "separator" }>,
-		lineWidth: number,
-		width: number,
-	): string {
-		if (row.kind !== "item") return "";
-		const marker = row.dropped === true
-			? droppedMarker(this.theme)
-			: row.moved === true ? movedMarker(this.theme) : "";
-		return lineWidth + visibleWidth(marker) <= width ? marker : "";
+	/**
+	 * `+N` and `-N` right-aligned in their tree-wide columns. A blank column is
+	 * padded only when `followed` by a marker, so no row ends in spaces.
+	 */
+	private diffColumns(diff: TokenDiff | undefined, columns: InjectionColumns, followed: boolean): string {
+		const added = diff !== undefined && diff.added > 0 ? formatDiffAdded(diff.added) : "";
+		const removed = diff !== undefined && diff.removed > 0 ? formatDiffRemoved(diff.removed) : "";
+		let text = "";
+		if (columns.addedWidth > 0 && (added.length > 0 || removed.length > 0 || followed)) {
+			text += " ".repeat(DIFF_COLUMN_GAP + columns.addedWidth - added.length);
+			if (added.length > 0) text += this.theme.fg("toolDiffAdded", added);
+		}
+		if (columns.removedWidth > 0 && (removed.length > 0 || followed)) {
+			text += " ".repeat(DIFF_COLUMN_GAP + columns.removedWidth - removed.length);
+			if (removed.length > 0) text += this.theme.fg("toolDiffRemoved", removed);
+		}
+		return text;
 	}
 
-	/** Fill a label/value gap with dim dots, retaining spaces at both ends. */
-	private tokenLeader(width: number): string {
+	/**
+	 * State markers after the estimate and diff columns: `Dropped`, `Moved`,
+	 * `Forced`, and `Request-Only`. The diff columns show what a change added
+	 * or removed.
+	 */
+	private rowMarker(row: Exclude<InjectionRow, { readonly kind: "separator" }>): string {
+		return row.kind === "item" ? stateMarkers(this.theme, row) : "";
+	}
+
+	/** Fill a label/value gap with dim dots, omitting the trailing space for an empty value. */
+	private tokenLeader(width: number, trailingSpace = true): string {
 		if (width < 3) return " ".repeat(Math.max(0, width));
-		return ` ${this.theme.fg("dim", ".".repeat(width - 2))} `;
+		return ` ${this.theme.fg("dim", ".".repeat(width - (trailingSpace ? 2 : 1)))}${trailingSpace ? " " : ""}`;
 	}
 
 	/** Unstyled hierarchy label used to keep the value column stable while scrolling. */
 	private plainRowLabel(row: Exclude<InjectionRow, { readonly kind: "separator" }>): string {
 		const label = normalizeInlineText(row.label);
-		return row.kind === "item" ? `${this.treePrefix(row)}${label}` : label;
+		return row.kind === "item" ? `${this.treePrefix(row)}${row.labelPrefix ?? ""}${label}` : label;
 	}
 
 	/** Themed hierarchy label with connectors intentionally dim even on selection. */
 	private styledRowLabel(
 		row: Exclude<InjectionRow, { readonly kind: "separator" }>,
 		selected: boolean,
+		width: number,
 	): string {
 		const theme = this.theme;
-		const label = normalizeInlineText(row.label);
+		let label = normalizeInlineText(row.label);
 		if (row.kind === "group" || row.kind === "total") {
 			return theme.bold(theme.fg(selected ? "accent" : "text", label));
 		}
-		const prefix = theme.fg("dim", this.treePrefix(row));
+		// The tool prefix stays dim on selection, like the connectors
+		const prefix = theme.fg("dim", `${this.treePrefix(row)}${row.labelPrefix ?? ""}`);
+		const item = this.itemsById.get(row.itemId);
+		if (item?.kind === "context-file" && item.children === undefined) {
+			label = shortenInstructionPath(label, Math.max(0, width - visibleWidth(prefix)));
+		}
 		const color = selected ? "accent" : row.depth === 1 ? "muted" : "dim";
 		return `${prefix}${theme.fg(color, label)}`;
 	}
@@ -467,54 +863,54 @@ export class InjectionsView {
 		);
 	}
 
-	/** Wrapped degraded-capture reason placed below the dialog header. */
+	/** The selected row's wrapped fields, or one empty reserved line without a change or marker. */
+	private statusLines(width: number): string[] {
+		// An empty filter result selects nothing; its rows are only the footer
+		const row = this.navigator.selectableCount === 0 ? undefined : this.rows[this.navigator.selected];
+		const lines = row === undefined ? [] : statusBarLines(this.theme, row, width);
+		return lines.length > 0 ? lines : [""];
+	}
+
+	/**
+	 * Wrapped degraded-capture reason, then configuration problems, placed below
+	 * the dialog header. Only the notices are capped: the precise degraded
+	 * reason always stays whole.
+	 */
 	private degradedWarningLines(width: number): string[] {
-		if (this.input.degradedReason === undefined) return [];
-		const reason = this.theme.fg(
-			"warning",
-			`${BODY_INDENT}${normalizeInlineText(this.input.degradedReason)}`,
-		);
-		return wrapTextWithAnsi(reason, width);
+		const degraded = this.input.degradedReason === undefined ? [] : this.wrapWarning(this.input.degradedReason, width);
+		const notices = (this.input.notices ?? []).map((notice) => this.wrapWarning(notice, width));
+		return [...degraded, ...capNoticeLines(notices, MAX_NOTICE_LINES, (notice) => this.wrapWarning(notice, width))];
+	}
+
+	/** One sanitized warning wrapped to the available width, indented on its first line. */
+	private wrapWarning(warning: string, width: number): string[] {
+		return wrapTextWithAnsi(this.theme.fg("warning", `${BODY_INDENT}${normalizeInlineText(warning)}`), width);
 	}
 
 	/**
 	 * Description block, collapsed whole once the list window falls below its
-	 * readable floor. The Initial list is unbounded and scrolls on most
+	 * readable floor. The injection list is unbounded and scrolls on most
 	 * terminals, so the description outlives the scroll counter instead of
 	 * yielding to it; a list shorter than the floor keeps every row instead.
 	 */
 	private fittedDescriptionLines(width: number, availableRows: number): string[] {
 		const lines = this.descriptionLines(width);
-		const floor = Math.min(LIST_DESCRIPTION_MIN_ROWS, this.rows.length);
-		const viewport = calculateViewport(this.rows.length, availableRows - descriptionBlockRows(lines), 0);
+		// An empty filter result still shows its one-row message
+		const rowCount = Math.max(1, this.navigator.selectableCount);
+		const floor = Math.min(LIST_DESCRIPTION_MIN_ROWS, rowCount);
+		const viewport = calculateViewport(rowCount, availableRows - descriptionBlockRows(lines), 0);
 		return viewport.visibleCount >= floor ? lines : [];
 	}
 
 	/**
 	 * Wrapped dialog description: the list sentence, the degraded-capture
-	 * indicator when needed, and one legend bullet per marker the rows show.
+	 * indicator, request notes, and the note that explains payload changes
+	 * further. The status bar, not a legend, explains the selected row's markers.
 	 */
 	private descriptionLines(width: number): string[] {
-		const lines = wrapDescriptionLines(this.theme, LIST_DESCRIPTION, "dim", width);
-		if (this.input.degradedReason !== undefined) {
-			lines.push(...wrapDescriptionLines(
-				this.theme,
-				"[Degraded: pi-native fallback used]",
-				"warning",
-				width,
-			));
-		}
-		lines.push(...markerLegendLines(this.theme, this.rowMarkers(), width));
-		return lines;
-	}
-
-	/** Markers the hierarchy rows carry, whatever the current width leaves room to render. */
-	private rowMarkers(): ContextMarker[] {
-		const items = this.rows.filter((row) => row.kind === "item");
-		const markers: ContextMarker[] = [];
-		if (items.some((row) => row.dropped === true)) markers.push("dropped");
-		if (items.some((row) => row.moved === true)) markers.push("moved");
-		return markers;
+		return injectionsNotes(this.theme, {
+			...this.input, hiddenTools: this.input.snapshot.hiddenTools, items: [...this.itemsById.values()],
+		}).flatMap((note) => descriptionNoteLines(this.theme, note, width));
 	}
 
 	private spread(left: string, right: string, width: number): string {
@@ -530,4 +926,98 @@ export class InjectionsView {
 		this.cachedTerminalRows = undefined;
 		this.cachedLines = undefined;
 	}
+}
+
+/** Navigator over rows whose trailing separator and total belong to the fixed footer, not the viewport. */
+function listNavigator(rows: readonly InjectionRow[]): ListNavigator {
+	return new ListNavigator(rows.length - 2, 1);
+}
+
+/** Whether a filter matched the row itself rather than keeping it as context. */
+function isMatchedRow(row: InjectionRow): boolean {
+	return (row.kind === "group" || row.kind === "item") && row.matched === true;
+}
+
+/** Identity that survives rebuilding rows for a different filter. */
+function rowKey(row: InjectionRow): string {
+	if (row.kind === "item") return `item:${row.itemId}`;
+	return `${row.kind}:${row.label}`;
+}
+
+/** Parts of an emergency list frame, in which the bar has priority over frame spacing. */
+interface CompactListInput {
+	readonly border: string;
+	readonly header: readonly string[];
+	/** The filter prompt row, without its trailing blank row; empty when no filter is shown. */
+	readonly filter: readonly string[];
+	readonly warnings: readonly string[];
+	readonly selected?: string;
+	readonly total: string;
+	readonly status: readonly string[];
+	readonly hints: string;
+	readonly terminalRows: number;
+}
+
+/**
+ * When even a one-row list cannot fit, remove spare spacing and the title.
+ * Keep capture status, the filter prompt, degraded reasons, the selected row,
+ * the total, and the bar between borders; add hints only if they fit, after empty rows that fill
+ * the remaining height. Below that physical minimum, clip content.
+ */
+function compactListLines(input: CompactListInput): string[] {
+	const { border, header, filter, warnings, selected, total, status, hints, terminalRows } = input;
+	const lines = [
+		border, ...header, ...filter, ...warnings, ...(selected === undefined ? [] : [selected]), total, ...status,
+	];
+	const tail = lines.length + 2 <= terminalRows ? [hints, border] : [border];
+	while (lines.length + tail.length < terminalRows) lines.push("");
+	return fitToTerminalHeight([...lines, ...tail], terminalRows, border);
+}
+
+/**
+ * Fit a sanitized path by replacing middle directories with an ellipsis. Keep
+ * the root and longest whole tail that fits; give the filename priority when
+ * even the root and ellipsis leave too little room.
+ */
+function shortenInstructionPath(path: string, width: number): string {
+	if (visibleWidth(path) <= width) return path;
+	const separators = [...path.matchAll(/[/\\]/g)];
+	const lastSeparator = separators.at(-1);
+	if (lastSeparator === undefined) return fitLine(path, width);
+	const root = /^(?:~|[A-Za-z]:)?[/\\]/.exec(path)?.[0] ?? "";
+	for (const separator of separators) {
+		if (separator.index < root.length) continue;
+		const shortened = `${root}…${path.slice(separator.index)}`;
+		if (visibleWidth(shortened) <= width) return shortened;
+	}
+	const tail = `…${path.slice(lastSeparator.index)}`;
+	return visibleWidth(tail) <= width ? tail : fitLine(path.slice(lastSeparator.index + 1), width);
+}
+
+/** Whether a list row shows only a diff, with no estimate in the value column. */
+function isDiffOnly(row: InjectionRow): boolean {
+	return row.kind === "item" && row.diffOnly === true;
+}
+
+/** Token diff a list row shows; the total and the separator have none. */
+function rowDiff(row: InjectionRow): TokenDiff | undefined {
+	return row.kind === "group" || row.kind === "item" ? row.diff : undefined;
+}
+
+/** Width the diff columns take after the value column, including their gaps. */
+function diffColumnsWidth(columns: InjectionColumns): number {
+	const added = columns.addedWidth > 0 ? DIFF_COLUMN_GAP + columns.addedWidth : 0;
+	const removed = columns.removedWidth > 0 ? DIFF_COLUMN_GAP + columns.removedWidth : 0;
+	return added + removed;
+}
+
+/**
+ * What a preview's token diffs compare with: pi's default prompt for pi's
+ * contributions and `system prompt` rows, the captured request for a payload
+ * change, and the session for everything else.
+ */
+function previewDiffBase(item: InjectionItem): DiffBase {
+	if (item.kind === "payload-change") return "captured-request";
+	// A `system prompt` row splits pi's prompt changes by source
+	return item.source.native || item.diffOnly === true ? "default-prompt" : "session";
 }

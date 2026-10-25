@@ -37,8 +37,8 @@
 			"track": {
 				"branch": "main"
 			},
-			"commit": "23bad130b60f233f05da5e96e67e69952061d6ec",
-			"version": "0.5.0",
+			"commit": "843aea969f1e0fe01cfef85b74dc26764a66776a",
+			"version": "0.5.2",
 			"license": "MIT",
 			"dest": "vendor/pi-workspace-history",
 			"include": [
@@ -203,7 +203,7 @@
 			"track": {
 				"branch": "main"
 			},
-			"commit": "4277d3f3be5d2a2b6de911eec730516d14bc4084",
+			"commit": "97f182ad9af942d00505a138331465258739a515",
 			"version": "1.7.0",
 			"license": "MIT",
 			"dest": "vendor/pi-web-search",
@@ -242,8 +242,8 @@
 			"track": {
 				"tags": "v*"
 			},
-			"commit": "b183316ffc7c6b7fb03ae6ecbbf783a75ee7308c",
-			"version": "0.6.0",
+			"commit": "1422aecd74cde08e8dad1fb9830f9c62eeabbfec",
+			"version": "0.8.0",
 			"license": "MIT",
 			"dest": "vendor/pi-context-view",
 			"include": [

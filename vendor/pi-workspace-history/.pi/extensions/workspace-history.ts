@@ -6,7 +6,8 @@ import type {
   SessionEntry,
   SessionMessageEntry,
 } from "@earendil-works/pi-coding-agent";
-import { Key, matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
+import * as piCodingAgent from "@earendil-works/pi-coding-agent";
+import { Key, matchesKey, stripTerminalSequences, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import {
   access,
   appendFile,
@@ -3271,6 +3272,63 @@ function formatOperationFileLine(file: OperationFileChange): string {
   return `${file.status} ${file.path}  ${counts}`;
 }
 
+type OperationPatchSection = { kind: "header"; line: string } | { kind: "hunks"; text: string };
+
+// Rewrites each file's hunks into the numbered format of Pi's edit-tool diff
+// ("+12 text", "-12 text", " 12 text", and "   ..." between hunks).
+function splitPatchForPiDiff(patch: string[]): OperationPatchSection[] {
+  const sections: OperationPatchSection[] = [];
+  let entries: Array<{ sign: string; line: number; content: string } | undefined> = [];
+  const flush = () => {
+    if (entries.length === 0) return;
+    const width = String(Math.max(...entries.map(entry => entry?.line ?? 0))).length;
+    sections.push({
+      kind: "hunks",
+      text: entries
+        .map(entry => entry ? `${entry.sign}${String(entry.line).padStart(width)} ${entry.content}` : ` ${"".padStart(width)} ...`)
+        .join("\n"),
+    });
+    entries = [];
+  };
+  let index = 0;
+  while (index < patch.length) {
+    const line = patch[index] as string;
+    const hunk = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(line);
+    index++;
+    if (!hunk) {
+      flush();
+      sections.push({ kind: "header", line });
+      continue;
+    }
+    if (entries.length > 0) entries.push(undefined);
+    let oldLine = Number(hunk[1]);
+    let newLine = Number(hunk[3]);
+    let oldRemaining = hunk[2] === undefined ? 1 : Number(hunk[2]);
+    let newRemaining = hunk[4] === undefined ? 1 : Number(hunk[4]);
+    // Counting the hunk's lines keeps removed lines such as "--- x" in the hunk.
+    while (index < patch.length && (oldRemaining > 0 || newRemaining > 0 || (patch[index] as string).startsWith("\\"))) {
+      const body = patch[index] as string;
+      if (body.startsWith("+")) {
+        entries.push({ sign: "+", line: newLine++, content: body.slice(1) });
+        newRemaining--;
+      } else if (body.startsWith("-")) {
+        entries.push({ sign: "-", line: oldLine++, content: body.slice(1) });
+        oldRemaining--;
+      } else if (body.startsWith(" ")) {
+        entries.push({ sign: " ", line: oldLine++, content: body.slice(1) });
+        newLine++;
+        oldRemaining--;
+        newRemaining--;
+      } else if (!body.startsWith("\\")) {
+        break;
+      }
+      index++;
+    }
+  }
+  flush();
+  return sections;
+}
+
 async function showOperationChanges(ctx: ExtensionCommandContext, title: string, changes: OperationChanges): Promise<void> {
   const header = [title, formatOperationChangeSummary(changes), ...changes.files.map(formatOperationFileLine)];
   if (ctx.mode !== "tui") {
@@ -3278,32 +3336,62 @@ async function showOperationChanges(ctx: ExtensionCommandContext, title: string,
     return;
   }
   await ctx.ui.custom<void>((tui, theme, _keybindings, done) => {
+    const styleLine = (line: string) => {
+      if (line.startsWith("diff --git")) return theme.bold(line);
+      if (line.startsWith("+++") || line.startsWith("---")) return theme.fg("muted", line);
+      if (line.startsWith("+")) return theme.fg("success", line);
+      if (line.startsWith("-")) return theme.fg("error", line);
+      if (line.startsWith("@@")) return theme.fg("accent", line);
+      return line;
+    };
+    let patchLines: string[];
+    try {
+      // Pi's edit-tool renderer adds line numbers and highlights the changed
+      // words. Hosts that do not export it get whole-line colors.
+      const renderDiff = (piCodingAgent as { renderDiff?: unknown }).renderDiff;
+      if (typeof renderDiff !== "function") throw new Error("renderDiff is unavailable");
+      // With line numbers, the blob hashes and ---/+++ file names add nothing.
+      patchLines = splitPatchForPiDiff(changes.patch)
+        .filter(section => section.kind === "hunks" || !/^(?:index |--- |\+\+\+ )/.test(section.line))
+        .flatMap(section => section.kind === "header" ? [styleLine(section.line)] : String(renderDiff(section.text)).split("\n"));
+    } catch {
+      patchLines = changes.patch.map(styleLine);
+    }
     const body = [
       ...header.slice(2).map(line => theme.fg("muted", line)),
       "",
-      ...changes.patch.map(line => {
-        if (line.startsWith("diff --git")) return theme.bold(line);
-        if (line.startsWith("+++") || line.startsWith("---")) return theme.fg("muted", line);
-        if (line.startsWith("+")) return theme.fg("success", line);
-        if (line.startsWith("-")) return theme.fg("error", line);
-        if (line.startsWith("@@")) return theme.fg("accent", line);
-        return line;
-      }),
+      ...patchLines,
       ...(changes.truncated ? [theme.fg("warning", `… diff truncated after ${DIFF_MAX_PATCH_LINES} lines`)] : []),
     ];
+    // Long lines wrap instead of being cut off, because the changed part of a
+    // line may be past the terminal width. Continuation rows line up with the
+    // text after the line number.
+    const wrapBodyLine = (line: string, width: number): string[] => {
+      const numbered = /^[-+ ]\s*\d+ /.exec(stripTerminalSequences(line));
+      const indent = Math.min(numbered ? numbered[0].length : 2, Math.floor(width / 2));
+      const [first = "", ...rest] = wrapTextWithAnsi(line, Math.max(1, width - indent));
+      return [first, ...rest.map(row => " ".repeat(indent) + row)];
+    };
+    let rows: string[] = body;
+    let rowsWidth = -1;
     let offset = 0;
     const pageSize = () => Math.max(5, tui.terminal.rows - 8);
     const scrollTo = (next: number) => {
-      offset = Math.max(0, Math.min(next, Math.max(0, body.length - pageSize())));
+      offset = Math.max(0, Math.min(next, Math.max(0, rows.length - pageSize())));
       tui.requestRender();
     };
     return {
       render(width: number): string[] {
+        if (rowsWidth !== width) {
+          rows = body.flatMap(line => wrapBodyLine(line, Math.max(1, width - 1)));
+          rowsWidth = width;
+          offset = Math.max(0, Math.min(offset, rows.length - pageSize()));
+        }
         const lines = [
           theme.fg("accent", "─".repeat(width)),
           truncateToWidth(` ${theme.bold(header[0] ?? "")}  ${theme.fg("muted", header[1] ?? "")}`, width),
-          ...body.slice(offset, offset + pageSize()).map(line => truncateToWidth(` ${line}`, width)),
-          theme.fg("dim", truncateToWidth(` ↑↓ scroll • Space/b page • Esc close  (${Math.min(body.length, offset + pageSize())}/${body.length})`, width)),
+          ...rows.slice(offset, offset + pageSize()).map(line => truncateToWidth(` ${line}`, width)),
+          theme.fg("dim", truncateToWidth(` ↑↓ scroll • Space/b page • Esc close  (${Math.min(rows.length, offset + pageSize())}/${rows.length})`, width)),
           theme.fg("accent", "─".repeat(width)),
         ];
         return lines;
@@ -3315,7 +3403,7 @@ async function showOperationChanges(ctx: ExtensionCommandContext, title: string,
         else if (matchesKey(data, Key.pageUp) || data === "b") scrollTo(offset - pageSize());
         else if (matchesKey(data, Key.pageDown) || data === " ") scrollTo(offset + pageSize());
         else if (matchesKey(data, Key.home) || data === "g") scrollTo(0);
-        else if (matchesKey(data, Key.end) || data === "G") scrollTo(body.length);
+        else if (matchesKey(data, Key.end) || data === "G") scrollTo(rows.length);
       },
       invalidate(): void {},
     };
@@ -3769,10 +3857,12 @@ export default function workspaceHistoryExtension(pi: ExtensionAPI) {
     if (!await ensureWorkspaceHistoryAvailable(ctx, state, "before_agent_start")) {
       return;
     }
+    // Pi 1.4 also starts runs from an extension's custom message, which has no prompt.
+    const prompt = "prompt" in event ? event.prompt : undefined;
     if (!state.pendingTurnId && !state.pendingBeforeCommit) {
-      state.pendingPromptText = event.prompt;
+      state.pendingPromptText = prompt;
     }
-    startBeforeSnapshotForTurn(ctx, state, event.prompt);
+    startBeforeSnapshotForTurn(ctx, state, prompt);
     if (!hasBaselineSnapshotEntry(ctx)) {
       // The baseline entry must precede the prompt in the session, so the
       // first snapshot still holds the prompt back.

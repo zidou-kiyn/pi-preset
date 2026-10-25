@@ -97,6 +97,36 @@ export function wrapDescriptionLines(
 	);
 }
 
+/**
+ * Keep wrapped notice blocks within `maxLines` rows, so a broken configuration
+ * file cannot push a view's content off the frame. On overflow, the last kept
+ * row becomes a `… +N more` notice, wrapped by `wrapNotice`, counting every
+ * block not shown whole.
+ */
+export function capNoticeLines(
+	blocks: readonly (readonly string[])[],
+	maxLines: number,
+	wrapNotice: (notice: string) => string[],
+): string[] {
+	const lines = blocks.flat();
+	if (lines.length <= maxLines) return lines;
+	const kept = lines.slice(0, maxLines - 1);
+	const hidden = blocks.length - countWholeBlocks(blocks, kept.length);
+	return [...kept, ...wrapNotice(`… +${hidden} more`)];
+}
+
+/** Notices whose wrapped lines fit entirely into the first `keptLines` rows. */
+function countWholeBlocks(blocks: readonly (readonly string[])[], keptLines: number): number {
+	let used = 0;
+	let whole = 0;
+	for (const block of blocks) {
+		if (used + block.length > keptLines) break;
+		used += block.length;
+		whole += 1;
+	}
+	return whole;
+}
+
 /** Spread left and right content across the width, truncating the left side on overlap. */
 export function spreadLine(left: string, right: string, width: number): string {
 	const gap = width - visibleWidth(left) - visibleWidth(right);
@@ -107,9 +137,22 @@ export function spreadLine(left: string, right: string, width: number): string {
 }
 
 /** Pi-style hint row: two-space indent, `key description` pairs joined by ` · `. */
-export function hintRow(theme: Theme, hints: ReadonlyArray<readonly [string, string]>): string {
+export function hintRow(theme: Theme, hints: readonly Hint[]): string {
 	const separator = theme.fg("dim", " · ");
 	return `${BODY_INDENT}${hints.map(([key, description]) => hint(theme, key, description)).join(separator)}`;
+}
+
+/** One hint pair; an optional hint is the first to go when the row is too narrow. */
+export type Hint = readonly [key: string, description: string, optional?: boolean];
+
+/**
+ * Hint row fitted to the width: optional hints drop out whole before any
+ * required hint is truncated, so a narrow frame keeps its essential keys.
+ */
+export function fitHintRow(theme: Theme, hints: readonly Hint[], width: number): string {
+	const full = hintRow(theme, hints);
+	if (visibleWidth(full) <= width) return full;
+	return fitLine(hintRow(theme, hints.filter(([, , optional]) => optional !== true)), width);
 }
 
 /** Pi-style hint: dim key, slightly brighter (muted) description. */

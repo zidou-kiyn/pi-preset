@@ -3,7 +3,7 @@ import type { ModelThinkingLevel } from "@earendil-works/pi-ai";
 import { Type, type Static } from "typebox";
 import { callApiStream, getConfig } from "./api.ts";
 import { formatWebSearchResult } from "./format.ts";
-import { getWebSearchModel, missingWebSearchConfigResult, errorResult } from "./utils.ts";
+import { resolveWebSearchModel, webSearchModelError, errorResult } from "./utils.ts";
 
 export const WebSearchSchema = Type.Object({
     query: Type.String({ description: "The search query or question to answer" }),
@@ -22,8 +22,9 @@ export async function webSearch(
     ctx: ExtensionContext,
     thinkingLevel?: ModelThinkingLevel
 ) {
-    const model = await getWebSearchModel(ctx);
-    if (!model) return missingWebSearchConfigResult(ctx);
+    const resolved = await resolveWebSearchModel(ctx);
+    if (resolved.status !== "ok") return webSearchModelError(ctx, resolved);
+    const model = resolved.model;
 
     const hasUrls = params.urls && params.urls.length > 0;
     const urlCount = hasUrls ? params.urls!.length : 0;
@@ -41,10 +42,10 @@ export async function webSearch(
     try {
         const config = getConfig(model);
 
-        // Build prompt: include URLs if provided. Ollama receives the URL list as
-        // a separate argument (its search is a REST endpoint, not a model tool),
-        // so the prompt stays a clean query.
-        const prompt = hasUrls && config.kind !== "ollama"
+        // Build prompt: include URLs if provided. Ollama and DeepSeek receive
+        // the URL list as a separate argument (their search is a REST endpoint,
+        // not a model tool), so the prompt stays a clean query.
+        const prompt = hasUrls && config.kind !== "ollama" && config.kind !== "deepseek"
             ? `${params.query}\n\nAlso analyze these URLs:\n${params.urls!.join("\n")}`
             : params.query;
 
