@@ -255,13 +255,6 @@ describe("tools pass the session shellPath (pi-preset)", { skip: isWindows }, ()
         return readFileSync(job.logPath, "utf8").trim();
     }
 
-    it("bash_bg", async () => {
-        const { registerBashBgTool } = await import("../tools/bash-bg.ts");
-        const { tool, reg, ctx } = await harness(registerBashBgTool as never);
-        await tool.execute("t1", { command: "echo hi" }, undefined, undefined, ctx);
-        assert.equal(await logOf(reg as never), "fake-shell argv: -c echo hi");
-    });
-
     it("bash (run_in_background and foreground)", async () => {
         const { registerBashTool } = await import("../tools/bash.ts");
         const register = (pi: never, reg: never) => registerBashTool(pi, reg, {} as never);

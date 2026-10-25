@@ -69,10 +69,10 @@ export function registerBashTool(
             "Use /bg to manually background a running command.",
         promptSnippet:
             "Run shell commands; long-running commands auto-background or use run_in_background=true",
-        // pi-preset: background guidance for bash, bash_bg, jobs, monitor, and
+        // pi-preset: background guidance for bash, jobs, monitor, and
         // agent_bg condensed and deduplicated here and in monitor.ts.
         promptGuidelines: [
-            "Long commands: run_in_background=true (or bash_bg) gives ONE notification when the command exits. A foreground command that outlives its timeout also moves to the background and keeps running, so never raise timeout for a long build.",
+            "Long commands: run_in_background=true gives ONE notification when the command exits. A foreground command that outlives its timeout also moves to the background and keeps running, so never raise timeout for a long build.",
             "Never `sleep N` to wait: use jobs action='attach' for a job, an `until` loop that exits when ready, or monitor for per-event streams. Completion notices are informational; read output only for a FAILED job or when the output is the deliverable.",
         ],
         parameters: bashParamSchema,

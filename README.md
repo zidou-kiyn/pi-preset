@@ -26,7 +26,7 @@ Details: [docs/setup.md](docs/setup.md) covers what the sync writes, the package
 
 | Area | What | Use | Docs |
 |---|---|---|---|
-| Shell | Long commands move to the background; you get one notification when they finish | `bash_bg`, `jobs`, `monitor`, `agent_bg`, ctrl+shift+b | [extensions](docs/extensions.md#background-commands-pi-patty-bg-tasks) |
+| Shell | Long commands move to the background; you get one notification when they finish | `bash run_in_background`, `jobs`, `monitor`, `agent_bg`, ctrl+shift+b | [extensions](docs/extensions.md#background-commands-pi-patty-bg-tasks) |
 | Search | Frecency-ranked, git-aware grep and file find | `ffgrep`, `fffind` | [extensions](docs/extensions.md) |
 | Undo | File snapshots per turn; rewind the last prompt | `/undo`, `/redo`, `/diff`, `/checkpoint`, `/fuck` | [extensions](docs/extensions.md) |
 | Planning | Task list; structured questions | `todo`, `ask_user_question` | [extensions](docs/extensions.md) |

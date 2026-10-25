@@ -28,7 +28,8 @@
 				"registry.ts, spawn.ts, monitor-ws.ts: job logs go to a per-user <tmpdir>/pi-bg-<uid> directory (0700, owner and symlink checked) with 0600 files; upstream used a shared world-readable /tmp/pi-bg that any local user could read or pre-create.",
 				"shell.ts (new), spawn.ts, monitor-source.ts, tools/{bash,bash-bg,monitor}.ts: `command` spawns run in the shell from pi's exported getShellConfig with the session's shellPath (pi.getSettings(): project .pi/settings.json over the global file), writing the command to stdin for commandTransport \"stdin\" shells; upstream ran `bash -c` through a PATH lookup, which ignored shellPath and on Windows with WSL picked C:\\Windows\\System32\\bash.exe ahead of Git Bash, which exits 1 with an empty log when detached with file output, so every bash / bash_bg / monitor call returned \"(no output yet)\". `file` spawns (agent_bg) are unchanged.",
 				"spawn.ts: killProcessTree kills the whole tree on Windows with System32 taskkill /F /T (process.kill(-pid) has no process groups there and only the shell died); POSIX is unchanged. Children get windowsHide.",
-				"src/__tests__/shell.test.ts (new): shellPath is used by spawn and by bash / bash_bg / monitor, stdin transport, a simulated Windows PATH with System32\\bash.exe first, and taskkill."
+				"src/__tests__/shell.test.ts (new): shellPath is used by spawn and by bash / monitor, stdin transport, a simulated Windows PATH with System32\\bash.exe first, and taskkill.",
+				"tools/bash-bg.ts and src/__tests__/bash-bg.test.ts removed, index.ts no longer registers bash_bg: it duplicated bash run_in_background=true. sleep-guard.test.ts now drives bash run_in_background; README marks the tool as removed."
 			]
 		},
 		"pi-workspace-history": {
@@ -143,7 +144,8 @@
 				"**/test-fixtures.ts"
 			],
 			"localChanges": [
-				"todo.ts, tool/types.ts: guidelines condensed from 9 rules to 2 and the description/field texts shortened; batch create (tasks[], v2.15) is a clause in the tool description plus one item-field description instead of a ninth guideline and long field texts; behavior unchanged."
+				"todo.ts, tool/types.ts: guidelines condensed from 9 rules to 2 and the description/field texts shortened; batch create (tasks[], v2.15) is a clause in the tool description plus one item-field description instead of a ninth guideline and long field texts; behavior unchanged.",
+				"tool/types.ts, state/state-reducer.ts: owner and metadata removed from the tool schema (top level and tasks[] items) and from the update error text; Task, replay, and the reducer still accept them, so older sessions that set them replay unchanged."
 			]
 		},
 		"rpiv-ask-user-question": {

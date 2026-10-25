@@ -49,9 +49,6 @@ bash({ command: "npm run build" })
 # Skip the wait — start it in the background up front
 bash({ command: "npm run dev", run_in_background: true })
 
-# Or fire-and-forget straight to the background
-bash_bg({ command: "npm run dev", name: "devserver" })
-
 # Check on what's running
 jobs({ action: "list" })
 
@@ -76,16 +73,9 @@ The built-in bash tool, with a survival instinct. Commands run normally — but 
 | `timeout` | Custom timeout in seconds (default: 120) |
 | `run_in_background` | Start the command in the background immediately, skipping the foreground run and the auto-background timer |
 
-### bash_bg
+### bash_bg (removed in pi-preset)
 
-When you already know it's a long one. Starts a command in the background immediately — no foreground race, no timeout to wait out.
-
-| Parameter | Description |
-|-----------|-------------|
-| `command` | Shell command to run |
-| `name` | Optional human-readable label for the job |
-| `timeout` | Optional timeout in seconds; an overrun kills only commands that can't be auto-backgrounded (e.g. `sleep`) — anything else keeps running |
-| `notify` | Send a completion notification (default: true) |
+Upstream also registers `bash_bg`, which starts a command in the background immediately. pi-preset drops it: `bash` with `run_in_background: true` does the same (the `description` is the job label), and one tool fewer keeps the system prompt shorter.
 
 ### jobs
 
@@ -112,7 +102,7 @@ Clone yourself a coworker. Spawns a detached `pi -p` process with a continuity p
 
 ### monitor
 
-Stream events instead of waiting once. Where `bash_bg`/`run_in_background` give a **single** completion ping, `monitor` turns a process into a **live event stream** — each stdout line (or WebSocket frame) becomes one notification delivered straight into the agent's turn while it keeps working. This is the streaming half of Claude Code's split: one-shot "wait until done" stays on `run_in_background`; per-event "tell me each time X happens" is `monitor`.
+Stream events instead of waiting once. Where `run_in_background` gives a **single** completion ping, `monitor` turns a process into a **live event stream** — each stdout line (or WebSocket frame) becomes one notification delivered straight into the agent's turn while it keeps working. This is the streaming half of Claude Code's split: one-shot "wait until done" stays on `run_in_background`; per-event "tell me each time X happens" is `monitor`.
 
 ```js
 // Notify on every error line, indefinitely

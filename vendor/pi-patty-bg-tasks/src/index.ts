@@ -1,9 +1,8 @@
 /**
  * pi-patty-bg-tasks — background task extension for the pi agent.
  *
- * Registers five tools:
- *   - bash (override)
- *   - bash_bg
+ * Registers four tools:
+ *   - bash (override; run_in_background=true starts a job directly)
  *   - jobs
  *   - agent_bg
  *   - monitor (streaming-event watch)
@@ -18,7 +17,6 @@ import { detectNonInteractive, terminateJobSilently } from "./lifecycle.ts";
 import { stopSidebarTicker } from "./registry.ts";
 import { EVENT } from "./types.ts";
 import { registerBashTool } from "./tools/bash.ts";
-import { registerBashBgTool } from "./tools/bash-bg.ts";
 import { registerJobsTool } from "./tools/jobs.ts";
 import { registerAgentBgTool } from "./tools/agent-bg.ts";
 import { registerMonitorTool } from "./tools/monitor.ts";
@@ -36,7 +34,7 @@ export default function (pi: ExtensionAPI): void {
     // that drops them).
     const originalBash = createBashToolDefinition(process.cwd());
     registerBashTool(pi, reg, originalBash);
-    registerBashBgTool(pi, reg);
+    // pi-preset: no bash_bg; it duplicated bash run_in_background=true.
     registerJobsTool(pi, reg);
     registerAgentBgTool(pi, reg);
     registerMonitorTool(pi, reg);

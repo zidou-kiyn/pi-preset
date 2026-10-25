@@ -99,7 +99,9 @@ export interface TaskMutationParams {
 // ---------------------------------------------------------------------------
 
 // pi-preset: item fields mean what the top-level create fields mean, so only
-// the one batch-specific limit is described.
+// the one batch-specific limit is described. owner and metadata are not in
+// the schema (top level or items): a single agent never sets them. Tasks that
+// already carry them still replay and render (Task keeps both fields).
 const CreateTaskInputSchema = Type.Object({
 	subject: Type.String(),
 	description: Type.Optional(Type.String()),
@@ -109,8 +111,6 @@ const CreateTaskInputSchema = Type.Object({
 			description: "Existing task ids only, not items of this batch",
 		}),
 	),
-	owner: Type.Optional(Type.String()),
-	metadata: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
 });
 
 export const TodoParamsSchema = Type.Object({
@@ -144,12 +144,6 @@ export const TodoParamsSchema = Type.Object({
 	removeBlockedBy: Type.Optional(
 		Type.Array(Type.Number(), {
 			description: "update only",
-		}),
-	),
-	owner: Type.Optional(Type.String({ description: "Agent/owner assigned to this task" })),
-	metadata: Type.Optional(
-		Type.Record(Type.String(), Type.Unknown(), {
-			description: "null value deletes a key on update",
 		}),
 	),
 	id: Type.Optional(

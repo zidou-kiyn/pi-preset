@@ -205,7 +205,7 @@ export function applyTaskMutation(state: TaskState, action: TaskAction, params: 
 			if (!hasMutation)
 				return errorResult(
 					state,
-					"update requires at least one mutable field: subject, description, activeForm, status, owner, metadata, addBlockedBy, or removeBlockedBy",
+					"update requires at least one mutable field: subject, description, activeForm, status, addBlockedBy, or removeBlockedBy",
 				);
 
 			let newStatus = current.status;
