@@ -14,7 +14,7 @@ Restart pi and run `/pi-preset`, the control panel:
 
 1. **Sync preset**: config keys, the chrome-devtools MCP server, and `packages[]` cleanup. It shows a diff and writes nothing until you confirm. Restart pi afterwards.
 2. **Apply models.json template**: providers, models, and the default model. See [docs/models.md](docs/models.md).
-3. **Install the Maple Mono NF CN font (ask pi)**: the status bar needs a Nerd Font.
+3. **Install the Maple Mono Normal NF CN font (ask pi)**: the status bar needs a Nerd Font.
 
 For SSH through your Termius hosts, open `/termius` once: it installs the server, then sign in from the same menu.
 

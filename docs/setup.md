@@ -8,7 +8,7 @@ What `/pi-preset` does, how the preset manages `packages[]` and config, and how 
 
 1. **Sync preset** — config keys, the chrome-devtools MCP server, and `packages[]` cleanup. Starts with a checklist of installed packages that are not part of the preset (unchecked, i.e. removed, by default), then shows a diff of everything it would change and writes nothing until you confirm.
 2. **Apply models.json template** — replaces `~/.pi/agent/models.json` with the preset's providers and sets the default provider and model (see [models.json template](models.md)).
-3. **Install the Maple Mono NF CN font (ask pi)** — sends a font-install prompt to the current model (see [Font](#font)).
+3. **Install the Maple Mono Normal NF CN font (ask pi)** — sends a font-install prompt to the current model (see [Font](#font)).
 
 After a sync that removed packages, restart pi — and do that before touching `/config` in the same session (see [Design notes](development.md#design-notes)).
 
@@ -97,15 +97,15 @@ If pi was started in between and stopped with `Tool "…" conflicts with …`, j
 
 ## Font
 
-The footer uses Nerd Fonts v3 Material Design glyphs (`nf-md-*`). Without a Nerd Font they render as tofu. The preset uses **Maple Mono NF CN** ([subframe7536/maple-font](https://github.com/subframe7536/maple-font/releases/latest), asset `MapleMono-NF-CN-unhinted.zip`).
+The footer uses Nerd Fonts v3 Material Design glyphs (`nf-md-*`). Without a Nerd Font they render as tofu. The preset uses **Maple Mono Normal NF CN** from the [v8.0-beta.3 pre-release](https://github.com/subframe7536/maple-font/releases/tag/v8.0-beta.3) of subframe7536/maple-font, asset `MapleMonoNormal-NF-CN-unhinted.zip` (pinned, since GitHub's "latest" skips pre-releases). Every glyph the footer draws is in it. Its family name differs from the older "Maple Mono NF CN", so the terminal config has to name the new one.
 
-The preset does not install fonts itself: the right method differs per OS, per distribution, and per terminal emulator. Instead, once a model is configured and pi answers, pick **Install the Maple Mono NF CN font (ask pi)** in `/pi-preset`. It sends this prompt as your message (queued as a follow-up if a run is in progress; refused with a hint when no model is selected yet), and the model does everything with its normal tools: installs the font if missing, finds the terminal pi runs in, and sets that terminal's font in its config file (backing the file up first):
+The preset does not install fonts itself: the right method differs per OS, per distribution, and per terminal emulator. Instead, once a model is configured and pi answers, pick **Install the Maple Mono Normal NF CN font (ask pi)** in `/pi-preset`. It sends this prompt as your message (queued as a follow-up if a run is in progress; refused with a hint when no model is selected yet), and the model does everything with its normal tools: installs the font if missing, finds the terminal pi runs in, and sets that terminal's font in its config file (backing the file up first):
 
 ```
-Set up the Maple Mono NF CN font for me end to end; do every step yourself, do not hand any step back to me.
+Set up the Maple Mono Normal NF CN font for me end to end; do every step yourself, do not hand any step back to me.
 1. Check whether it is already installed for my operating system; if it is, skip to step 3.
-2. Download MapleMono-NF-CN-unhinted.zip from the latest release of github.com/subframe7536/maple-font, install it for my user only (no sudo/administrator rights), and refresh the font cache if my OS has one.
-3. Find out which terminal emulator this pi session runs in (environment variables such as TERM_PROGRAM, the parent process chain, or the terminal's config files), and set its font to "Maple Mono NF CN" in that terminal's own configuration, backing up any config file before you change it.
+2. Download https://github.com/subframe7536/maple-font/releases/download/v8.0-beta.3/MapleMonoNormal-NF-CN-unhinted.zip (about 180 MB), install its .ttf files for my user only (no sudo/administrator rights), and refresh the font cache if my OS has one.
+3. Find out which terminal emulator this pi session runs in (environment variables such as TERM_PROGRAM, the parent process chain, or the terminal's config files), and set its font to "Maple Mono Normal NF CN" in that terminal's own configuration, backing up any config file before you change it.
 4. Verify the font is installed and the terminal config now names it, then report what you changed and whether the terminal must be restarted or a new window opened for the font to show.
 ```
 
