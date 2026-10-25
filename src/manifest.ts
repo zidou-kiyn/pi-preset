@@ -109,7 +109,7 @@ export interface JsonPatchTarget {
 }
 
 /** Pinned like any vendored code; bump it deliberately after checking the changelog. */
-export const CHROME_DEVTOOLS_MCP_VERSION = "1.10.1";
+export const CHROME_DEVTOOLS_MCP_VERSION = "1.12.0";
 
 export const JSON_PATCHES: readonly JsonPatchTarget[] = [
 	{

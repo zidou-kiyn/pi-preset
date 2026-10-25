@@ -57,7 +57,7 @@ Written to `mcp.json` (see [Browser](mcp.md#browser-the-chrome-devtools-mcp-serv
   "mcpServers": {
     "chrome-devtools": {
       "command": "npx",
-      "args": ["-y", "chrome-devtools-mcp@1.10.1", "--no-usage-statistics", "--no-performance-crux"],
+      "args": ["-y", "chrome-devtools-mcp@1.12.0", "--no-usage-statistics", "--no-performance-crux"],
       "env": { "CHROME_DEVTOOLS_MCP_NO_UPDATE_CHECKS": "1" },
       "exposure": "codemode",
       "description": "Drive a Chrome browser: navigate, click, fill forms, evaluate JS, screenshots, console, network, performance traces"

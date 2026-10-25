@@ -6,7 +6,7 @@ Both MCP servers below use `exposure: "codemode"`: none of their tools is declar
 
 ## Browser: the chrome-devtools MCP server
 
-Google's [chrome-devtools-mcp](https://github.com/ChromeDevTools/chrome-devtools-mcp) runs through pi's built-in MCP support instead of a browser extension. **Sync preset** adds it to `~/.pi/agent/mcp.json`, pinned (`chrome-devtools-mcp@1.10.1`, via `npx`), with telemetry, CrUX lookups, and update checks off, and codemode exposure (its 30 tools are called from scripts). On the first browser call it starts its own Chrome with a separate profile. Turn it off in `/mcp`; the sync does not own `enabled`. Bump the version in `src/manifest.ts` after reading its changelog.
+Google's [chrome-devtools-mcp](https://github.com/ChromeDevTools/chrome-devtools-mcp) runs through pi's built-in MCP support instead of a browser extension. **Sync preset** adds it to `~/.pi/agent/mcp.json`, pinned (`chrome-devtools-mcp@1.12.0`, via `npx`), with telemetry, CrUX lookups, and update checks off, and codemode exposure (its 32 tools are called from scripts). On the first browser call it starts its own Chrome with a separate profile. pi announces the session's working directory as the MCP root, so tools that read or write local files (screenshots saved to a path, `upload_file`) stay inside that directory and the temp directory. Turn it off in `/mcp`; the sync does not own `enabled`. Bump the version in `src/manifest.ts` after reading its changelog.
 
 ## SSH: the Termius MCP server
 
