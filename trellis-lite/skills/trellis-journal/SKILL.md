@@ -11,6 +11,8 @@ The journal is the project's memory of what happened: one entry per piece of fin
 
 - **Title**: what was achieved, in a few words.
 - **Summary**: what changed and why, the decisions made and their reasons, anything left open or to do next, and facts that were expensive to find out. Write for someone resuming this work in a month. Skip the play-by-play.
+- **Where the knowledge went**: the paths of the spec and research files this work created or changed, so a later reader goes straight to the rule instead of rereading the story. Leave it out when there are none.
+- **Dead ends**: approaches that were tried and dropped, each marked as rejected with the reason, so they are not tried again.
 - Match the language of the existing entries.
 
 ## How to write it

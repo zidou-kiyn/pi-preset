@@ -10,7 +10,7 @@ The machine-readable copy is [`trellis-lite/upstream.json`](../trellis-lite/upst
 |---|---|---|---|---|
 | [mindfold-ai/Trellis](https://github.com/mindfold-ai/Trellis) | `feat/v0.7-beta` | `v0.7.0-beta.4` `be9e19b` | `beta` 0.7.0-beta.4 | 2026-09-11 |
 | Trellis | `main` | `v0.6.17` `833a584` | `latest` 0.6.17 | 2026-09-11 |
-| [Tiger-zzZ/mini-trellis](https://github.com/Tiger-zzZ/mini-trellis) | `main` | `74f2dfa` | `latest` 0.2.0 | 2026-10-04 |
+| [Tiger-zzZ/mini-trellis](https://github.com/Tiger-zzZ/mini-trellis) | `main` | `v0.3.1` `0316bd6` | `latest` 0.3.1 | 2026-10-23 |
 
 ## Watched paths
 
@@ -55,3 +55,11 @@ When adopting: write the behavior in our own words (in the design doc or the com
 | mini-trellis: `.trellis/research/` as a first-class directory | Partly adopted | Listed in the section when present; tasks are not converted into research topics | `cbb054a` |
 | mini-trellis: `migrate` turns `tasks/` into `research/` | Not adopted | Existing `.trellis/` data must keep working unchanged | — |
 | mini-trellis: `mem` search across hosts' chat logs | Not adopted | The journal is the memory; pi session logs can be grepped directly | — |
+| mini-trellis v0.3: the startup context shrinks to an on-demand lookup hint, the journal path, and a spec count (no path lists) | Not adopted | It saves characters only because the agent then searches with `mem recall`, which trellis-lite does not have; without the lists, specs are harder to find. Our section is already capped at 1500 characters and byte-stable | |
+| mini-trellis v0.3: `mem recall` / `mem read` over project Markdown and chat logs, with successor-first ranking | Not adopted | Same reason as `mem` search above | |
+| mini-trellis v0.3: `status: superseded` / `superseded_by:` lineage on replaced notes | Not adopted | A spec rule is edited in place (never two versions), and research is an inbox; the mark mainly serves recall ranking, so it would be a new format with no reader | |
+| mini-trellis v0.2.1–v0.3: dropped approaches are recorded as rejected and kept out of spec | Adopted | `trellis-spec`: something tried and given up goes to the journal or its research note, marked rejected with the reason. `trellis-journal`: a dead-ends item. Improves what reaches spec | |
+| mini-trellis v0.3: read the changed rule back and compare it with the conclusion, limits and negations included, before reporting success | Adopted | `trellis-spec` "Finish": reread the spec file against what was settled; a planned edit or a journal line is not a saved rule | |
+| mini-trellis v0.3: `add_session.py --topic` links the verified topic file from the journal entry | Adopted in spirit | `trellis-journal` asks for the paths of the spec and research files the work changed; no new flag or journal format | |
+| mini-trellis v0.3: no session-start notification; the startup text is rebuilt every turn and skipped when already present | Not applicable | The `project-memory` section is computed once per extension instance and byte-stable | |
+| mini-trellis v0.3: unconfirmed scope marked as inference; new notes in the discussion language, existing ones keep theirs | Already covered | `trellis-spec` writes only what is true and matches the language of existing specs; `trellis-journal` matches existing entries | |

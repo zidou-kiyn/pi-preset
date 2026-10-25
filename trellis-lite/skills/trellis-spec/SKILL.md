@@ -17,6 +17,8 @@ Write it only if all three hold:
 
 If one fails, say so and stop.
 
+Something that was tried and given up is not a rule. Put it in the journal, or in the research note it came from, marked as rejected with the reason, so nobody tries it again; it never goes into spec.
+
 ## Where it goes
 
 - Specs live in `.trellis/spec/<layer>/` (monorepos: `.trellis/spec/<package>/<layer>/`); cross-cutting thinking guides in `.trellis/spec/guides/`.
@@ -60,5 +62,7 @@ Before writing, work out:
 Then record the rule from step 3 as above. The analysis itself goes in your reply or the journal; the spec keeps only the rule and its why.
 
 ## Finish
+
+Open the changed spec file again and hold the rule against what was actually settled: its scope, its exceptions, and every "not" and "never". Fix any drift before you call it done; a rule you only meant to write, or one that sits only in the journal, is not saved.
 
 Show the user the diff of the spec and index changes. Do not commit unless the user asks.

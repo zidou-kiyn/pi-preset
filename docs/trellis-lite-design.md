@@ -1,7 +1,7 @@
 # trellis-lite design
 
 > Status: implemented (commits `cbb054a`..). Decisions confirmed with the user are listed in §15.
-> Baseline: Trellis `v0.7.0-beta.4` (`be9e19b`), compared with `v0.6.17` (`833a584`), `main` (`f089cb3`), and mini-trellis `main` (`74f2dfa`).
+> Baseline: Trellis `v0.7.0-beta.4` (`be9e19b`), compared with `v0.6.17` (`833a584`), `main` (`f089cb3`), and mini-trellis `main` (`74f2dfa`). Later upstream changes are reviewed in [trellis-lite-upstream.md](trellis-lite-upstream.md) (mini-trellis up to `v0.3.1`, `0316bd6`).
 > License: pi-preset stays MIT. This document and the implementation are clean-room: upstream was read only to learn behavior, directory layout, and file formats. The behavior is specified here in our own words, and the code was written from this specification, not translated from upstream sources.
 
 ## 0. Name
@@ -105,8 +105,8 @@ Then trellis-lite does nothing (no section, skills, or injection) and notifies o
 
 ### 3.4 Skills (only in Trellis projects, through `resources_discover`)
 
-- **`trellis-spec`**: whether a rule deserves a spec (still true next week, not visible from the code, a rule rather than a story); where it goes and the index link; how to write it (one rule per heading, why, correct and wrong example, contracts as contracts, real file names); `paths:` frontmatter and glob syntax; the after-a-bug analysis (cause class, why earlier fixes failed, the cheapest guard for the whole class, other occurrences); no commit.
-- **`trellis-journal`**: what an entry contains; the script call `node <skill-dir>/../../bin/trellis-lite.ts journal --title … [--commits …] [--task …] [--status …]` with the summary on stdin; what the script does; projects decide their own commit rules; pi's session logs for older detail.
+- **`trellis-spec`**: whether a rule deserves a spec (still true next week, not visible from the code, a rule rather than a story); where it goes and the index link; how to write it (one rule per heading, why, correct and wrong example, contracts as contracts, real file names); `paths:` frontmatter and glob syntax; the after-a-bug analysis (cause class, why earlier fixes failed, the cheapest guard for the whole class, other occurrences); dropped approaches go to the journal or research marked rejected, never to spec; before finishing, the changed rule is reread against what was settled (scope, exceptions, negations); no commit.
+- **`trellis-journal`**: what an entry contains, including the paths of the spec and research files the work changed and the dead ends marked rejected; the script call `node <skill-dir>/../../bin/trellis-lite.ts journal --title … [--commits …] [--task …] [--status …]` with the summary on stdin; what the script does; projects decide their own commit rules; pi's session logs for older detail.
 - **`trellis-plan`**: facts before questions; decisions through `grilling`; `prd.md` always, `design.md` and `implement.md` when warranted, `research/` for material; stop for approval; on completion move rules to spec, `git mv` into `tasks/archive/YYYY-MM/`, offer a journal entry; leave old `task.json` / jsonl alone.
 
 **Measured standing cost**: 629 tokens (Opus 5.5 tokenizer) for the section plus the three skill entries, against a 1k ceiling and a 600 target. Each skill entry carries its absolute `location`, about a third of its cost.

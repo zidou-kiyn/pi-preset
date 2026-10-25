@@ -27,7 +27,7 @@
 			"url": "https://github.com/Tiger-zzZ/mini-trellis.git",
 			"npm": "mini-trellis",
 			"tracks": [
-				{ "name": "main", "branch": "main", "baseline": "74f2dfa85cc25becbe853b374dac6ea1233604d5", "ref": "v0.2.0", "date": "2026-10-04" }
+				{ "name": "main", "branch": "main", "baseline": "0316bd65f74ef0bcac9852c1c5803903e8df1b85", "ref": "v0.3.1", "date": "2026-10-23" }
 			],
 			"paths": [
 				"packages/cli/src/templates/pi/",
