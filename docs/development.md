@@ -64,6 +64,7 @@ In this repository, `/preset-upstream [package... | mcp | skills | trellis]` ([`
 | `extensions/cache-retention.ts` | Defaults `PI_CACHE_RETENTION` to `long` inside pi (1h Anthropic cache TTL, 24h OpenAI Responses retention) so it applies even in shells that never sourced your rc file. An explicit value in the environment wins. No command, no UI |
 | `extensions/idle-keepwarm.ts` | Keeps the Anthropic prompt cache warm while pi's UI stays open and idle, past pi's own 30-minute idle limit (see below). Status bar segment `keepwarm`, no command |
 | `extensions/trellis-lite.ts` | Project memory for `.trellis/` projects: spec, journal, light task plans (see [trellis-lite](trellis-lite.md)). `/trellis-lite`, `/trellis-lite-migrate` |
+| `extensions/todo-nudge.ts` | A one-line reminder in a tool result when a todo task stays in_progress too long, and a note when a second task is started on top (see [Todo nudges](extensions.md#todo-nudges-extensionstodo-nudgets)). No command |
 | `extensions/inherit-model.ts` | `/new` keeps the model and thinking level you were just using instead of falling back to `defaultModel` (see below). No command, no UI |
 | `vendor/` | The vendored extensions (see [Extensions](extensions.md)) |
 | `skills/` | `grill-me` and `grilling` (see [Skills](../README.md#skills)) |

@@ -29,7 +29,7 @@ Details: [docs/setup.md](docs/setup.md) covers what the sync writes, the package
 | Shell | Long commands move to the background; you get one notification when they finish | `bash run_in_background`, `jobs`, `monitor`, `agent_bg`, ctrl+shift+b | [extensions](docs/extensions.md#background-commands-pi-patty-bg-tasks) |
 | Search | Frecency-ranked, git-aware grep and file find | `ffgrep`, `fffind` | [extensions](docs/extensions.md) |
 | Undo | File snapshots per turn; rewind the last prompt | `/undo`, `/redo`, `/diff`, `/checkpoint`, `/fuck` | [extensions](docs/extensions.md) |
-| Planning | Task list; structured questions | `todo`, `ask_user_question` | [extensions](docs/extensions.md) |
+| Planning | Task list (with a reminder when a task is left in_progress); structured questions | `todo`, `ask_user_question` | [extensions](docs/extensions.md#todo-nudges-extensionstodo-nudgets) |
 | Web | Search through the current provider, no extra key | `web_search` | [extensions](docs/extensions.md) |
 | Context | Native provider compaction; context breakdown; compact `edit` rows | `/compact`, `/context` | [extensions](docs/extensions.md#native-compaction) |
 | Cache | 1h prompt cache, kept warm while idle | automatic | [extensions](docs/extensions.md#prompt-cache-kept-warm-while-idle) |

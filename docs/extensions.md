@@ -37,6 +37,15 @@ Six local changes (two replace the workaround extensions 0.1 shipped):
 - **Your shell, also on Windows.** Upstream ran every `bash` / `monitor` command as `bash -c` found on PATH, which ignored `shellPath` in settings.json. On Windows with WSL enabled, `C:\Windows\System32\bash.exe` (the WSL launcher) comes before Git Bash on PATH, and detached with its output going to a file it exits 1 with an empty log, so every command, even `echo hi`, returned `(no output yet)`. Commands now run in the shell pi's own bash tool uses (`getShellConfig`): `shellPath` from the session settings (project `.pi/settings.json` over `~/.pi/agent/settings.json`), then Git Bash in its install locations, then bash on PATH. Stopping a job on Windows kills its whole process tree (`taskkill /T`), not just the shell.
 - **No `bash_bg`.** Upstream also registers `bash_bg`, which starts a command in the background right away. `bash` with `run_in_background: true` does exactly that, so the duplicate tool (and its schema in every request) is gone.
 
+## Todo nudges: `extensions/todo-nudge.ts`
+
+The todo guideline says to keep one task in_progress and complete it as soon as it is done, but models still leave a finished task open, or start the next one on top. todo-nudge watches the todo state (from the todo tool's own results, and the session branch on start) and speaks up only when that happens, inside a tool result the model is reading anyway:
+
+- a task stays in_progress for 8 tool calls without any todo call: the 8th result ends with `[todo] #3 write tests is still in_progress after 8 tool calls without a todo update: mark it completed now if it is done.` The next reminder comes after 16 more calls, then 32, so a genuinely long task is not nagged.
+- an update sets a task in_progress while another still is: that todo result gets a note to complete the other one or set it back to pending.
+
+A codemode script counts as one call, and a todo call inside it counts as an update. Nothing is added to the system prompt or the tools, so a session that keeps its list tidy pays nothing. `PI_PRESET_TODO_NUDGE=off` disables it; a number changes the 8.
+
 ## Tool rows: `extensions/compact-tools.ts`
 
 pi's own renderers already collapse most tool rows (read shows nothing, bash 5 lines, write 10), but `edit` always draws the whole diff. compact-tools re-registers the built-in `edit` with only its renderers wrapped: a collapsed row shows the first 16 lines (`PI_PRESET_EDIT_LINES`, `off` to disable) and a ctrl+o hint, and expanding shows pi's full diff. The model's tool schema and results are pi's own. It replaces `pi-tool-display`, which also took over `read`/`grep`/`find`/`ls` (activating them next to fff) and wrote ANSI-colored "Thinking:" labels into the saved session.
