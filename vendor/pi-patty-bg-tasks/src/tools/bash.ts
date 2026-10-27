@@ -50,6 +50,7 @@ import {
 import { textBlock } from "../format.ts";
 import { foregroundTimeoutMs } from "../timeout-policy.ts";
 import { bashParamSchema } from "./bash-params.ts";
+import { checkInAfterMs } from "../check-in.ts";
 
 /** UI context + cwd is all this tool needs from the host context. */
 type BashCtx = UiContext & { cwd: string };
@@ -72,7 +73,7 @@ export function registerBashTool(
         // pi-preset: background guidance for bash, jobs, monitor, and
         // agent_bg condensed and deduplicated here and in monitor.ts.
         promptGuidelines: [
-            "Long commands: run_in_background=true gives ONE notification when the command exits. A foreground command that outlives its timeout also moves to the background and keeps running, so never raise timeout for a long build.",
+            "Long commands: run_in_background=true gives ONE notification when the command exits. A foreground command that outlives its timeout also moves to the background and keeps running, so never raise timeout for a long build. Give such commands expected_seconds, your estimate of their run time: past it you get a check-in to keep waiting or kill.",
             "Never `sleep N` to wait: use jobs action='attach' for a job, an `until` loop that exits when ready, or monitor for per-event streams. Completion notices are informational; read output only for a FAILED job or when the output is the deliverable.",
         ],
         parameters: bashParamSchema,
@@ -83,7 +84,9 @@ export function registerBashTool(
                 timeout?: number;
                 run_in_background?: boolean;
                 description?: string;
+                expected_seconds?: number;
             };
+            const checkIn = checkInAfterMs(p.expected_seconds);
             const bashCtx = ctx as BashCtx;
 
             if (isBlankCommand(p.command)) throw new Error("Command is empty.");
@@ -106,6 +109,7 @@ export function registerBashTool(
                     reg,
                     pi,
                     ctx: bashCtx,
+                    checkInAfterMs: checkIn,
                 });
             }
 
@@ -119,6 +123,7 @@ export function registerBashTool(
                 ctx: bashCtx,
                 reg,
                 pi,
+                checkInAfterMs: checkIn,
             });
         },
     });
@@ -135,6 +140,7 @@ async function runForeground(args: {
     ctx: BashCtx;
     reg: BackgroundRegistry;
     pi: ExtensionAPI;
+    checkInAfterMs?: number;
 }): Promise<AgentToolResult<BashToolDetails | undefined>> {
     const { toolCallId, command, timeoutMs, signal, onUpdate, ctx, reg, pi } =
         args;
@@ -196,6 +202,7 @@ async function runForeground(args: {
         toolCallId,
         isBackgrounded: false,
     });
+    job.checkInAfterMs = args.checkInAfterMs;
     // Foreground jobs are tracked for the sidebar / Ctrl+Shift+B but not counted
     // as "started" until they actually move to the background (see below).
     reg.jobs.set(id, job);
@@ -328,6 +335,7 @@ function spawnBackground(args: {
     reg: BackgroundRegistry;
     pi: ExtensionAPI;
     ctx: UiContext;
+    checkInAfterMs?: number;
 }): AgentToolResult<BashToolDetails | undefined> {
     const id = newJobId("shell", args.reg);
     const logPath = logPathFor(id);
@@ -347,6 +355,7 @@ function spawnBackground(args: {
         logPath,
         toolCallId: args.toolCallId,
     });
+    job.checkInAfterMs = args.checkInAfterMs;
     add(args.reg, job);
     startBackgroundJob({ reg: args.reg, pi: args.pi, ctx: args.ctx, job, exit: spawned.exit });
 

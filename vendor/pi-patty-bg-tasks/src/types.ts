@@ -87,6 +87,10 @@ export interface Job {
     kind?: JobKind;
     /** Transient teardown hook (follower + ws socket). */
     stop?: () => void;
+    /** pi-preset: ms from start to the first check-in (check-in.ts); undefined = none. */
+    checkInAfterMs?: number;
+    /** pi-preset: set while jobs attach follows the job; a check-in ends the attach instead of notifying. */
+    checkInWaiter?: (text: string) => void;
 }
 
 export type BackgroundReason = "manual" | "timeout";

@@ -23,6 +23,7 @@ import { add, createRunningJob, newJobId, logPathFor } from "../registry.ts";
 import { spawnWithFileOutput, type SpawnResult } from "../spawn.ts";
 import { streamLog } from "../output.ts";
 import { textBlock } from "../format.ts";
+import { checkInAfterMs, expectedSecondsDescription } from "../check-in.ts";
 
 /** Resolve the full path to the pi binary, memoised for the session. */
 let cachedPiBinary: string | undefined;
@@ -89,10 +90,12 @@ export function registerAgentBgTool(pi: ExtensionAPI, reg: BackgroundRegistry): 
         parameters: Type.Object({
             prompt: Type.String({ description: "Task to send to the background agent" }),
             cwd: Type.Optional(Type.String({ description: "Working directory (default: current)" })),
+            // pi-preset: the estimate behind background check-ins (check-in.ts).
+            expected_seconds: Type.Optional(Type.Number({ description: expectedSecondsDescription() })),
         }),
 
         async execute(toolCallId, params, _signal, onUpdate, ctx) {
-            const p = params as { prompt: string; cwd?: string };
+            const p = params as { prompt: string; cwd?: string; expected_seconds?: number };
             if (isBlankCommand(p.prompt)) throw new Error("Prompt is empty.");
             const cwd = p.cwd ?? ctx.cwd;
             requireCwd(cwd);
@@ -148,6 +151,7 @@ export function registerAgentBgTool(pi: ExtensionAPI, reg: BackgroundRegistry): 
                 id, name: promptLabel, command: `pi -p (background agent)`, pid: spawned.pid,
                 logPath, toolCallId, kind: "agent",
             });
+            job.checkInAfterMs = checkInAfterMs(p.expected_seconds);
             add(reg, job);
 
             // Progress streaming — surface agent output via onUpdate.

@@ -49,7 +49,7 @@ export function registerJobsTool(
         name: "jobs",
         label: "Background Jobs",
         description:
-            "Manage background jobs: list; output (log tail, non-blocking peek); attach (follow live output and wait for the job to finish); kill; search (regex over all job output); cleanup (drop finished jobs); stats.",
+            "Manage background jobs: list; output (log tail, non-blocking peek); attach (follow live output and wait for the job to finish or its next check-in); kill; search (regex over all job output); cleanup (drop finished jobs); stats.",
         promptSnippet: "Inspect and manage background jobs",
         promptGuidelines: [],
         parameters: Type.Object({
@@ -221,19 +221,38 @@ async function attachAction(
         // instead of sitting silent.
         const poller = streamLog(job.logPath, onUpdate);
         let onAbort: (() => void) | undefined;
+        // pi-preset: a check-in (check-in.ts) ends the wait, so attaching to a
+        // job that never exits does not hold the turn until the user presses Esc.
+        let checkIn: string | undefined;
+        const checkInPromise = new Promise<void>((resolve) => {
+            job.checkInWaiter = (text) => {
+                checkIn = text;
+                resolve();
+            };
+        });
+        // pi-preset: hold the event loop while waiting. The job and every timer
+        // are unref'd, so headless `pi -p` otherwise exits mid-attach.
+        const keepAlive = setInterval(() => {}, 1 << 30);
         try {
+            const waits: Promise<unknown>[] = [job.donePromise, checkInPromise];
             if (signal && !signal.aborted) {
-                const abortPromise = new Promise<void>((resolve) => {
+                waits.push(new Promise<void>((resolve) => {
                     onAbort = resolve;
                     signal.addEventListener("abort", onAbort, { once: true });
-                });
-                await Promise.race([job.donePromise, abortPromise]);
-            } else {
-                await job.donePromise;
+                }));
             }
+            await Promise.race(waits);
         } finally {
+            clearInterval(keepAlive);
             poller.stop();
+            job.checkInWaiter = undefined;
             if (signal && onAbort) signal.removeEventListener("abort", onAbort);
+        }
+
+        if (job.status === "running" && checkIn !== undefined) {
+            // Still running: its own completion notification must still fire.
+            job.notified = false;
+            return { content: [textBlock(checkIn)], details: undefined };
         }
 
         if (job.status === "running") {

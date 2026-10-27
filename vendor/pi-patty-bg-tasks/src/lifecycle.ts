@@ -19,6 +19,7 @@ import type { BackgroundRegistry } from "./state.ts";
 import { killProcessTree, type SpawnExit } from "./spawn.ts";
 import { atConcurrencyLimit, forget, renderSidebar } from "./registry.ts";
 import { watchStalls } from "./monitoring.ts";
+import { armCheckIns } from "./check-in.ts";
 import { markNotified, sendTaskNotification } from "./notify.ts";
 
 // --- Background-job orchestration ----------------------------------------
@@ -67,6 +68,8 @@ export function startBackgroundJob(args: {
         onOversize: () => terminateJobSilently(args.reg, args.job),
     });
     jobAc.signal.addEventListener("abort", cancelStall, { once: true });
+    // pi-preset: check in when the job outlives its estimate (check-in.ts).
+    armCheckIns({ pi: args.pi, job: args.job, signal: jobAc.signal });
     void args.exit.then((result) => {
         args.onExit?.(result);
         completeJob({

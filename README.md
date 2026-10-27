@@ -61,6 +61,7 @@ Use it when a session's context has grown large or the work moves elsewhere: run
 | `PI_PRESET_KEEPWARM` | on | `off` stops idle cache warming |
 | `PI_PRESET_KEEPWARM_MAX_IDLE` | no limit | Stop warming after this long without a request, e.g. `3h` |
 | `PI_PRESET_BASH_BG_DEFAULT` / `_CAP` | `30` / `60` seconds | When a foreground command moves to the background; `off` restores upstream timing |
+| `PI_PRESET_BG_CHECK` | `300` seconds | When a background job with no `expected_seconds` first checks in with the agent; `off` disables check-ins |
 | `PI_PRESET_EDIT_LINES` | `16` | Lines in a collapsed `edit` row; `off` shows the full diff |
 | `PI_PRESET_FOOTER_LABELS` | off | `1` shows word labels in the status bar |
 | `PI_PRESET_TRELLIS` / `_SPECS` | on | `off` disables trellis-lite, or only its path-scoped specs |

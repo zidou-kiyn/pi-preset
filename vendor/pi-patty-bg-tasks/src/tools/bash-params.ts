@@ -4,6 +4,7 @@
 
 import { Type } from "@earendil-works/pi-ai";
 import { timeoutParameterDescription } from "../timeout-policy.ts";
+import { expectedSecondsDescription } from "../check-in.ts";
 
 export const bashParamSchema = Type.Object({
     command: Type.String({ description: "Shell command to run" }),
@@ -19,5 +20,9 @@ export const bashParamSchema = Type.Object({
     ),
     description: Type.Optional(
         Type.String({ description: "Short description of what this command does" })
+    ),
+    // pi-preset: the estimate behind background check-ins (check-in.ts).
+    expected_seconds: Type.Optional(
+        Type.Number({ description: expectedSecondsDescription() })
     ),
 });
