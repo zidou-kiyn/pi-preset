@@ -719,6 +719,11 @@ def call_tool(runtime, name, arguments, cancel=None):
         raise ToolError('Unknown tool: {}'.format(name), code='unknown_tool')
     if cancel is not None and cancel.cancelled:
         raise _cancelled_error()
+    # Pick up a sign-in, sign-out, or sync done by another process.
+    refresh = getattr(runtime, 'refresh', None)
+    if refresh is not None:
+        with runtime.lock:
+            refresh()
     try:
         if name in SSH_HANDLERS:
             data, summary = handler(runtime, arguments or {}, cancel=cancel)

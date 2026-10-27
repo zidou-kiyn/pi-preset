@@ -221,9 +221,24 @@ export default function termiusExtension(pi: ExtensionAPI): void {
 
 	// ── actions (each returns what happened; the menu shows it, typed commands notify it) ──
 
+	/**
+	 * Tell the model the account changed. A "Not signed in" status from
+	 * earlier in the conversation would otherwise read as current. Hidden from
+	 * the transcript; sent with the next prompt.
+	 */
+	const noteAccountChange = (text: string) => {
+		pi.sendMessage(
+			{ customType: "termius-account", content: `[termius] ${text} Earlier termius status results in this conversation are out of date; call status again before relying on them.`, display: false },
+			{ deliverAs: "nextTurn" },
+		);
+	};
+
 	const loginNotice = (response: LoginResponse): Notice => {
 		if (!response.ok) return { text: `Sign-in failed. ${response.error ?? response.code}`, type: "error" };
+		// The running server re-reads the session from disk on its next call
+		// (Runtime.refresh); this only starts it if it was not registered yet.
 		register();
+		noteAccountChange(`The user signed in to Termius as ${String(response.username ?? "?")}.`);
 		// login-json pulls the inventory right after signing in; a failed pull
 		// leaves the sign-in valid and is retried by the next host call.
 		return response.synced === true
@@ -323,7 +338,7 @@ export default function termiusExtension(pi: ExtensionAPI): void {
 		if (installState() === "missing") return { text: "Not installed yet; open /termius to install.", type: "warning" };
 		const response = await loginJson({ action: "sync" });
 		if (!response.ok) return { text: `Sync failed. ${response.error ?? response.code}`, type: "error" };
-		register(); // restart the server so it reads the refreshed cache
+		register(); // starts it if needed; a running server re-reads the cache on its next call
 		return { text: `${String(response.hosts ?? 0)} host(s) synced.`, type: "success" };
 	};
 
@@ -420,6 +435,7 @@ export default function termiusExtension(pi: ExtensionAPI): void {
 		}
 		const response = await loginJson({ action: "logout" });
 		register();
+		if (response.ok) noteAccountChange("The user signed out of Termius.");
 		return response.ok ? { text: "Signed out.", type: "info" } : { text: `Sign-out failed. ${response.error}`, type: "error" };
 	};
 

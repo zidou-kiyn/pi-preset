@@ -187,5 +187,44 @@ class JsonLoginTest(unittest.TestCase):
         self.assertEqual(out.getvalue().count('\n'), 1)
 
 
+class OtherProcessChangesTest(unittest.TestCase):
+    """The long-running server sees sign-in, sync, and sign-out done by login-json."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.server = Runtime(directory_path=self.tmpdir.name)
+
+    def tearDown(self):
+        self.tmpdir.cleanup()
+
+    def _status(self):
+        with patch('termius.vault.is_available', return_value=False):
+            data, summary = call_tool(self.server, 'status', {})
+        return data, summary
+
+    def test_sign_in_sync_and_sign_out_are_picked_up(self):
+        data, summary = self._status()
+        self.assertFalse(data['logged_in'])
+        self.assertIn('Not signed in', summary)
+
+        other = Runtime(directory_path=self.tmpdir.name)
+        other.config.set('User', 'username', 'a@b.c')
+        other.config.set('User', 'apikey', 'token')
+        other.config.write()
+        with other.storage:
+            other.storage.save(Host(label='web', address='10.0.0.1'))
+
+        data, summary = self._status()
+        self.assertTrue(data['logged_in'])
+        self.assertEqual(data['username'], 'a@b.c')
+        self.assertEqual(data['hosts'], 1)
+
+        other = Runtime(directory_path=self.tmpdir.name)
+        other.config.remove_section('User')
+        other.config.write()
+        data, _ = self._status()
+        self.assertFalse(data['logged_in'])
+
+
 if __name__ == '__main__':
     unittest.main()
