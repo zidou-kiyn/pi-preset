@@ -207,7 +207,7 @@
 			"track": {
 				"branch": "main"
 			},
-			"commit": "97f182ad9af942d00505a138331465258739a515",
+			"commit": "cc47d6f8d5f340fb5d77214dab20380c37e280f4",
 			"version": "1.7.0",
 			"license": "MIT",
 			"dest": "vendor/pi-web-search",
@@ -224,7 +224,7 @@
 			"track": {
 				"branch": "main"
 			},
-			"commit": "fe83e1129c47050c9ed221e236c18ddffa5b3cd5",
+			"commit": "f5894a26ee24dee8598ceb7f95d79276764efb57",
 			"version": "0.1.4",
 			"license": "MIT",
 			"dest": "vendor/pi-apply-patch",
