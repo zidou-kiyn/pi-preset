@@ -9,9 +9,10 @@
  *
  * Applying the template REPLACES models.json as a whole (the previous file is
  * kept as models.json.preset-bak) and merges defaultProvider and defaultModel
- * into settings.json, plus the template's modelThinkingLevels and
- * compaction.modelOverrides entries for models that have none yet (a level or
- * override the user saved is never replaced).
+ * into settings.json, plus the template's modelThinkingLevels for models that
+ * have none yet (a level the user saved is never replaced). It also removes the
+ * `reserveTokens: 500000` compaction overrides that templates before 0.4 wrote,
+ * so every model compacts near its own context window again.
  * Everything here is read-only except applyModelsTemplate().
  */
 
@@ -54,12 +55,26 @@ export interface ModelsTemplate {
 	defaultModel: string;
 	/** Startup thinking levels keyed by `provider/modelId` (official defaults that differ from pi's). */
 	modelThinkingLevels: Record<string, string>;
-	/** Per-model compaction budgets keyed by `provider/modelId`, e.g. compact a 1M model at 500k. */
-	compactionOverrides: Record<string, JsonObject>;
 }
 
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
-const COMPACTION_FIELDS = ["reserveTokens", "keepRecentTokens"];
+
+/**
+ * The compaction overrides templates before 0.4 wrote into settings.json: every
+ * 1M-context model compacted at 500k. They are removed when the template is
+ * applied, but only while they still hold exactly this value; an override the
+ * user changed is theirs.
+ */
+const LEGACY_COMPACTION_OVERRIDE: JsonObject = { reserveTokens: 500000 };
+const LEGACY_COMPACTION_OVERRIDE_KEYS = [
+	"openai-proxy/gpt-6.1-sol",
+	"anthropic-proxy/claude-fable-5-1",
+	"anthropic-proxy/claude-opus-5-5",
+	"anthropic-proxy/claude-opus-4-6",
+	"anthropic-proxy/claude-sonnet-5-5",
+	"deepseek-proxy/deepseek-flash",
+	"deepseek-proxy/deepseek-v4-pro",
+];
 
 /** The template model behind a `provider/modelId` key, or undefined. */
 function findTemplateModel(document: JsonObject, key: string): JsonObject | undefined {
@@ -131,35 +146,9 @@ export function loadModelsTemplate(dir: string = TEMPLATE_DIR): ModelsTemplate {
 		}
 	}
 
-	const compactionOverrides: Record<string, JsonObject> = {};
-	const rawCompaction = settings.compaction;
-	if (rawCompaction !== undefined) {
-		if (!isPlainObject(rawCompaction)) throw new Error("template settings.json compaction is not an object");
-		const unknown = Object.keys(rawCompaction).filter((key) => key !== "modelOverrides");
-		if (unknown.length > 0) throw new Error(`template settings.json compaction may only carry modelOverrides, not ${unknown.join(", ")}`);
-		const rawOverrides = rawCompaction.modelOverrides ?? {};
-		if (!isPlainObject(rawOverrides)) throw new Error("template settings.json compaction.modelOverrides is not an object");
-		for (const [key, override] of Object.entries(rawOverrides)) {
-			const model = findTemplateModel(document, key);
-			if (!model) throw new Error(`template compaction override for "${key}": no such model in models.json`);
-			if (!isPlainObject(override) || Object.keys(override).length === 0) {
-				throw new Error(`template compaction override for "${key}" is not a non-empty object`);
-			}
-			for (const [field, value] of Object.entries(override)) {
-				if (!COMPACTION_FIELDS.includes(field)) throw new Error(`template compaction override for "${key}" has unknown field ${field}`);
-				if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
-					throw new Error(`template compaction override ${key}.${field} is not a non-negative integer`);
-				}
-			}
-			const reserve = override.reserveTokens;
-			if (typeof reserve === "number" && typeof model.contextWindow === "number" && reserve >= model.contextWindow) {
-				throw new Error(`template compaction override ${key}.reserveTokens must be below the model's contextWindow`);
-			}
-			compactionOverrides[key] = override;
-		}
-	}
+	if (settings.compaction !== undefined) throw new Error("template settings.json must not carry compaction settings");
 
-	return { document, providers, defaultProvider, defaultModel, modelThinkingLevels, compactionOverrides };
+	return { document, providers, defaultProvider, defaultModel, modelThinkingLevels };
 }
 
 // ── values ──────────────────────────────────────────────────────────────────
@@ -286,7 +275,8 @@ export interface SettingsChange {
 	/** `defaultProvider`, `defaultModel`, `modelThinkingLevels.<provider/model>`, or `compaction.modelOverrides.<provider/model>`. */
 	key: string;
 	from: JsonValue | undefined;
-	to: JsonValue;
+	/** Undefined: the key is removed. */
+	to: JsonValue | undefined;
 }
 
 /** Template thinking levels for models the user has not given one yet. */
@@ -299,18 +289,25 @@ function missingThinkingLevels(settings: JsonObject, levels: Record<string, stri
 	return missing;
 }
 
-/** Template compaction overrides for models the user has no override for yet. */
-function missingCompactionOverrides(
-	settings: JsonObject,
-	overrides: Record<string, JsonObject>,
-): Record<string, JsonObject> {
+/** Keys of the legacy template compaction overrides still present, unchanged, in settings.json. */
+function legacyCompactionOverrides(settings: JsonObject): string[] {
 	const compaction = isPlainObject(settings.compaction) ? settings.compaction : {};
 	const current = isPlainObject(compaction.modelOverrides) ? compaction.modelOverrides : {};
-	const missing: Record<string, JsonObject> = {};
-	for (const [key, override] of Object.entries(overrides)) {
-		if (current[key] === undefined) missing[key] = override;
+	return LEGACY_COMPACTION_OVERRIDE_KEYS.filter((key) => jsonEquals(current[key], LEGACY_COMPACTION_OVERRIDE));
+}
+
+/** settings.json without the given compaction overrides; emptied containers go too. */
+function withoutCompactionOverrides(settings: JsonObject, keys: readonly string[]): JsonObject {
+	if (keys.length === 0 || !isPlainObject(settings.compaction) || !isPlainObject(settings.compaction.modelOverrides)) {
+		return settings;
 	}
-	return missing;
+	const modelOverrides: JsonObject = { ...settings.compaction.modelOverrides };
+	for (const key of keys) delete modelOverrides[key];
+	const compaction: JsonObject = { ...settings.compaction, modelOverrides };
+	if (Object.keys(modelOverrides).length === 0) delete compaction.modelOverrides;
+	const result: JsonObject = { ...settings, compaction };
+	if (Object.keys(compaction).length === 0) delete result.compaction;
+	return result;
 }
 
 export interface ModelsTemplatePlan {
@@ -322,8 +319,6 @@ export interface ModelsTemplatePlan {
 	settingsPatch: { defaultProvider: string; defaultModel: string };
 	/** Template thinking levels; only those still unset are written (re-checked at apply time). */
 	thinkingLevels: Record<string, string>;
-	/** Template compaction overrides; only those still unset are written (re-checked at apply time). */
-	compactionOverrides: Record<string, JsonObject>;
 	settingsChanges: SettingsChange[];
 	/** Providers still carrying a template placeholder, with the fields involved. */
 	placeholders: { providerId: string; fields: string[] }[];
@@ -382,8 +377,8 @@ export function planModelsTemplate(input: PlanModelsTemplateInput): ModelsTempla
 	for (const [key, level] of Object.entries(missingThinkingLevels(settings, template.modelThinkingLevels))) {
 		settingsChanges.push({ key: `modelThinkingLevels.${key}`, from: undefined, to: level });
 	}
-	for (const [key, override] of Object.entries(missingCompactionOverrides(settings, template.compactionOverrides))) {
-		settingsChanges.push({ key: `compaction.modelOverrides.${key}`, from: undefined, to: override });
+	for (const key of legacyCompactionOverrides(settings)) {
+		settingsChanges.push({ key: `compaction.modelOverrides.${key}`, from: LEGACY_COMPACTION_OVERRIDE, to: undefined });
 	}
 
 	const placeholders: ModelsTemplatePlan["placeholders"] = [];
@@ -418,10 +413,11 @@ export function planModelsTemplate(input: PlanModelsTemplateInput): ModelsTempla
 	}
 
 	if (settingsChanges.length > 0) {
-		lines.push(`~ settings.json: set ${settingsChanges.length} key(s)`);
+		lines.push(`~ settings.json: change ${settingsChanges.length} key(s)`);
 		for (const change of settingsChanges) {
 			const from = change.from === undefined ? "unset" : show(JSON.stringify(change.from));
-			lines.push(`    ${change.key}: ${from} -> ${JSON.stringify(change.to)}`);
+			const to = change.to === undefined ? "removed" : JSON.stringify(change.to);
+			lines.push(`    ${change.key}: ${from} -> ${to}`);
 		}
 	} else {
 		lines.push(`= settings.json: default is already ${settingsPatch.defaultProvider} / ${settingsPatch.defaultModel}`);
@@ -439,7 +435,6 @@ export function planModelsTemplate(input: PlanModelsTemplateInput): ModelsTempla
 		modelsExisted: existing.exists,
 		settingsPatch,
 		thinkingLevels: template.modelThinkingLevels,
-		compactionOverrides: template.compactionOverrides,
 		settingsChanges,
 		placeholders,
 		lines,
@@ -456,7 +451,8 @@ export interface ModelsTemplateApplyResult {
 /**
  * Write the plan. settings.json is re-read right before its merge so keys
  * changed since planning survive; only defaultProvider/defaultModel and
- * still-unset template thinking levels and compaction overrides are set.
+ * still-unset template thinking levels are set, and only legacy compaction
+ * overrides that still hold the old template value are removed.
  */
 export function applyModelsTemplate(plan: ModelsTemplatePlan): ModelsTemplateApplyResult {
 	// Parse settings.json first: if it broke since planning, fail before
@@ -477,9 +473,7 @@ export function applyModelsTemplate(plan: ModelsTemplatePlan): ModelsTemplateApp
 	const patch: JsonObject = { ...plan.settingsPatch };
 	const levels = missingThinkingLevels(settings, plan.thinkingLevels);
 	if (Object.keys(levels).length > 0) patch.modelThinkingLevels = levels;
-	const overrides = missingCompactionOverrides(settings, plan.compactionOverrides);
-	if (Object.keys(overrides).length > 0) patch.compaction = { modelOverrides: overrides };
-	const merged = deepMerge(settings, patch);
+	const merged = deepMerge(withoutCompactionOverrides(settings, legacyCompactionOverrides(settings)), patch);
 	if (!jsonEquals(merged, settings)) {
 		writeJsonObjectAtomic(plan.settingsPath, merged);
 		settingsWritten = true;

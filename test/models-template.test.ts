@@ -103,13 +103,24 @@ test("the shipped template has only placeholder endpoints and env-var keys, and 
 	assert.equal(template.defaultProvider, "anthropic-proxy");
 	assert.equal(template.defaultModel, "claude-opus-5-5");
 	assert.deepEqual(template.modelThinkingLevels, { "anthropic-proxy/claude-fable-5-1": "high" });
-	// Every 1M-context model compacts at 500k; the 272k models keep pi's default.
-	const document = template.document as { providers: Record<string, { models: { id: string; contextWindow: number }[] }> };
-	const oneMillion = Object.entries(document.providers).flatMap(([provider, entry]) =>
-		entry.models.filter((model) => model.contextWindow >= 1_000_000).map((model) => `${provider}/${model.id}`),
-	);
-	assert.deepEqual(Object.keys(template.compactionOverrides).sort(), oneMillion.sort());
-	for (const override of Object.values(template.compactionOverrides)) assert.deepEqual(override, { reserveTokens: 500000 });
+});
+
+test("the shipped template carries the subscription catalog", () => {
+	const document = loadModelsTemplate().document as {
+		providers: Record<string, { models: { id: string; contextWindow: number; thinkingLevelMap?: Record<string, string | null> }[] }>;
+	};
+	const ids = (provider: string) => document.providers[provider]!.models.map((model) => model.id);
+	assert.deepEqual(ids("openai-proxy"), ["gpt-6-astra", "gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-luna"]);
+	assert.deepEqual(ids("anthropic-proxy"), ["claude-fable-5-1", "claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"]);
+	assert.deepEqual(ids("deepseek-proxy"), ["deepseek-flash"]);
+	const model = (provider: string, id: string) => document.providers[provider]!.models.find((entry) => entry.id === id)!;
+	// Codex serves the GPT-6.1 models with a 500k default window, the others with 272k.
+	assert.equal(model("openai-proxy", "gpt-6.1-sol").contextWindow, 500000);
+	assert.equal(model("openai-proxy", "gpt-6.1-terra").contextWindow, 500000);
+	assert.equal(model("openai-proxy", "gpt-6-astra").contextWindow, 272000);
+	// Terra, unlike Sol, can turn reasoning off.
+	assert.equal(model("openai-proxy", "gpt-6.1-terra").thinkingLevelMap?.off, "none");
+	assert.equal(model("openai-proxy", "gpt-6.1-sol").thinkingLevelMap?.off, null);
 });
 
 test("base URLs are validated and trailing slashes dropped", () => {
@@ -159,7 +170,6 @@ test("filling every provider replaces models.json, sets defaults, and never show
 			defaultProvider: "openai-proxy",
 			defaultModel: "gpt-6.1-sol",
 			modelThinkingLevels: { "anthropic-proxy/claude-fable-5-1": "high" },
-			compaction: { modelOverrides: loadModelsTemplate().compactionOverrides },
 		});
 
 		// The template's default is offered first, for provider and model alike.
@@ -286,23 +296,33 @@ test("template thinking levels fill only models without one and never replace th
 	}
 });
 
-test("template compaction overrides fill only models without one and keep the user's compaction keys", async () => {
+test("legacy 500k compaction overrides are removed, the user's own compaction settings stay", async () => {
 	const dir = makeDir();
 	try {
+		const legacy = { reserveTokens: 500000 };
 		const mine = { reserveTokens: 300000, keepRecentTokens: 40000 };
 		writeFileSync(
 			join(dir, "settings.json"),
-			JSON.stringify({ compaction: { enabled: true, keepRecentTokens: 30000, modelOverrides: { "anthropic-proxy/claude-opus-5-5": mine } } }),
+			JSON.stringify({
+				compaction: {
+					enabled: true,
+					keepRecentTokens: 30000,
+					modelOverrides: {
+						"openai-proxy/gpt-6.1-sol": legacy,
+						"deepseek-proxy/deepseek-v4-pro": legacy,
+						"anthropic-proxy/claude-opus-5-5": mine,
+						"someone/else": legacy,
+					},
+				},
+			}),
 		);
 		const first = await run(dir, { selects: ["keep", "anthropic-proxy", "claude-opus-5-5"] });
 		const compaction = readJson(join(dir, "settings.json")).compaction;
 		assert.equal(compaction.enabled, true);
 		assert.equal(compaction.keepRecentTokens, 30000);
-		assert.deepEqual(compaction.modelOverrides["anthropic-proxy/claude-opus-5-5"], mine);
-		assert.deepEqual(compaction.modelOverrides["openai-proxy/gpt-6.1-sol"], { reserveTokens: 500000 });
-		assert.equal(compaction.modelOverrides["openai-proxy/gpt-6-astra"], undefined);
+		assert.deepEqual(compaction.modelOverrides, { "anthropic-proxy/claude-opus-5-5": mine, "someone/else": legacy });
 		const lines = first.recorded.confirmLines.flat();
-		assert.ok(lines.some((line) => line.includes('compaction.modelOverrides.openai-proxy/gpt-6.1-sol: unset -> {"reserveTokens":500000}')));
+		assert.ok(lines.some((line) => line.includes('compaction.modelOverrides.openai-proxy/gpt-6.1-sol: {"reserveTokens":500000} -> removed')));
 		assert.ok(!lines.some((line) => line.includes("compaction.modelOverrides.anthropic-proxy/claude-opus-5-5")));
 
 		// Converged: a second run changes nothing in settings.json.
@@ -314,25 +334,29 @@ test("template compaction overrides fill only models without one and keep the us
 	}
 });
 
-test("a malformed template compaction override is rejected", () => {
+test("removing the last legacy override drops the emptied compaction object", async () => {
+	const dir = makeDir();
+	try {
+		writeFileSync(
+			join(dir, "settings.json"),
+			JSON.stringify({ theme: "dark", compaction: { modelOverrides: { "anthropic-proxy/claude-fable-5-1": { reserveTokens: 500000 } } } }),
+		);
+		await run(dir, { selects: ["keep", "anthropic-proxy", "claude-opus-5-5"] });
+		assert.equal(readJson(join(dir, "settings.json")).compaction, undefined);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("a template that carries compaction settings is rejected", () => {
 	const dir = makeDir();
 	try {
 		writeFileSync(join(dir, "models.json"), JSON.stringify(loadModelsTemplate().document));
-		const write = (compaction: unknown) =>
-			writeFileSync(
-				join(dir, "settings.json"),
-				JSON.stringify({ defaultProvider: "anthropic-proxy", defaultModel: "claude-opus-5-5", compaction }),
-			);
-		write({ modelOverrides: { "anthropic-proxy/claude-nope": { reserveTokens: 1 } } });
-		assert.throws(() => loadModelsTemplate(dir), /no such model/);
-		write({ modelOverrides: { "openai-proxy/gpt-6-astra": { reserveTokens: 272000 } } });
-		assert.throws(() => loadModelsTemplate(dir), /below the model's contextWindow/);
-		write({ modelOverrides: { "openai-proxy/gpt-6-astra": { reserveTokens: -1 } } });
-		assert.throws(() => loadModelsTemplate(dir), /non-negative integer/);
-		write({ modelOverrides: { "openai-proxy/gpt-6-astra": { threshold: 5 } } });
-		assert.throws(() => loadModelsTemplate(dir), /unknown field/);
-		write({ enabled: false });
-		assert.throws(() => loadModelsTemplate(dir), /only carry modelOverrides/);
+		writeFileSync(
+			join(dir, "settings.json"),
+			JSON.stringify({ defaultProvider: "anthropic-proxy", defaultModel: "claude-opus-5-5", compaction: { modelOverrides: {} } }),
+		);
+		assert.throws(() => loadModelsTemplate(dir), /must not carry compaction/);
 	} finally {
 		rmSync(dir, { recursive: true, force: true });
 	}
@@ -348,7 +372,7 @@ test("a template thinking level the model cannot take is rejected", () => {
 				join(dir, "settings.json"),
 				JSON.stringify({ defaultProvider: "anthropic-proxy", defaultModel: "claude-opus-5-5", modelThinkingLevels: levels }),
 			);
-		write({ "anthropic-proxy/claude-opus-4-6": "xhigh" });
+		write({ "anthropic-proxy/claude-opus-5-5": "minimal" });
 		assert.throws(() => loadModelsTemplate(dir), /not supported/);
 		write({ "anthropic-proxy/claude-nope": "high" });
 		assert.throws(() => loadModelsTemplate(dir), /no such model/);
