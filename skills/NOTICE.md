@@ -1,17 +1,26 @@
 # Skills
 
-`grill-me` and `grilling` are adapted from Matt Pocock's [skills](https://github.com/mattpocock/skills)
-(`skills/productivity/grill-me` and `skills/productivity/grilling`, commit
-`49dd158d1076134a641b33efb035946536778336`, 2026-10-09). They are maintained here and are not
+`grill-me`, `grilling`, and `handoff` are adapted from Matt Pocock's [skills](https://github.com/mattpocock/skills)
+(`skills/productivity/grill-me`, `skills/productivity/grilling`, and `skills/productivity/handoff`, commit
+`59db609eb1e18aaf59b63284d0e52255aff0c63c`, 2026-10-27). They are maintained here and are not
 synced from upstream automatically; compare against upstream by hand when it changes.
 
-Changes from upstream:
+Changes from upstream in `grill-me` / `grilling`:
 
 - `grill-me` loads `grilling` by reading its SKILL.md instead of calling a `Skill` tool, which pi does not have.
 - `grilling` asks each round through the `ask_user_question` tool (at most 4 questions per call, the
   recommended answer as the first option) and keeps the numbered text format only as a fallback.
 - Fact finding uses the agent's own tools or `agent_bg` instead of a sub-agent tool.
 - The session ends with a summary of the settled decisions before asking for confirmation.
+
+Changes from upstream in `handoff`:
+
+- Suggested skills are named for the next agent to load from its skills list, since pi has no `Skill` tool.
+  The `argument-hint` field is dropped; arguments after `/skill:handoff` reach the skill as the user's request.
+- The file name says what the work is, and `.trellis/` specs, journal, and task plans count as artifacts to reference.
+- Claims the session did not verify are marked as assumptions (upstream gives this advice in its docs).
+- The reply ends with the path and how to continue in pi: `/new` plus a read instruction, a durable copy for
+  another place, or `agent_bg` for a side task.
 
 Upstream license:
 

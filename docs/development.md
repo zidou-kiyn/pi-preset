@@ -67,7 +67,7 @@ In this repository, `/preset-upstream [package... | mcp | skills | trellis]` ([`
 | `extensions/todo-nudge.ts` | A one-line reminder in a tool result when a todo task stays in_progress too long, and a note when a second task is started on top (see [Todo nudges](extensions.md#todo-nudges-extensionstodo-nudgets)). No command |
 | `extensions/inherit-model.ts` | `/new` keeps the model and thinking level you were just using instead of falling back to `defaultModel` (see below). No command, no UI |
 | `vendor/` | The vendored extensions (see [Extensions](extensions.md)) |
-| `skills/` | `grill-me` and `grilling` (see [Skills](../README.md#skills)) |
+| `skills/` | `grill-me`, `grilling`, and `handoff` (see [Skills](../README.md#skills)) |
 | `trellis-lite/` | trellis-lite's skills (loaded only in Trellis projects), its CLI, the migration prompt, and upstream baselines |
 | `templates/models.json`, `templates/settings.json` | The provider template (placeholder endpoints and keys) and its default provider/model |
 | `scripts/upstream.mjs`, `scripts/migrate-vendored.ts` | Upstream tracking and the 0.1 → 0.2 migration |

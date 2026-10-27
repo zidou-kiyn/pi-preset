@@ -16,9 +16,9 @@ Start from a clean working tree (`git status`); if it is dirty, stop and ask.
 - **chrome-devtools-mcp.** Only a version pin: `CHROME_DEVTOOLS_MCP_VERSION` in `src/manifest.ts`.
   - Compare it with `npm view chrome-devtools-mcp version`.
   - If newer, read the changelog for breaking changes, the flags and env we set, telemetry defaults, and Node requirements.
-- **Skills `grill-me` / `grilling`.** Record in `skills/NOTICE.md`; ported by hand (MIT).
+- **Skills `grill-me` / `grilling` / `handoff`.** Record in `skills/NOTICE.md`; ported by hand (MIT).
   - Clone or fetch a blobless bare clone at `~/.cache/pi-preset-upstream/github.com_mattpocock_skills`.
-  - Run `git diff <NOTICE commit>..HEAD -- skills/productivity/grill-me skills/productivity/grilling`.
+  - Run `git diff <NOTICE commit>..HEAD -- skills/productivity/grill-me skills/productivity/grilling skills/productivity/handoff`.
 - **trellis-lite.** Clean room: upstream is AGPL, so read for behavior only. Rules and decision log are in `docs/trellis-lite-upstream.md`.
   - Run `node scripts/check-upstream-trellis.mjs` (`--diff` for the watched paths).
 

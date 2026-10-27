@@ -23,7 +23,8 @@
     ],
     "skills": [
       "./skills/grill-me",
-      "./skills/grilling"
+      "./skills/grilling",
+      "./skills/handoff"
     ]
   },
   "scripts": {

@@ -1,6 +1,6 @@
 # pi-preset
 
-My [pi](https://pi.dev) environment as one pi package: a status bar, the extensions I work with (vendored and maintained here), two MCP servers, project memory for `.trellis/` projects, two skills, and a `models.json` template for OpenAI / Anthropic / DeepSeek relays.
+My [pi](https://pi.dev) environment as one pi package: a status bar, the extensions I work with (vendored and maintained here), two MCP servers, project memory for `.trellis/` projects, three skills, and a `models.json` template for OpenAI / Anthropic / DeepSeek relays.
 
 It sets up a new machine in two commands and ships no credentials. Updating this one package updates everything in it.
 
@@ -38,16 +38,20 @@ Details: [docs/setup.md](docs/setup.md) covers what the sync writes, the package
 | Browser | chrome-devtools MCP, called from codemode | automatic after sync | [mcp](docs/mcp.md) |
 | SSH | Termius hosts: exec and SFTP, secrets never shown to the model, approval modes | `/termius` | [mcp](docs/mcp.md#ssh-the-termius-mcp-server) |
 | Project memory | Specs, journal, and task plans in `.trellis/`, with path-scoped specs | `/trellis-lite`, `/trellis-lite-migrate` | [trellis-lite](docs/trellis-lite.md) |
-| Skills | Grill a plan until every decision is settled | `/skill:grill-me` | [below](#skills) |
+| Skills | Grill a plan until every decision is settled; hand a long session off to a fresh one | `/skill:grill-me`, `/skill:handoff` | [below](#skills) |
 
 ## Skills
 
-`grill-me` and `grilling` are adapted from Matt Pocock's [skills](https://github.com/mattpocock/skills) (MIT, see [`skills/NOTICE.md`](skills/NOTICE.md)):
+`grill-me`, `grilling`, and `handoff` are adapted from Matt Pocock's [skills](https://github.com/mattpocock/skills) (MIT, see [`skills/NOTICE.md`](skills/NOTICE.md)):
 
 - `/skill:grill-me` starts a session. It is hidden from the model's skill list.
 - The model also loads `grilling` on its own for "grill me"-style requests.
 
 Each round goes through `ask_user_question` with the recommended answer first. The model looks up facts itself and asks you only for decisions.
+
+- `/skill:handoff [what the next session is for]` writes a handoff document to the temp directory: what is done, what is next, decisions already made, and the skills to load. Existing specs, plans, and commits are referenced by path, not copied. It is hidden from the model's skill list.
+
+Use it when a session's context has grown large or the work moves elsewhere: run `/new` (the model is kept), then ask the new session to read the file it named. For a side task, start a background agent on the file and keep going. To stay in the same session, `/compact` is enough.
 
 ## Switches
 
