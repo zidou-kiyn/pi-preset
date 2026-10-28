@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import doubleEscape from "../extensions/double-escape.ts";
+import escapeOverSsh, { applyEscTimeout } from "../extensions/escape-over-ssh.ts";
 
 type Listener = (data: string) => { consume?: boolean; data?: string } | undefined;
 type Handler = (event: unknown, ctx: unknown) => void;
@@ -18,7 +18,7 @@ function setup(mode = "tui") {
 			},
 		},
 	};
-	doubleEscape(pi as never);
+	escapeOverSsh(pi as never);
 	return { start: () => handlers.get("session_start")!({}, ctx), shutdown: () => handlers.get("session_shutdown")!({}, ctx), listeners };
 }
 
@@ -75,4 +75,18 @@ test("one listener across session switches, none outside the TUI", () => {
 	const rpc = setup("rpc");
 	rpc.start();
 	assert.equal(rpc.listeners.size, 0);
+});
+
+test("inside tmux the Esc timeout drops to 10 ms; an explicit value and plain SSH are left alone", () => {
+	const tmux: NodeJS.ProcessEnv = { TMUX: "/tmp/tmux-1000/default,1,0", SSH_TTY: "/dev/pts/1" };
+	applyEscTimeout(tmux);
+	assert.equal(tmux.PI_TUI_ESC_TIMEOUT, "10");
+
+	const chosen: NodeJS.ProcessEnv = { TMUX: "/tmp/tmux-1000/default,1,0", PI_TUI_ESC_TIMEOUT: "40" };
+	applyEscTimeout(chosen);
+	assert.equal(chosen.PI_TUI_ESC_TIMEOUT, "40");
+
+	const ssh: NodeJS.ProcessEnv = { SSH_TTY: "/dev/pts/1" };
+	applyEscTimeout(ssh);
+	assert.equal(ssh.PI_TUI_ESC_TIMEOUT, undefined);
 });
