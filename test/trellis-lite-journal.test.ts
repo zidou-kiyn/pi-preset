@@ -10,6 +10,9 @@ import { appendJournal, type Git, journalHeader } from "../src/trellis-lite/jour
 import { parseArgs } from "../trellis-lite/bin/trellis-lite.ts";
 import { fakeCtx, fakePi, makeTree } from "./trellis-lite-fixtures.ts";
 
+// UI text is asserted in English whatever the system locale.
+process.env.PI_PRESET_LANG = "en";
+
 const git: Git = { branch: () => "dev", subject: (hash) => ({ abc1234: "feat: thing" })[hash] };
 
 const INDEX = `# Workspace Index - d

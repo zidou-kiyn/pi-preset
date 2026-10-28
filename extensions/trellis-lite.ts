@@ -40,6 +40,7 @@ import { confirmLinesWithUi } from "../src/preset-ui.ts";
 import { readTrellisConfig } from "../src/trellis-lite/config.ts";
 import { applyInit, developerId, gitToplevel, gitUserName, planInit } from "../src/trellis-lite/init.ts";
 import { today } from "../src/trellis-lite/journal.ts";
+import { messages } from "../src/trellis-lite/messages.ts";
 import { formatPlan } from "../src/trellis-lite/migrate/cli.ts";
 import { scanMigration } from "../src/trellis-lite/migrate/run.ts";
 import { detectLegacy, findProjectRoot, readDeveloper } from "../src/trellis-lite/root.ts";
@@ -65,6 +66,11 @@ const SKILL_PATHS = ["trellis-spec", "trellis-journal", "trellis-plan"].map((nam
 interface Project {
 	root: string;
 	legacy: string[];
+}
+
+/** The first old assets found, for a status line. */
+function legacyList(legacy: readonly string[]): string {
+	return `${legacy.slice(0, 3).join(", ")}${legacy.length > 3 ? ", …" : ""}`;
 }
 
 export default function trellisLite(pi: ExtensionAPI): void {
@@ -105,12 +111,7 @@ export default function trellisLite(pi: ExtensionAPI): void {
 		const found = project(ctx.cwd);
 		if (!found || found.legacy.length === 0 || legacyNotified || !ctx.hasUI) return;
 		legacyNotified = true;
-		ctx.ui.notify(
-			`trellis-lite is paused: old Trellis pi assets are installed (${found.legacy.slice(0, 3).join(", ")}${
-				found.legacy.length > 3 ? ", …" : ""
-			}). Run /trellis-lite-migrate to migrate.`,
-			"warning",
-		);
+		ctx.ui.notify(messages().legacyPausedNotice(legacyList(found.legacy)), "warning");
 	});
 
 	pi.on("before_agent_start", (event, ctx) => {
@@ -152,40 +153,40 @@ export default function trellisLite(pi: ExtensionAPI): void {
 	// ── /trellis-lite ───────────────────────────────────────────────────────
 
 	const statusLines = (cwd: string): string[] => {
+		const m = messages();
 		const found = project(cwd);
-		if (!found) return ["Not a Trellis project (no .trellis/ up to the repository root)."];
-		const lines = [`Project: ${found.root}`];
+		if (!found) return [m.notProject];
+		const lines = [m.project(found.root)];
 		if (found.legacy.length > 0) {
-			lines.push(`Paused: old Trellis assets are installed (${found.legacy.slice(0, 3).join(", ")}${found.legacy.length > 3 ? ", …" : ""}).`);
+			lines.push(m.paused(legacyList(found.legacy)));
 			return lines;
 		}
 		const text = snapshot ?? buildSnapshot(found.root, { specInjection: config.specInjection });
 		const { rules, problems } = (specIndex?.root === found.root ? specIndex : new SpecIndex(found.root)).scan();
-		lines.push(
-			`project-memory section: ${text.length} chars · path-scoped specs: ${rules.length}${config.specInjection ? "" : " (injection off)"}`,
-		);
-		if (!readDeveloper(found.root)) lines.push("No developer set yet (.trellis/.developer): initialize to start a journal.");
+		lines.push(m.sectionStats(text.length, rules.length, !config.specInjection));
+		if (!readDeveloper(found.root)) lines.push(m.noDeveloper);
 		for (const problem of problems) lines.push(`! ${problem.path}: ${problem.message}`);
-		if (injected?.size) lines.push(`Specs in context this session: ${[...injected.keys()].join(", ")}`);
+		if (injected?.size) lines.push(m.specsInContext([...injected.keys()].join(", ")));
 		return lines;
 	};
 
 	const init = async (ctx: ExtensionCommandContext): Promise<Notice | undefined> => {
+		const m = messages();
 		const root = project(ctx.cwd)?.root ?? gitToplevel(ctx.cwd) ?? ctx.cwd;
 		let developer = readDeveloper(root);
 		if (!developer) {
 			const suggested = developerId(gitUserName(root) ?? "");
-			const answer = ctx.hasUI ? await ctx.ui.input("Developer name (journal directory)", suggested) : suggested;
+			const answer = ctx.hasUI ? await ctx.ui.input(m.developerPrompt, suggested) : suggested;
 			developer = developerId(answer?.trim() || suggested);
-			if (!developer) return { text: "No developer name given; nothing created.", type: "warning" };
+			if (!developer) return { text: m.noDeveloperName, type: "warning" };
 		}
 		const steps = planInit(root, developer, today(), new Date().toISOString().slice(0, 19));
-		if (steps.length === 0) return { text: `${root} is already initialized.`, type: "info" };
-		const summary = steps.map((step) => `${step.append ? "append" : "create"} ${step.path}`);
-		if (ctx.hasUI && !(await ctx.ui.confirm("Initialize trellis-lite?", `${root}\n\n${summary.join("\n")}`))) return undefined;
+		if (steps.length === 0) return { text: m.alreadyInitialized(root), type: "info" };
+		const summary = steps.map((step) => (step.append ? m.stepAppend(step.path) : m.stepCreate(step.path)));
+		if (ctx.hasUI && !(await ctx.ui.confirm(m.initConfirmTitle, `${root}\n\n${summary.join("\n")}`))) return undefined;
 		applyInit(root, steps);
 		projects.clear();
-		return { text: `${summary.join("; ")}. Not committed (see git status). Run /reload to load the trellis-lite skills.`, type: "success" };
+		return { text: m.initDone(summary), type: "success" };
 	};
 
 	const migrationPlan = (cwd: string): string | undefined => {
@@ -201,19 +202,20 @@ export default function trellisLite(pi: ExtensionAPI): void {
 	};
 
 	const menuItems = (cwd: string): MenuItem[] => {
+		const m = messages();
 		const found = project(cwd);
 		const items: MenuItem[] = [];
 		if (!found || !readDeveloper(found.root)) {
-			items.push({ value: "init", label: "Initialize trellis-lite here", description: "Creates the missing .trellis/ skeleton (spec indexes, workspace, journal) after showing the file list. Nothing is committed." });
+			items.push({ value: "init", label: m.initLabel, description: m.initHelp });
 		}
 		if (found && found.legacy.length > 0) {
 			items.push(
-				{ value: "migrate", label: "Migrate from Trellis with the agent", description: "Sends the migration prompt: dry run first, then asks before every change. Closes this menu." },
-				{ value: "plan", label: "Show the migration plan", description: "Read-only: what the migration would move, keep, and remove." },
+				{ value: "migrate", label: m.migrateLabel, description: m.migrateHelp },
+				{ value: "plan", label: m.planLabel, description: m.planHelp },
 			);
 		}
 		if (found && found.legacy.length === 0) {
-			items.push({ value: "section", label: "Show the project-memory section", description: "The exact text added to the system prompt in this project." });
+			items.push({ value: "section", label: m.sectionLabel, description: m.sectionHelp });
 		}
 		return items;
 	};
@@ -232,12 +234,12 @@ export default function trellisLite(pi: ExtensionAPI): void {
 				if (startMigration(ctx.cwd)) return;
 			} else if (choice === "plan") {
 				const text = migrationPlan(ctx.cwd);
-				if (text) await confirmLinesWithUi(ctx, "Migration plan (read-only)", text.split("\n"));
+				if (text) await confirmLinesWithUi(ctx, messages().planTitle, text.split("\n"));
 			} else if (choice === "section") {
 				const found = project(ctx.cwd);
 				if (found) {
 					const text = snapshot ?? buildSnapshot(found.root, { specInjection: config.specInjection });
-					await confirmLinesWithUi(ctx, `project-memory section (${text.length} chars)`, text.split("\n"));
+					await confirmLinesWithUi(ctx, messages().sectionTitle(text.length), text.split("\n"));
 				}
 			}
 		}
@@ -272,17 +274,17 @@ export default function trellisLite(pi: ExtensionAPI): void {
 			}
 			if (sub === "migrate") {
 				const text = migrationPlan(ctx.cwd);
-				ctx.ui.notify(text ? `${text}\n\nRun /trellis-lite-migrate to carry it out with the agent.` : "Not a Trellis project; nothing to migrate.", "info");
+				ctx.ui.notify(text ? `${text}\n\n${messages().migrateHint}` : messages().nothingToMigrate, "info");
 				return;
 			}
-			ctx.ui.notify(`Unknown subcommand "${sub}". Use status, init, or migrate.`, "warning");
+			ctx.ui.notify(messages().unknownSubcommand(sub), "warning");
 		},
 	});
 
 	pi.registerCommand("trellis-lite-migrate", {
 		description: "Migrate this project from Trellis to trellis-lite with the agent (dry run first, asks before every change)",
 		handler: async (_args, ctx) => {
-			if (!startMigration(ctx.cwd)) ctx.ui.notify("Not a Trellis project; nothing to migrate.", "info");
+			if (!startMigration(ctx.cwd)) ctx.ui.notify(messages().nothingToMigrate, "info");
 		},
 	});
 }

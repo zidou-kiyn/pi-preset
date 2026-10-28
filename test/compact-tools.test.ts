@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { LineCapComponent, readLineBudget, withLineCap } from "../src/compact-tools.ts";
 
+// UI text is asserted in English whatever the system locale.
+process.env.PI_PRESET_LANG = "en";
+
 class Lines {
 	invalidated = 0;
 	lines: string[];

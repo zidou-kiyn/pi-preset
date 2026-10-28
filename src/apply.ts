@@ -14,6 +14,7 @@ import { deepMerge, type JsonObject, type JsonValue, readJsonObject, writeJsonOb
 import { packageEntrySource, packageIdentity, type Step, type SyncPlan } from "./plan.ts";
 import { sanitizeTerminalText } from "./terminal-text.ts";
 import { applyPrivatePermissions, formatMode } from "./permissions.ts";
+import { messages } from "./pi-preset-messages.ts";
 
 export interface StepResult {
 	kind: Step["kind"];
@@ -58,13 +59,13 @@ function applyPackages(step: Extract<Step, { kind: "settings.packages.add" }>): 
 		// pi installed them between plan and apply. Writing anyway would rewrite a
 		// credential-bearing file, bump its mtime, and clobber a good .preset-bak
 		// with an identical one, all to change nothing.
-		return "settings.json: already up to date, nothing written";
+		return messages().applyPackagesUnchanged;
 	}
 	existing.push(...appended);
 
 	// Top-level key with array semantics: a plain override, not a deep merge.
 	writeJsonObjectAtomic(step.settingsPath, { ...settings, packages: existing });
-	return `settings.json: added ${appended.length} package(s)`;
+	return messages().applyPackagesAdded(appended.length);
 }
 
 /** Deletes a removed package's installed files. Injectable so tests never spawn pi. */
@@ -152,7 +153,7 @@ async function applyPackagesRemove(
 	// Re-read immediately before acting, exactly like the add step.
 	const before = targetedEntries(step.settingsPath, identities);
 	if (before.removed.length === 0) {
-		return "settings.json: packages to remove already gone, nothing written";
+		return messages().applyRemovedGone;
 	}
 
 	// `pi remove` first, while the entry still exists: it deletes the installed
@@ -181,9 +182,10 @@ async function applyPackagesRemove(
 	}
 
 	const sources = before.removed.map((entry) => entry.source);
-	const message = `settings.json: removed ${uninstalled.size} package(s): ${sources.join(", ")}`;
-	if (failures.length === 0) return `${message}; installed files deleted`;
-	return `${message}; installed files may remain (run \`pi remove <source>\` to clean up): ${failures.join("; ")}`;
+	const m = messages();
+	const message = m.applyRemoved(uninstalled.size, sources.join(", "));
+	if (failures.length === 0) return m.applyFilesDeleted(message);
+	return m.applyFilesRemain(message, failures.join("; "));
 }
 
 function applyJsonPatch(step: Extract<Step, { kind: "json.patch" }>): string {
@@ -193,17 +195,17 @@ function applyJsonPatch(step: Extract<Step, { kind: "json.patch" }>): string {
 	const merged = deepMerge(config, step.patch);
 
 	writeJsonObjectAtomic(step.configPath, merged);
-	return `${step.targetId}: set ${step.changes.map((change) => change.key).join(", ")}`;
+	return messages().applySetKeys(step.targetId, step.changes.map((change) => change.key).join(", "));
 }
 
 function applyFooterDemote(step: Extract<Step, { kind: "footer.demote" }>): string {
 	if (!existsSync(step.from)) {
-		return "footer: local copy already gone";
+		return messages().applyFooterGone;
 	}
 	mkdirSync(dirname(step.to), { recursive: true });
 	// Move, never delete: this may be the only copy of a hand-written footer.
 	renameSync(step.from, step.to);
-	return `footer: moved local copy to ${step.to}`;
+	return messages().applyFooterMoved(step.to);
 }
 
 async function runStep(step: Step, options: ApplyOptions): Promise<string> {
@@ -219,8 +221,8 @@ async function runStep(step: Step, options: ApplyOptions): Promise<string> {
 		case "permissions.private": {
 			const done = applyPrivatePermissions(step.changes);
 			return done.length === 0
-				? "permissions: already private"
-				: `permissions: ${done.map((change) => `${change.path} ${formatMode(change.from)}->${formatMode(change.to)}`).join(", ")}`;
+				? messages().applyPermissionsPrivate
+				: messages().applyPermissions(done.map((change) => `${change.path} ${formatMode(change.from)}->${formatMode(change.to)}`).join(", "));
 		}
 	}
 }
@@ -246,7 +248,7 @@ export async function apply(syncPlan: SyncPlan, options: ApplyOptions = {}): Pro
 export function renderApplyResult(result: ApplyResult): string {
 	const lines = result.results.map((entry) => `${entry.ok ? "ok  " : "FAIL"} ${entry.kind}: ${entry.message}`);
 	if (result.skipped > 0) {
-		lines.push(`--   ${result.skipped} later step(s) skipped after the failure above`);
+		lines.push(`--   ${messages().applySkipped(result.skipped)}`);
 	}
 	return lines.join("\n");
 }

@@ -60,7 +60,7 @@ In this repository, `/preset-upstream [package... | mcp | skills | trellis]` ([`
 | `extensions/vibrant-footer.ts` | The status bar. Toggle with `/vibrant-footer` |
 | `extensions/pi-preset.ts` | The `/pi-preset` control panel: sync state on top; sync, the models.json template, and the font-install prompt. The menu itself is `src/preset-menu.ts`, shared with `/termius` and `/trellis-lite` |
 | `extensions/compact-tools.ts` | Caps collapsed `edit` rows (see [Tool rows](extensions.md#tool-rows-extensionscompact-toolsts)). No command |
-| `extensions/termius.ts` | Installs and registers the Termius MCP server, `/termius`, approval modes, and the local guard (see [SSH](mcp.md#ssh-the-termius-mcp-server)) |
+| `extensions/termius.ts` | Installs and registers the Termius MCP server, `/termius`, per-host access levels and routes, the activity log, and the local guard; the parts live in `src/termius/` (see [SSH](mcp.md#ssh-the-termius-mcp-server) and [termius-design.md](termius-design.md)) |
 | `extensions/cache-retention.ts` | Defaults `PI_CACHE_RETENTION` to `long` inside pi (1h Anthropic cache TTL, 24h OpenAI Responses retention) so it applies even in shells that never sourced your rc file. An explicit value in the environment wins. No command, no UI |
 | `extensions/idle-keepwarm.ts` | Keeps the Anthropic prompt cache warm while pi's UI stays open and idle, past pi's own 30-minute idle limit (see below). Status bar segment `keepwarm`, no command |
 | `extensions/trellis-lite.ts` | Project memory for `.trellis/` projects: spec, journal, light task plans (see [trellis-lite](trellis-lite.md)). `/trellis-lite`, `/trellis-lite-migrate` |

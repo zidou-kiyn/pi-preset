@@ -29,6 +29,7 @@ import {
 } from "./manifest.ts";
 import { getDisabledExtensionsDir, getLegacySkillRoots, getSettingsPath, getUserExtensionsDir } from "./paths.ts";
 import { formatMode, type PermissionChange, planPrivatePermissions } from "./permissions.ts";
+import { messages } from "./pi-preset-messages.ts";
 import { sanitizeTerminalText } from "./terminal-text.ts";
 
 // ── package source identity ─────────────────────────────────────────────────
@@ -318,7 +319,7 @@ function planPackages(plan: SyncPlan, extraPackages: readonly string[], keep: re
 	const rawPackages = settings.packages;
 	const existing = Array.isArray(rawPackages) ? rawPackages : [];
 	if (rawPackages !== undefined && !Array.isArray(rawPackages)) {
-		plan.blockers.push(`settings.json: "packages" is not an array; refusing to touch it`);
+		plan.blockers.push(`settings.json: ${messages().planNotArray}`);
 		return;
 	}
 
@@ -352,7 +353,7 @@ function planPackages(plan: SyncPlan, extraPackages: readonly string[], keep: re
 			continue;
 		}
 		if (keep === undefined || protectedIdentities.has(identity)) continue;
-		const reason = optionalIdentities.has(identity) ? "optional, unchecked" : "not in preset, not kept";
+		const reason = optionalIdentities.has(identity) ? messages().removeOptionalUnchecked : messages().removeNotKept;
 		remove.push({ source, identity, reason });
 	}
 	if (remove.length > 0) {
@@ -363,14 +364,14 @@ function planPackages(plan: SyncPlan, extraPackages: readonly string[], keep: re
 
 	if (missing.length === 0) {
 		if (desired.length > 0) {
-			plan.notes.push({ level: "ok", text: `packages: all ${desired.length} already in settings.json` });
+			plan.notes.push({ level: "ok", text: messages().planAllPresent(desired.length) });
 		}
 		return;
 	}
 
 	const alreadyThere = desired.length - missing.length;
 	if (alreadyThere > 0) {
-		plan.notes.push({ level: "ok", text: `packages: ${alreadyThere} already present` });
+		plan.notes.push({ level: "ok", text: messages().planSomePresent(alreadyThere) });
 	}
 	plan.steps.push({ kind: "settings.packages.add", settingsPath, missing });
 }
@@ -401,7 +402,7 @@ function planJsonPatches(plan: SyncPlan): void {
 		}
 
 		if (matching > 0) {
-			plan.notes.push({ level: "ok", text: `${target.id}: ${matching} key(s) already match` });
+			plan.notes.push({ level: "ok", text: messages().planKeysMatch(target.id, matching) });
 		}
 		if (changes.length === 0) continue;
 
@@ -432,7 +433,7 @@ function planLegacySkills(plan: SyncPlan): void {
 	if (found.length === 0) return;
 	plan.notes.push({
 		level: "warn",
-		text: `skills: ${found.join(", ")} shadow the bundled copies; run node <pi-preset>/scripts/migrate-vendored.ts to remove them`,
+		text: messages().planLegacySkills(found.join(", ")),
 	});
 }
 
@@ -477,12 +478,13 @@ export async function plan(options: PlanOptions = {}): Promise<SyncPlan> {
 
 /** Render a plan as the confirmation body / non-interactive report. */
 export function renderPlan(syncPlan: SyncPlan): string {
+	const m = messages();
 	const lines: string[] = [];
 
 	for (const step of syncPlan.steps) {
 		switch (step.kind) {
 			case "settings.packages.remove":
-				lines.push(`- settings.json packages[]: remove ${step.remove.length}`);
+				lines.push(`- ${m.planRemovePackages(step.remove.length)}`);
 				// The source string comes from settings.json, not the manifest.
 				for (const removal of step.remove) {
 					const source = sanitizeTerminalText(removal.source, 500).replace(/\n+/g, " ");
@@ -490,28 +492,28 @@ export function renderPlan(syncPlan: SyncPlan): string {
 				}
 				break;
 			case "settings.packages.add":
-				lines.push(`+ settings.json packages[]: add ${step.missing.length}`);
+				lines.push(`+ ${m.planAddPackages(step.missing.length)}`);
 				for (const source of step.missing) lines.push(`    ${source}`);
 				break;
 			case "json.patch":
-				lines.push(`~ ${step.targetId}: set ${step.changes.length} key(s)`);
+				lines.push(`~ ${m.planSetKeys(step.targetId, step.changes.length)}`);
 				for (const change of step.changes) {
-					const from = change.from === undefined ? "unset" : JSON.stringify(change.from);
+					const from = change.from === undefined ? m.planUnset : JSON.stringify(change.from);
 					lines.push(`    ${change.key}: ${from} -> ${JSON.stringify(change.to)}`);
 				}
 				if (step.why) lines.push(`    (${step.why})`);
 				break;
 			case "footer.demote":
-				lines.push("~ local vibrant-footer would double-load: move it aside");
+				lines.push(`~ ${m.planFooterDemote}`);
 				lines.push(`    ${step.from}`);
 				lines.push(`    -> ${step.to}`);
 				break;
 			case "permissions.private":
-				lines.push(`~ permissions: ${step.changes.length} path(s) readable by other users`);
+				lines.push(`~ ${m.planPermissions(step.changes.length)}`);
 				for (const change of step.changes) {
 					lines.push(`    ${sanitizeTerminalText(change.path, 300)}  ${formatMode(change.from)} -> ${formatMode(change.to)}`);
 				}
-				lines.push("    (API keys, MCP config, and session transcripts live here)");
+				lines.push(`    (${m.planPermissionsWhy})`);
 				break;
 		}
 	}
@@ -522,9 +524,9 @@ export function renderPlan(syncPlan: SyncPlan): string {
 	}
 
 	for (const blocker of syncPlan.blockers) {
-		lines.push(`! blocked: ${blocker}`);
+		lines.push(`! ${m.planBlocked(blocker)}`);
 	}
 
-	if (lines.length === 0) lines.push("nothing to do");
+	if (lines.length === 0) lines.push(m.planNothing);
 	return lines.join("\n");
 }

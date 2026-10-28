@@ -9,6 +9,9 @@ import { jsonEquals } from "../src/json-merge.ts";
 import { CHROME_DEVTOOLS_MCP_VERSION, JSON_PATCHES } from "../src/manifest.ts";
 import { plan, type PlanOptions, type Step } from "../src/plan.ts";
 
+// UI text is asserted in English whatever the system locale.
+process.env.PI_PRESET_LANG = "en";
+
 function makeAgentDir(): string {
 	return mkdtempSync(join(tmpdir(), "pi-preset-json-patch-test-"));
 }

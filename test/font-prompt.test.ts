@@ -3,6 +3,9 @@ import { test } from "node:test";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { FONT_INSTALL_PROMPT, sendFontInstallPrompt } from "../src/font-prompt.ts";
 
+// UI text is asserted in English whatever the system locale.
+process.env.PI_PRESET_LANG = "en";
+
 function setup(options: { model: boolean; idle: boolean }) {
 	const sent: { content: unknown; options: unknown }[] = [];
 	const notifications: string[] = [];

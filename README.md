@@ -15,6 +15,7 @@ Restart pi and run `/pi-preset`, the control panel:
 1. **Sync preset**: config keys, the chrome-devtools MCP server, and `packages[]` cleanup. It shows a diff and writes nothing until you confirm. Restart pi afterwards.
 2. **Apply models.json template**: providers, models, and the default model. See [docs/models.md](docs/models.md).
 3. **Install the Maple Mono Normal NF CN font (ask pi)**: the status bar needs a Nerd Font.
+4. **Language**: the preset's own menus and messages in English or Chinese (see [Language](#language)).
 
 For SSH through your Termius hosts, open `/termius` once: it installs the server, then sign in from the same menu.
 
@@ -36,7 +37,7 @@ Details: [docs/setup.md](docs/setup.md) covers what the sync writes, the package
 | Models | `/new` keeps the current model; Codex `apply_patch` for OpenAI | automatic | [extensions](docs/extensions.md) |
 | Status bar | Context, tokens, cache, cost, TTL, MCP | `/vibrant-footer` | [extensions](docs/extensions.md#reading-the-status-bar) |
 | Browser | chrome-devtools MCP, called from codemode | automatic after sync | [mcp](docs/mcp.md) |
-| SSH | Termius hosts: exec and SFTP, secrets never shown to the model, approval modes | `/termius` | [mcp](docs/mcp.md#ssh-the-termius-mcp-server) |
+| SSH | Termius hosts: exec and SFTP, secrets never shown to the model, per-host access levels and routes, activity log | `/termius` | [mcp](docs/mcp.md#ssh-the-termius-mcp-server) |
 | Project memory | Specs, journal, and task plans in `.trellis/`, with path-scoped specs | `/trellis-lite`, `/trellis-lite-migrate` | [trellis-lite](docs/trellis-lite.md) |
 | Skills | Grill a plan until every decision is settled; hand a long session off to a fresh one | `/skill:grill-me`, `/skill:handoff` | [below](#skills) |
 
@@ -53,6 +54,10 @@ Each round goes through `ask_user_question` with the recommended answer first. T
 
 Use it when a session's context has grown large or the work moves elsewhere: run `/new` (the model is kept), then ask the new session to read the file it named. For a side task, start a background agent on the file and keep going. To stay in the same session, `/compact` is enough.
 
+## Language
+
+The preset's own menus, dialogs, and messages (`/pi-preset`, `/termius`, `/trellis-lite`, the status bar's words) come in English and Chinese. By default they follow the system locale (`LC_ALL`, `LC_MESSAGES`, `LANG`); **Language** in `/pi-preset` (or `/pi-preset language auto|en|zh`) picks one for good, saved in `~/.pi/agent/pi-preset/settings.json`, and `PI_PRESET_LANG=en|zh` overrides both. pi's own UI and the vendored extensions stay English, and so does everything the model reads (tool descriptions, prompts, block reasons), so switching the language never changes what the agent sees.
+
 ## Switches
 
 | Variable | Default | Effect |
@@ -64,6 +69,7 @@ Use it when a session's context has grown large or the work moves elsewhere: run
 | `PI_PRESET_BG_CHECK` | `300` seconds | When a background job with no `expected_seconds` first checks in with the agent; `off` disables check-ins |
 | `PI_PRESET_EDIT_LINES` | `16` | Lines in a collapsed `edit` row; `off` shows the full diff |
 | `PI_PRESET_FOOTER_LABELS` | off | `1` shows word labels in the status bar |
+| `PI_PRESET_LANG` | system locale | `en` or `zh` for the preset's own UI, over the `/pi-preset` choice |
 | `PI_PRESET_TRELLIS` / `_SPECS` | on | `off` disables trellis-lite, or only its path-scoped specs |
 
 Any bundled extension can also be unticked in `pi config`.

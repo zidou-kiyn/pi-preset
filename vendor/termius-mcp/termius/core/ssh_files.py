@@ -9,7 +9,7 @@ from .exceptions import TermiusException
 from .ssh_control import (
     Deadline, Watchdog, check_cancel, close_quiet,
 )
-from .ssh_exec import connect_host
+from .ssh_exec import AUTO_PROXY, connect_host
 
 MAX_CONTENT = 200000
 MAX_TRANSFER = 50 * 1024 * 1024
@@ -314,18 +314,21 @@ def _run_sftp(client, handler, path, extra):
         close_quiet(sftp)
 
 
-def _with_host_meta(payload, target, username, action):
+def _with_host_meta(payload, target, username, action, route=None):
     payload['host'] = target.label
     payload['address'] = target.address
     payload['username'] = username
     payload['action'] = action
+    payload['route'] = list(route or []) or ['direct']
     payload.setdefault('ok', True)
     return payload
 
 
 def run_file_action(target, action, path, timeout=60, extra=None,
-                    route=None, cancel=None):
+                    route=None, cancel=None, proxy=AUTO_PROXY):
     """Run one SFTP action on ``target``, through ``route`` when given.
+
+    ``route`` and ``proxy`` are as for ``connect_host``.
 
     ``timeout`` caps the whole call: connect (every hop) plus transfer.
     When it passes, the connection is closed and SshFileError is raised.
@@ -340,6 +343,7 @@ def run_file_action(target, action, path, timeout=60, extra=None,
     deadline = Deadline(timeout)
     client, username = connect_host(
         target, timeout=timeout, route=route, cancel=cancel, deadline=deadline,
+        proxy=proxy,
     )
     key = cancel.register(client) if cancel is not None else None
     # Closing the routed client also closes its jump hosts.
@@ -361,4 +365,6 @@ def run_file_action(target, action, path, timeout=60, extra=None,
         if cancel is not None:
             cancel.unregister(key)
         close_quiet(client)
-    return _with_host_meta(payload, target, username, action)
+    return _with_host_meta(
+        payload, target, username, action, getattr(client, 'route', None),
+    )

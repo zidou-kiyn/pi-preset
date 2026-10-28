@@ -29,6 +29,8 @@ import {
 	validateBaseUrl,
 } from "./models-template.ts";
 import { getModelsPath, getSettingsPath } from "./paths.ts";
+import { messages } from "./pi-preset-messages.ts";
+import type { FlowOutcome } from "./preset-menu.ts";
 import {
 	confirmLinesWithUi,
 	type DescribedOption,
@@ -56,8 +58,7 @@ const DEFAULT_IO: ModelsTemplateIO = {
 	select: selectDescribedWithUi,
 	input: (ctx, title, placeholder) => ctx.ui.input(title, placeholder),
 	secret: promptMaskedWithUi,
-	confirm: (ctx, title, lines) =>
-		confirmLinesWithUi(ctx, title, lines, "Review the changes. API keys are never shown."),
+	confirm: (ctx, title, lines) => confirmLinesWithUi(ctx, title, lines, messages().modelsReviewSubtitle),
 };
 
 const FILL_NOW = "fill";
@@ -96,9 +97,11 @@ async function promptBaseUrl(
 	providerId: string,
 	fallback: ProviderValues,
 ): Promise<string | undefined> {
-	const keep = fallback.baseUrlSource === "current" ? "keep current" : "keep placeholder";
+	const m = messages();
+	const placeholder =
+		fallback.baseUrlSource === "current" ? m.baseUrlKeepCurrent(fallback.baseUrl) : m.baseUrlKeepPlaceholder(fallback.baseUrl);
 	for (;;) {
-		const value = await io.input(ctx, `${providerId}: base URL`, `empty = ${keep} ${fallback.baseUrl}`);
+		const value = await io.input(ctx, m.baseUrlTitle(providerId), placeholder);
 		if (value === undefined) return undefined;
 		if (value.trim() === "") return "";
 		const error = validateBaseUrl(value);
@@ -108,13 +111,14 @@ async function promptBaseUrl(
 }
 
 function keyHint(fallback: ProviderValues): string {
+	const m = messages();
 	const empty =
 		fallback.apiKeySource === "current"
 			? isEnvReference(fallback.apiKey)
-				? `keep the current reference ${fallback.apiKey}`
-				: "keep the current key"
-			: `keep the placeholder ${fallback.apiKey} (pi then reads the key from that environment variable)`;
-	return `Hidden while you type. Empty = ${empty}. A value like $NAME is read from that environment variable.`;
+				? m.keyKeepReference(fallback.apiKey)
+				: m.keyKeepCurrent
+			: m.keyKeepPlaceholder(fallback.apiKey);
+	return m.keyHint(empty);
 }
 
 function providerOptions(template: ModelsTemplate, values: Record<string, ProviderValues>): DescribedOption[] {
@@ -127,10 +131,10 @@ function providerOptions(template: ModelsTemplate, values: Record<string, Provid
 		const unfilled = value.baseUrlSource === "template" || value.apiKeySource === "template";
 		return {
 			id: provider.id,
-			label: provider.id === template.defaultProvider ? `${provider.id}  (preset default)` : provider.id,
+			label: provider.id === template.defaultProvider ? `${provider.id}  ${messages().presetDefault}` : provider.id,
 			description: [
 				`${provider.api}: ${provider.models.map((model) => model.name).join(", ")}`,
-				unfilled ? "Still has a placeholder endpoint or key." : "",
+				unfilled ? messages().stillPlaceholder : "",
 			]
 				.filter(Boolean)
 				.join("\n"),
@@ -147,18 +151,23 @@ function modelOptions(template: ModelsTemplate, providerId: string): DescribedOp
 	];
 	return ordered.map((model) => ({
 		id: model.id,
-		label: model.id === template.defaultModel && providerId === template.defaultProvider ? `${model.name}  (preset default)` : model.name,
+		label:
+			model.id === template.defaultModel && providerId === template.defaultProvider
+				? `${model.name}  ${messages().presetDefault}`
+				: model.name,
 		description: `${providerId}/${model.id}`,
 	}));
 }
 
+/** Resolves "nothing-written" when the flow was cancelled or had nothing to write. */
 export async function runPresetModelsTemplate(
 	ctx: ExtensionCommandContext,
 	dependencies: ModelsTemplateDependencies = {},
-): Promise<void> {
+): Promise<FlowOutcome> {
+	const m = messages();
 	if (ctx.mode !== "tui") {
-		report(ctx, "pi-preset models: applying the template requires interactive TUI mode; nothing was written", "error");
-		return;
+		report(ctx, m.modelsNeedsTui, "error");
+		return "nothing-written";
 	}
 	const io: ModelsTemplateIO = { ...DEFAULT_IO, ...dependencies.io };
 
@@ -166,8 +175,8 @@ export async function runPresetModelsTemplate(
 	try {
 		template = (dependencies.loadTemplate ?? loadModelsTemplate)();
 	} catch (error) {
-		report(ctx, `pi-preset models: cannot load the template: ${(error as Error).message}`, "error");
-		return;
+		report(ctx, m.modelsLoadFailed((error as Error).message), "error");
+		return "nothing-written";
 	}
 
 	const modelsPath = dependencies.getModelsPath?.() ?? getModelsPath();
@@ -175,28 +184,27 @@ export async function runPresetModelsTemplate(
 	const existing = readExistingModels(modelsPath);
 	const values = fallbackValues(template, existing);
 
-	const mode = await io.select(ctx, "Apply models.json template", [
+	const mode = await io.select(ctx, m.modelsTitle, [
 		{
 			id: FILL_NOW,
-			label: "Fill in base URL and API key for each provider",
-			description: `Prompts for ${template.providers.map((provider) => provider.id).join(", ")}. Leave a prompt empty to keep the current value, or the placeholder when there is none.`,
+			label: m.modelsFillLabel,
+			description: m.modelsFillHelp(template.providers.map((provider) => provider.id).join(", ")),
 		},
 		{
 			id: KEEP,
-			label: "Keep current values / placeholders",
-			description:
-				"Writes the template without prompting. Providers already in models.json keep their endpoint and key; new ones get a placeholder URL and a $ENV_VAR key you can fill in later.",
+			label: m.modelsKeepLabel,
+			description: m.modelsKeepHelp,
 		},
 	]);
-	if (mode === undefined) return;
+	if (mode === undefined) return "nothing-written";
 
 	if (mode === FILL_NOW) {
 		for (const provider of template.providers) {
 			const fallback = values[provider.id]!;
 			const baseUrl = await promptBaseUrl(ctx, io, provider.id, fallback);
-			if (baseUrl === undefined) return;
-			const apiKey = await io.secret(ctx, `${provider.id}: API key`, keyHint(fallback));
-			if (apiKey === undefined) return;
+			if (baseUrl === undefined) return "nothing-written";
+			const apiKey = await io.secret(ctx, m.apiKeyTitle(provider.id), keyHint(fallback));
+			if (apiKey === undefined) return "nothing-written";
 			values[provider.id] = {
 				baseUrl: baseUrl === "" ? fallback.baseUrl : baseUrl,
 				baseUrlSource: baseUrl === "" ? fallback.baseUrlSource : "entered",
@@ -206,31 +214,27 @@ export async function runPresetModelsTemplate(
 		}
 	}
 
-	const defaultProvider = await io.select(ctx, "Default provider (settings.json defaultProvider)", providerOptions(template, values));
-	if (defaultProvider === undefined) return;
-	const defaultModel = await io.select(
-		ctx,
-		`Default model of ${defaultProvider} (settings.json defaultModel)`,
-		modelOptions(template, defaultProvider),
-	);
-	if (defaultModel === undefined) return;
+	const defaultProvider = await io.select(ctx, m.defaultProviderTitle, providerOptions(template, values));
+	if (defaultProvider === undefined) return "nothing-written";
+	const defaultModel = await io.select(ctx, m.defaultModelTitle(defaultProvider), modelOptions(template, defaultProvider));
+	if (defaultModel === undefined) return "nothing-written";
 
 	let plan: ModelsTemplatePlan;
 	try {
 		plan = planModelsTemplate({ template, values, defaultProvider, defaultModel, modelsPath, settingsPath, existing });
 	} catch (error) {
-		report(ctx, `pi-preset models: ${(error as Error).message}; nothing was written`, "error");
-		return;
+		report(ctx, m.modelsPlanFailed((error as Error).message), "error");
+		return "nothing-written";
 	}
 
 	if (!plan.modelsChanged && plan.settingsChanges.length === 0) {
-		ctx.ui.notify("pi-preset models: models.json and the defaults already match; nothing was written", "info");
-		return;
+		ctx.ui.notify(m.modelsAlreadyMatch, "info");
+		return "nothing-written";
 	}
 
-	if (!(await io.confirm(ctx, "Apply models template?", plan.lines))) {
-		ctx.ui.notify("pi-preset models: cancelled, nothing was written", "info");
-		return;
+	if (!(await io.confirm(ctx, m.modelsConfirmTitle, plan.lines))) {
+		ctx.ui.notify(m.modelsCancelled, "info");
+		return "nothing-written";
 	}
 
 	const queue = dependencies.withMutationQueue ?? withFileMutationQueue;
@@ -239,23 +243,21 @@ export async function runPresetModelsTemplate(
 	try {
 		result = await queue(modelsPath, () => queue(settingsPath, async () => apply(plan)));
 	} catch (error) {
-		report(ctx, `pi-preset models: ${(error as Error).message || "write failed"}`, "error");
-		return;
+		report(ctx, m.modelsWriteFailed((error as Error).message || m.modelsWriteFailedUnknown), "error");
+		return "nothing-written";
 	}
 
 	const lines: string[] = [];
-	if (result.modelsWritten) {
-		lines.push(
-			`models.json replaced from the template${plan.modelsExisted ? " (previous file: models.json.preset-bak)" : ""}. Open /model to load it; no restart needed.`,
-		);
-	}
-	if (result.settingsWritten) {
-		lines.push(`Default set to ${defaultProvider}/${defaultModel}; it applies from the next pi start.`);
-	}
+	if (result.modelsWritten) lines.push(m.modelsReplaced(plan.modelsExisted));
+	if (result.settingsWritten) lines.push(m.modelsDefaultSet(`${defaultProvider}/${defaultModel}`));
 	if (plan.placeholders.length > 0) {
 		lines.push(
-			`Still placeholders: ${plan.placeholders.map((entry) => `${entry.providerId} (${entry.fields.join(", ")})`).join("; ")}. Run this again or edit ${modelsPath}.`,
+			m.modelsStillPlaceholders(
+				plan.placeholders.map((entry) => `${entry.providerId} (${entry.fields.join(", ")})`).join("; "),
+				modelsPath,
+			),
 		);
 	}
-	ctx.ui.notify(lines.join("\n") || "pi-preset models: nothing was written", plan.placeholders.length > 0 ? "warning" : "info");
+	ctx.ui.notify(lines.join("\n") || m.modelsNothingWritten, plan.placeholders.length > 0 ? "warning" : "info");
+	return result.modelsWritten || result.settingsWritten ? "done" : "nothing-written";
 }

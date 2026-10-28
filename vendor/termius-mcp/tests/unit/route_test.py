@@ -278,8 +278,8 @@ class HostChainTest(unittest.TestCase):
         self._apply([{'id': 9, 'ssh_config': 102, 'hosts_chain': [1]}])
         seen = {}
 
-        def fake_run(target, command, timeout=60, route=None, cancel=None):
-            seen['target'], seen['route'] = target, route
+        def fake_run(target, command, timeout=60, route=None, cancel=None, proxy=None):
+            seen['target'], seen['route'], seen['proxy'] = target, route, proxy
             # Another thread can take the lock while SSH runs.
             got = []
 

@@ -15,6 +15,9 @@ import {
 	warmPayload,
 } from "../src/idle-keepwarm.ts";
 
+// UI text is asserted in English whatever the system locale.
+process.env.PI_PRESET_LANG = "en";
+
 test("config: on by default, no idle limit; off and limits come from env", () => {
 	assert.deepEqual(readConfig({}), { enabled: true, maxIdleMs: Number.POSITIVE_INFINITY });
 	assert.equal(readConfig({ PI_PRESET_KEEPWARM: "off" }).enabled, false);

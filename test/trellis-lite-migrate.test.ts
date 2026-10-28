@@ -9,6 +9,9 @@ import { cleanPiSettings, cleanRootGitignore, cleanTrellisGitignore, removeManag
 import { applyMigration, findStaleReferences, isTrellisOwned, scanMigration } from "../src/trellis-lite/migrate/run.ts";
 import { fakeCtx, fakePi, makeTree, writeTree } from "./trellis-lite-fixtures.ts";
 
+// UI text is asserted in English whatever the system locale.
+process.env.PI_PRESET_LANG = "en";
+
 // ── exact edits ─────────────────────────────────────────────────────────────
 
 test("AGENTS.md: only the managed block goes; the rest is byte-identical", () => {

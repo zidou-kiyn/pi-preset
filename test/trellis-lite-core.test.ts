@@ -8,6 +8,9 @@ import { detectLegacy, findProjectRoot, maxJournalLines, readDeveloper, readJour
 import { buildSnapshot, LIMITS } from "../src/trellis-lite/snapshot.ts";
 import { fakeCtx, fakePi, makeTree } from "./trellis-lite-fixtures.ts";
 
+// UI text is asserted in English whatever the system locale.
+process.env.PI_PRESET_LANG = "en";
+
 const journal = (sessions: number[], extraLines = 0) =>
 	[
 		"# Journal - dev (Part 1)",

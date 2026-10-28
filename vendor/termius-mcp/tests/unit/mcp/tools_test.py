@@ -225,7 +225,7 @@ class ToolsTest(unittest.TestCase):
         saved = self._add_host()
         acquired = []
 
-        def fake_run(target, command, timeout=60, route=None, cancel=None):
+        def fake_run(target, command, timeout=60, route=None, cancel=None, proxy=None):
             def probe():
                 got = self.runtime.lock.acquire(timeout=1)
                 acquired.append(got)

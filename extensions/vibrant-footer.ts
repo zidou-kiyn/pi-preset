@@ -45,6 +45,10 @@
  *   $ / Σ                session cost, or total tokens when no price is known
  *   ttl / warm           time left on the tracked prompt-cache entry and the
  *                        next idle refresh, from extensions/idle-keepwarm.ts
+ *   ssh                  termius, only when its setup is not the default: the
+ *                        global route (e.g. `direct`) and `+n` hosts with a
+ *                        session allow or temporary level; the host label
+ *                        while a call runs (extensions/termius.ts)
  *
  * Runtime: pi-preset/extensions/vibrant-footer.ts
  * Toggle:  /vibrant-footer
@@ -55,6 +59,9 @@ import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { formatClock, formatRemaining, type KeepwarmSnapshot, readSnapshot } from "../src/idle-keepwarm.ts";
+import { footerIsEmpty, footerText, readFooter as readTermiusFooter, TERMIUS_STATUS_KEY } from "../src/termius/footer-state.ts";
+import { messages as termiusMessages } from "../src/termius/messages.ts";
+import { messages } from "../src/footer-messages.ts";
 
 // ── theme shim ──────────────────────────────────────────────────────────────
 
@@ -76,6 +83,7 @@ type IconSet = {
     cacheHit: string;
     cacheTtl: string;
     cacheWarm: string;
+    ssh: string;
     cost: string;
     context: string;
     time: string;
@@ -105,6 +113,7 @@ const NERD_ICONS: IconSet = {
     cacheHit: "\u{f04fe}", // nf-md-target
     cacheTtl: "\u{f0150}", // nf-md-clock_outline
     cacheWarm: "\u{f0238}", // nf-md-fire
+    ssh: "\u{f048d}", // nf-md-server_network
     cost: "\u{f01c8}", // nf-md-diamond_stone
     context: "\u{f029a}", // nf-md-gauge
     time: "\u{f051f}", // nf-md-timer_sand
@@ -128,6 +137,7 @@ const UNICODE_ICONS: IconSet = {
     cacheHit: "◎",
     cacheTtl: "⧗",
     cacheWarm: "♨",
+    ssh: "⇄",
     cost: "◈",
     context: "▣",
     time: "◷",
@@ -427,7 +437,7 @@ function historySegment(t: ThemeLike, status: string | undefined, icons: IconSet
     if (status === undefined) return null;
     const text = sanitizeStatusText(status);
     if (!text) return null;
-    if (/fail/i.test(text)) return seg(t, icons.history, "error", "snapshot failed", "error");
+    if (/fail/i.test(text)) return seg(t, icons.history, "error", messages().snapshotFailed, "error");
     if (/^⟲\s*history$/.test(text)) {
         return showWordLabels() ? seg(t, icons.history, "success", "history", "dim") : t.fg("success", icons.history);
     }
@@ -540,16 +550,28 @@ function keepwarmSegment(t: ThemeLike, state: KeepwarmSnapshot | undefined, icon
     const parts: string[] = [];
     if (state.expiresAt !== undefined) {
         const left = state.expiresAt - Date.now();
-        if (left <= 0) parts.push(lseg(t, icons.cacheTtl, "error", "cache", "expired", labels));
+        if (left <= 0) parts.push(lseg(t, icons.cacheTtl, "error", "cache", messages().expired, labels));
         else parts.push(lseg(t, icons.cacheTtl, left < 5 * 60_000 ? "warning" : "syntaxOperator", "ttl", formatRemaining(left), labels));
     }
     if (state.warming) {
-        parts.push(lseg(t, icons.cacheWarm, "syntaxType", "warm", "now", labels));
+        parts.push(lseg(t, icons.cacheWarm, "syntaxType", "warm", messages().now, labels));
     } else if (state.nextWarmAt !== undefined) {
         const count = state.warms > 0 ? t.fg("dim", ` ×${state.warms}`) : "";
         parts.push(lseg(t, icons.cacheWarm, "syntaxType", "warm", formatClock(state.nextWarmAt), labels) + count);
     }
     return parts.length > 0 ? parts.join(" ") : null;
+}
+
+/**
+ * termius, only when its setup is not the default (footer-state.ts): the
+ * route and `+n` at rest in warning tone, the host label in accent while a
+ * call runs. Narrow bars drop the route when there is a count to show.
+ */
+function termiusSegment(t: ThemeLike, icons: IconSet, narrow: boolean): string | null {
+    const state = readTermiusFooter();
+    if (!state || footerIsEmpty(state)) return null;
+    const color = state.active ? "accent" : "warning";
+    return seg(t, icons.ssh, color, footerText(state, termiusMessages().routeName, narrow), color);
 }
 
 function renderStatsLines(
@@ -613,6 +635,9 @@ function renderStatsLines(
 
         const keepwarm = keepwarmSegment(t, readSnapshot(), icons, labels);
         if (keepwarm) segments.push(keepwarm);
+
+        const termius = termiusSegment(t, icons, width < 72);
+        if (termius) segments.push(termius);
 
         // Cost — or, when the provider reports no price (proxies and most OAuth
         // subscriptions send cost.total = 0), the cumulative token volume, so the
@@ -729,7 +754,7 @@ function renderAuxLine(
 
         const current = tasks.find((task) => task.status === "in_progress");
         if (current) {
-            const label = sanitizeStatusText(current.activeForm || current.subject || "working");
+            const label = sanitizeStatusText(current.activeForm || current.subject || messages().working);
             if (label) parts.push(seg(t, icons.todoActive, "mdHeading", label, "text"));
         }
     }
@@ -793,10 +818,10 @@ export default function (pi: ExtensionAPI) {
 
                     if (extensionStatuses.size > 0) {
                         const sorted = Array.from(extensionStatuses.entries())
-                            // idle-keepwarm's plain status is for pi's default footer;
-                            // this bar renders the same state as a stats segment.
-                            // workspace-history is drawn on the aux line instead.
-                            .filter(([key]) => key !== "keepwarm" && key !== HISTORY_STATUS_KEY)
+                            // idle-keepwarm's and termius's plain statuses are for pi's
+                            // default footer; this bar renders the same state as stats
+                            // segments. workspace-history is drawn on the aux line instead.
+                            .filter(([key]) => key !== "keepwarm" && key !== TERMIUS_STATUS_KEY && key !== HISTORY_STATUS_KEY)
                             .sort(([a], [b]) => a.localeCompare(b))
                             .map(([, text]) => sanitizeStatusText(text))
                             .filter(Boolean);
@@ -842,7 +867,7 @@ export default function (pi: ExtensionAPI) {
         handler: async (_args, ctx) => {
             enabled = !enabled;
             applyFooter(ctx);
-            ctx.ui.notify(enabled ? "Ramp status bar on" : "Default footer restored", "info");
+            ctx.ui.notify(enabled ? messages().footerOn : messages().footerOff, "info");
         },
     });
 }

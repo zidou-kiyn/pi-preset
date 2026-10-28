@@ -1,12 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import {
-	classifyCommand,
-	classifyTermiusCall,
-	describeCall,
-	needsApproval,
-	parseCommand,
-} from "../src/termius/approval.ts";
+
+process.env.PI_PRESET_LANG = "en";
+
+import { classifyCommand, classifyTermiusCall, describeCall, parseCommand } from "../src/termius/approval.ts";
 import { guardToolCall } from "../src/termius/guard.ts";
 import { sourceHash, VENDOR_DIR } from "../src/termius/install.ts";
 import { describeProxy, proxyServerEnv, proxyUrlError, redactProxyUrl } from "../src/termius/proxy.ts";
@@ -77,17 +74,13 @@ test("parsing keeps quoted operators inside words", () => {
 	assert.deepEqual(parsed.segments.map((segment) => segment.words), [["grep", "a|b", "file"], ["wc", "-l"]]);
 });
 
-test("files actions and modes", () => {
+test("files actions", () => {
 	assert.equal(classifyTermiusCall("files", { action: "read", path: "/etc/hosts" }), "read");
 	assert.equal(classifyTermiusCall("files", { action: "get", path: "x", local_path: "/tmp/x" }), "read");
 	assert.equal(classifyTermiusCall("files", { action: "rm", path: "x" }), "write");
 	assert.equal(classifyTermiusCall("files", { action: "put", path: "x" }), "write");
 	assert.equal(classifyTermiusCall("exec", { command: "uptime" }), "read");
 
-	assert.equal(needsApproval("review", "read"), true);
-	assert.equal(needsApproval("auto", "read"), false);
-	assert.equal(needsApproval("auto", "write"), true);
-	assert.equal(needsApproval("dangerously", "write"), false);
 	assert.equal(describeCall("exec", { name: "web", command: "uptime" }), "web$ uptime");
 	assert.equal(describeCall("files", { name: "web", action: "rename", path: "a", dest: "b" }), "web: files rename a -> b");
 });
@@ -195,5 +188,5 @@ test("proxy: URLs are validated and never shown with credentials", () => {
 	assert.ok(!text.includes("pw"), text);
 	assert.match(describeProxy({}, { ALL_PROXY: "socks5://u:secret@h:1" }), /system ALL_PROXY/u);
 	assert.ok(!describeProxy({}, { ALL_PROXY: "socks5://u:secret@h:1" }).includes("secret"));
-	assert.equal(describeProxy({}, {}), "direct (no system proxy variables)");
+	assert.equal(describeProxy({}, {}), "none (no system proxy variables)");
 });

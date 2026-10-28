@@ -17,6 +17,9 @@ import {
 import { truncateChars } from "../src/trellis-lite/text.ts";
 import { fakeCtx, fakePi, makeTree } from "./trellis-lite-fixtures.ts";
 
+// UI text is asserted in English whatever the system locale.
+process.env.PI_PRESET_LANG = "en";
+
 // ── frontmatter ─────────────────────────────────────────────────────────────
 
 test("frontmatter: block list, flow list, BOM, comments, quotes", () => {

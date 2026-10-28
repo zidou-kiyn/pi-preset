@@ -17,6 +17,7 @@
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { type Component, type KeybindingsManager, type TUI, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { messages } from "./preset-messages.ts";
 import type { PresetTheme } from "./preset-ui.ts";
 
 export interface MenuItem {
@@ -35,6 +36,13 @@ export interface Notice {
 	type: NoticeType;
 }
 
+/**
+ * How a flow run from a menu ended, so the menu can tone its last notice
+ * without reading the (translated) text: "nothing-written" for a cancel or
+ * a no-op, "done" otherwise.
+ */
+export type FlowOutcome = "done" | "nothing-written";
+
 export interface MenuSpec {
 	title: string;
 	/** Status lines under the title. */
@@ -44,7 +52,7 @@ export interface MenuSpec {
 	items: readonly MenuItem[];
 	/** Item to highlight when the menu opens. */
 	selected?: string;
-	/** What Esc does here, for the footer ("close" or "back"). */
+	/** What Esc does here, for the footer ("close" or "back", in the UI language). */
 	cancelLabel?: string;
 }
 
@@ -62,7 +70,24 @@ function fit(text: string, width: number): string {
 	return width <= 0 ? "" : truncateToWidth(text, width, "");
 }
 
-/** Word wrap that keeps long words (paths, URLs) by hard-splitting them. */
+/** The longest start of `text` that fits in `width` columns (CJK characters take two). */
+function headToWidth(text: string, width: number): string {
+	let head = "";
+	let used = 0;
+	for (const char of text) {
+		const size = visibleWidth(char);
+		if (used + size > width && head) break;
+		head += char;
+		used += size;
+	}
+	return head;
+}
+
+/**
+ * Word wrap that keeps long words (paths, URLs) by hard-splitting them.
+ * Chinese text has no spaces, so a sentence is one long "word" and is split
+ * the same way, by display width.
+ */
 export function wrapPlain(text: string, width: number): string[] {
 	if (width <= 0) return [];
 	const lines: string[] = [];
@@ -76,8 +101,9 @@ export function wrapPlain(text: string, width: number): string[] {
 					lines.push(current);
 					current = "";
 				}
-				lines.push(rest.slice(0, width));
-				rest = rest.slice(width);
+				const head = headToWidth(rest, width);
+				lines.push(head);
+				rest = rest.slice(head.length);
 			}
 			const candidate = current ? `${current} ${rest}` : rest;
 			if (visibleWidth(candidate) <= width) current = candidate;
@@ -177,7 +203,8 @@ export class MenuComponent implements Component {
 			for (const row of wrapPlain(description, Math.max(1, width - 3))) lines.push(fit(`   ${theme.fg("dim", row)}`, width));
 		}
 		lines.push("");
-		lines.push(fit(` ${theme.fg("dim", `↑↓ move · Enter or 1-9 select · Esc ${spec.cancelLabel ?? "close"}`)}`, width));
+		const m = messages();
+		lines.push(fit(` ${theme.fg("dim", m.menuKeys(spec.cancelLabel ?? m.close))}`, width));
 		lines.push(border);
 		return lines;
 	}
@@ -239,7 +266,7 @@ export function chooseValue(
 			description: option.description,
 		})),
 		selected: current,
-		cancelLabel: "back",
+		cancelLabel: messages().back,
 	}));
 }
 

@@ -14,13 +14,11 @@
 
 import { type SpawnOptions, spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getAgentDir } from "../paths.ts";
-import { type ApprovalMode, DEFAULT_APPROVAL_MODE, isApprovalMode } from "./approval.ts";
-import type { ProxySettings } from "./proxy.ts";
 
 const PRESET_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 export const VENDOR_DIR = join(PRESET_ROOT, "vendor", "termius-mcp");
@@ -75,10 +73,6 @@ export function serverBinary(): string {
 
 function stampPath(): string {
 	return join(installDir(), "installed.json");
-}
-
-function configPath(): string {
-	return join(installDir(), "config.json");
 }
 
 // ── source hash ─────────────────────────────────────────────────────────────
@@ -308,47 +302,20 @@ export interface LoginResponse {
 /**
  * Send one request to `termius login-json`. Credentials travel on the child's
  * stdin only: not in argv, not in the environment, never through the model.
+ * `env` adds variables for the child (the proxy and policy settings the
+ * server process gets, for the host list and the connection test).
  */
-export async function loginJson(request: Record<string, unknown>): Promise<LoginResponse> {
-	const result = await run(serverBinary(), ["login-json"], { input: JSON.stringify(request) });
+export async function loginJson(request: Record<string, unknown>, env?: Record<string, string>): Promise<LoginResponse> {
+	const result = await run(serverBinary(), ["login-json"], {
+		input: JSON.stringify(request),
+		...(env ? { env: { ...process.env, ...env } } : {}),
+	});
 	const line = result.stdout.trim().split("\n").pop() ?? "";
 	try {
 		return JSON.parse(line) as LoginResponse;
 	} catch {
 		return { ok: false, code: "login_failed", error: lastLines(result.stderr) || `termius exited with ${result.code}` };
 	}
-}
-
-// ── config ──────────────────────────────────────────────────────────────────
-
-export interface TermiusConfig extends ProxySettings {
-	mode: ApprovalMode;
-	/** `false` = /termius disable: the MCP server is not registered in any session. Absent = enabled. */
-	enabled?: false;
-}
-
-export function isEnabled(config: TermiusConfig): boolean {
-	return config.enabled !== false;
-}
-
-export function readConfig(): TermiusConfig {
-	try {
-		const data = JSON.parse(readFileSync(configPath(), "utf8"));
-		const config: TermiusConfig = { mode: isApprovalMode(data.mode) ? data.mode : DEFAULT_APPROVAL_MODE };
-		if (typeof data.proxy === "string" && data.proxy.trim()) config.proxy = data.proxy.trim();
-		if (Array.isArray(data.proxyBypass)) config.proxyBypass = data.proxyBypass.filter((item: unknown) => typeof item === "string");
-		if (data.enabled === false) config.enabled = false;
-		return config;
-	} catch {
-		return { mode: DEFAULT_APPROVAL_MODE };
-	}
-}
-
-export function writeConfig(config: TermiusConfig): void {
-	mkdirSync(installDir(), { recursive: true });
-	// 0600: a proxy URL can carry a password.
-	writeFileSync(configPath(), `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
-	chmodSync(configPath(), 0o600);
 }
 
 /** Size check used by tests and status: is the vendored tree present at all. */

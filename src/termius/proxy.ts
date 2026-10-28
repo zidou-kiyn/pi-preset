@@ -7,9 +7,13 @@
  *     because MCP stdio servers do not reliably inherit pi's environment;
  *   - a URL (socks5://, socks5h://, socks4://, socks4a://, http://);
  *   - "off": always connect directly.
- * The server applies it only to hosts without a Termius jump host chain
- * (vendor/termius-mcp/termius/core/proxy.py).
+ * Which hosts use it, and how, is up to their route (config.ts, and
+ * vendor/termius-mcp/termius/policy.py): a host without a jump host chain
+ * under the "termius" routes, the first hop under "termius-proxy", every
+ * connection under "proxy".
  */
+
+import { type Messages, messages } from "./messages.ts";
 
 export const PROXY_SCHEMES = ["socks5", "socks5h", "socks4", "socks4a", "http"] as const;
 
@@ -82,15 +86,14 @@ export function proxyServerEnv(settings: ProxySettings, env: NodeJS.ProcessEnv =
 	};
 }
 
-/** One line for /termius status. */
-export function describeProxy(settings: ProxySettings, env: NodeJS.ProcessEnv = process.env): string {
-	if (settings.proxy === "off") return "direct (proxy off)";
+/** One line for /termius (in the UI language). */
+export function describeProxy(settings: ProxySettings, env: NodeJS.ProcessEnv = process.env, m: Messages = messages()): string {
+	if (settings.proxy === "off") return m.proxyDescOff;
 	if (settings.proxy) {
-		const bypass = settings.proxyBypass ? settings.proxyBypass.join(", ") || "nothing" : "loopback, private, link-local, *.local";
-		return `${redactProxyUrl(settings.proxy)} (set with /termius proxy; bypass: ${bypass})`;
+		const bypass = settings.proxyBypass ? settings.proxyBypass.join(", ") || m.proxyDescNothing : m.proxyDescDefaultBypass;
+		return m.proxyDescUrl(redactProxyUrl(settings.proxy), bypass);
 	}
 	const system = systemProxy(env);
-	if (!system) return "direct (no system proxy variables)";
-	const noProxy = systemNoProxy(env);
-	return `${redactProxyUrl(system.url)} (system ${system.name}${noProxy.length ? `; NO_PROXY ${noProxy.join(", ")}` : ""})`;
+	if (!system) return m.proxyDescNoSystem;
+	return m.proxyDescSystem(redactProxyUrl(system.url), system.name, systemNoProxy(env).join(", "));
 }

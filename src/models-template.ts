@@ -28,6 +28,7 @@ import {
 	readJsonObject,
 	writeJsonObjectAtomic,
 } from "./json-merge.ts";
+import { messages } from "./pi-preset-messages.ts";
 import { sanitizeTerminalText } from "./terminal-text.ts";
 
 const TEMPLATE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..", "templates");
@@ -167,19 +168,20 @@ export function isEnvReference(value: string): boolean {
 }
 
 export function validateBaseUrl(value: string): string | undefined {
+	const m = messages();
 	const input = value.trim();
-	if (!input) return "base URL cannot be empty";
+	if (!input) return m.baseUrlEmpty;
 	let parsed: URL;
 	try {
 		parsed = new URL(input);
 	} catch {
-		return "base URL must be a valid http:// or https:// URL";
+		return m.baseUrlInvalid;
 	}
-	if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return "base URL must use http or https";
-	if (!parsed.hostname) return "base URL must include a hostname";
-	if (parsed.username || parsed.password) return "base URL must not include a username or password";
+	if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return m.baseUrlProtocol;
+	if (!parsed.hostname) return m.baseUrlHostname;
+	if (parsed.username || parsed.password) return m.baseUrlCredentials;
 	if (parsed.search || parsed.hash || input.includes("?") || input.includes("#")) {
-		return "base URL must not include a query or fragment";
+		return m.baseUrlQuery;
 	}
 	return undefined;
 }
@@ -331,15 +333,17 @@ function show(value: string): string {
 }
 
 function describeBaseUrl(value: ProviderValues): string {
+	const m = messages();
 	const suffix =
-		value.baseUrlSource === "template" ? " (placeholder)" : value.baseUrlSource === "current" ? " (current)" : "";
+		value.baseUrlSource === "template" ? ` (${m.reviewPlaceholder})` : value.baseUrlSource === "current" ? ` (${m.reviewCurrent})` : "";
 	return `${show(value.baseUrl)}${suffix}`;
 }
 
 function describeApiKey(value: ProviderValues): string {
-	if (value.apiKeySource === "template") return `${show(value.apiKey)} (placeholder: read from this environment variable)`;
-	if (isEnvReference(value.apiKey)) return `${show(value.apiKey)} (environment variable${value.apiKeySource === "current" ? ", current" : ""})`;
-	return value.apiKeySource === "current" ? "<current key, hidden>" : "<entered, hidden>";
+	const m = messages();
+	if (value.apiKeySource === "template") return `${show(value.apiKey)} (${m.reviewKeyPlaceholder})`;
+	if (isEnvReference(value.apiKey)) return `${show(value.apiKey)} (${m.reviewEnvVariable(value.apiKeySource === "current")})`;
+	return value.apiKeySource === "current" ? m.reviewKeyCurrentHidden : m.reviewKeyEnteredHidden;
 }
 
 export interface PlanModelsTemplateInput {
@@ -391,40 +395,41 @@ export function planModelsTemplate(input: PlanModelsTemplateInput): ModelsTempla
 		if (fields.length > 0) placeholders.push({ providerId: entry.id, fields });
 	}
 
+	const m = messages();
 	const lines: string[] = [];
 	if (modelsChanged) {
-		lines.push("~ models.json: replace the whole file with the preset template");
+		lines.push(`~ ${m.reviewReplaceModels}`);
 		lines.push(`    ${show(modelsPath)}`);
-		if (existing.exists) lines.push("    previous file kept as models.json.preset-bak");
-		if (existing.error) lines.push(`  ! current file could not be parsed (${show(existing.error)}); it is replaced as is`);
+		if (existing.exists) lines.push(`    ${m.reviewBackup}`);
+		if (existing.error) lines.push(`  ! ${m.reviewUnparsable(show(existing.error))}`);
 		const templateIds = new Set(template.providers.map((entry) => entry.id));
 		for (const id of Object.keys(existingProviders(existing))) {
-			if (!templateIds.has(id)) lines.push(`  - provider ${show(id)} (not in the template, removed)`);
+			if (!templateIds.has(id)) lines.push(`  - ${m.reviewProviderRemoved(show(id))}`);
 		}
 		for (const entry of template.providers) {
 			const value = values[entry.id];
 			if (!value) continue;
-			lines.push(`  + ${entry.id}  ${entry.api}, ${entry.models.length} model(s)`);
+			lines.push(`  + ${m.reviewProvider(entry.id, entry.api, entry.models.length)}`);
 			lines.push(`      baseUrl  ${describeBaseUrl(value)}`);
 			lines.push(`      apiKey   ${describeApiKey(value)}`);
 		}
 	} else {
-		lines.push("= models.json: already matches the template with these values");
+		lines.push(`= ${m.reviewModelsMatch}`);
 	}
 
 	if (settingsChanges.length > 0) {
-		lines.push(`~ settings.json: change ${settingsChanges.length} key(s)`);
+		lines.push(`~ ${m.reviewSettingsChange(settingsChanges.length)}`);
 		for (const change of settingsChanges) {
-			const from = change.from === undefined ? "unset" : show(JSON.stringify(change.from));
-			const to = change.to === undefined ? "removed" : JSON.stringify(change.to);
+			const from = change.from === undefined ? m.planUnset : show(JSON.stringify(change.from));
+			const to = change.to === undefined ? m.reviewRemoved : JSON.stringify(change.to);
 			lines.push(`    ${change.key}: ${from} -> ${to}`);
 		}
 	} else {
-		lines.push(`= settings.json: default is already ${settingsPatch.defaultProvider} / ${settingsPatch.defaultModel}`);
+		lines.push(`= ${m.reviewDefaultAlready(settingsPatch.defaultProvider, settingsPatch.defaultModel)}`);
 	}
 
 	for (const entry of placeholders) {
-		lines.push(`! ${entry.providerId}: ${entry.fields.join(" and ")} still a placeholder`);
+		lines.push(`! ${m.reviewStillPlaceholder(entry.providerId, entry.fields.join(m.reviewFieldsJoin))}`);
 	}
 
 	return {

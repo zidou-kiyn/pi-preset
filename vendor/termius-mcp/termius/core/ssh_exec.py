@@ -32,7 +32,7 @@ KNOWN_HOSTS_ENV = 'TERMIUS_KNOWN_HOSTS'
 _PIN_LOCK = threading.Lock()
 
 __all__ = [
-    'MAX_OUTPUT', 'SshCancelled', 'SshExecError', 'SshTarget',
+    'AUTO_PROXY', 'MAX_OUTPUT', 'SshCancelled', 'SshExecError', 'SshTarget',
     'close_quiet', 'connect_host', 'run_host_command', 'ssh_target',
     'known_hosts_path',
 ]
@@ -149,16 +149,27 @@ def _stage_timeout(timeout, deadline):
     return max(min(timeout, deadline.remaining()), 1)
 
 
-def connect_host(target, timeout=60, route=None, cancel=None, deadline=None):
+# pi-preset: the default for connect_host's ``proxy``: a host without a
+# chain uses the configured proxy unless bypassed; a chained host dials its
+# first hop directly. Callers that follow a /termius route pass the proxy
+# (or None) they resolved instead.
+AUTO_PROXY = object()
+
+
+def connect_host(target, timeout=60, route=None, cancel=None, deadline=None,
+                 proxy=AUTO_PROXY, on_stage=None):
     """Open an SSH client to ``target``. The caller must close it.
 
-    ``route`` lists the SshTargets of the Termius jump host chain (from
+    ``route`` lists the SshTargets of the jump hosts to go through (from
     ``get_jump_route``): each hop is an SSH connection of its own (own
     credentials, own pinned host key), and the next hop runs through a
-    direct-tcpip channel of the one before. A host without a chain may go
-    through the configured proxy (``proxy.py``). ``timeout`` applies to each
-    connect stage (TCP, banner, auth), capped by ``deadline`` when given.
-    A cancel closes the client being connected and raises SshCancelled.
+    direct-tcpip channel of the one before. ``proxy`` carries the first
+    TCP connection (to the first jump host, or to ``target`` without one);
+    None dials directly, and the default follows ``AUTO_PROXY``.
+    ``timeout`` applies to each connect stage (TCP, banner, auth), capped by
+    ``deadline`` when given. A cancel closes the client being connected and
+    raises SshCancelled. ``on_stage`` is called with a dict (label,
+    address, port, via, seconds) after each connection is up.
     Returns ``(client, username)``; ``client.route`` lists how it was
     reached, and closing the client closes the jump hosts too.
     """
@@ -167,22 +178,37 @@ def connect_host(target, timeout=60, route=None, cancel=None, deadline=None):
     jumps = []
     sock = None
     description = []
+    first = route[0] if route else target
+    started = time.monotonic()
+    via = 'direct'
+
+    def stage_done(hop):
+        if on_stage is not None:
+            on_stage({
+                'label': hop.label, 'address': hop.address, 'port': hop.port,
+                'via': via, 'seconds': round(time.monotonic() - started, 3),
+            })
+
     try:
-        if not route:
-            try:
-                proxy = proxy_for(target.address)
-                if proxy is not None:
-                    sock = open_via_proxy(
-                        proxy, target.address, target.port,
-                        _stage_timeout(timeout, deadline),
-                    )
-                    description.append('proxy {}'.format(proxy.describe()))
-            except ProxyError as exc:
-                raise SshExecError('SSH to {} failed: {}'.format(target.address, exc))
+        try:
+            if proxy is AUTO_PROXY:
+                proxy = None if route else proxy_for(target.address)
+            if proxy is not None:
+                sock = open_via_proxy(
+                    proxy, first.address, first.port,
+                    _stage_timeout(timeout, deadline),
+                )
+                via = 'proxy {}'.format(proxy.describe())
+                description.append(via)
+        except ProxyError as exc:
+            raise SshExecError('SSH to {} failed: {}'.format(first.address, exc))
         for hop, next_target in zip(route, route[1:] + [target]):
             jump = _connect_single(hop, timeout, sock, 'jump host ', cancel, deadline)
             jumps.append(jump)
             description.append('jump host {} ({})'.format(hop.label, hop.address))
+            stage_done(hop)
+            started = time.monotonic()
+            via = 'jump host {}'.format(hop.label)
             try:
                 sock = jump.get_transport().open_channel(
                     'direct-tcpip', (next_target.address, next_target.port),
@@ -194,6 +220,7 @@ def connect_host(target, timeout=60, route=None, cancel=None, deadline=None):
                     hop.label, next_target.address, next_target.port, exc,
                 ))
         client = _connect_single(target, timeout, sock, '', cancel, deadline)
+        stage_done(target)
     except Exception:
         for jump in reversed(jumps):
             close_quiet(jump)
@@ -393,9 +420,11 @@ def _exec_command(client, target, username, command, deadline, cancel):
     }
 
 
-def run_host_command(target, command, timeout=60, route=None, cancel=None):
+def run_host_command(target, command, timeout=60, route=None, cancel=None,
+                     proxy=AUTO_PROXY):
     """Execute ``command`` on ``target``, through ``route`` when given.
 
+    ``route`` and ``proxy`` are as for ``connect_host``.
     ``timeout`` caps the whole call: connect (every hop) plus run. When it
     passes, the channel is closed and the result has ``timed_out`` true,
     ``exit_code`` None, and the output read so far. ``cancel`` is an
@@ -407,6 +436,7 @@ def run_host_command(target, command, timeout=60, route=None, cancel=None):
     deadline = Deadline(timeout)
     client, username = connect_host(
         target, timeout=timeout, route=route, cancel=cancel, deadline=deadline,
+        proxy=proxy,
     )
     key = cancel.register(client) if cancel is not None else None
     try:

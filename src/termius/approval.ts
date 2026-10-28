@@ -1,27 +1,25 @@
 /**
- * Approval policy for remote Termius commands (exec / files).
+ * Classify remote Termius calls (exec / files) for the access levels in
+ * levels.ts: read or write, why a call is a write, and whether it is
+ * catastrophic.
  *
- *   review       every remote command and file operation asks first
- *   auto         read-only commands and file reads run; anything else asks
- *   dangerously  nothing asks
+ * Fixed rules, not a model: a command line is read-only only when every
+ * pipeline segment starts with an allowlisted read-only program (with
+ * read-only subcommands where it matters), and it has no output redirection,
+ * command substitution, or backgrounding. Anything the rules do not
+ * recognise counts as a write, so the failure mode is an extra question,
+ * never a silent change.
  *
- * `auto` classifies with fixed rules, not a model: a command line is
- * read-only only when every pipeline segment starts with an allowlisted
- * read-only program (with read-only subcommands where it matters), and it has
- * no output redirection, command substitution, or backgrounding. Anything the
- * rules do not recognise counts as a write, so the failure mode is an extra
- * question, never a silent change.
+ * Catastrophic commands (wiping disks or system directories, rebooting,
+ * flushing firewalls, stopping sshd, deleting users, ...) are matched on
+ * the words of every segment, inside `sh -c` / `bash -c` strings and command
+ * substitutions too, after wrappers such as sudo. A false match costs a
+ * question even on a trusted host.
  */
 
-export type ApprovalMode = "review" | "auto" | "dangerously";
-export const APPROVAL_MODES: readonly ApprovalMode[] = ["review", "auto", "dangerously"];
-export const DEFAULT_APPROVAL_MODE: ApprovalMode = "auto";
+import type { OperationKind } from "./levels.ts";
 
-export type OperationKind = "read" | "write";
-
-export function isApprovalMode(value: unknown): value is ApprovalMode {
-	return typeof value === "string" && (APPROVAL_MODES as readonly string[]).includes(value);
-}
+export type { OperationKind };
 
 /** Programs that only read, whatever their arguments (within the redirect rules). */
 const READ_ONLY_PROGRAMS = new Set([
@@ -204,54 +202,274 @@ function programWords(words: string[]): string[] {
 	return rest;
 }
 
-function isReadOnlySegment(words: string[]): boolean {
+/** Why a call counts as a write (shown in the approval dialog). */
+export type WriteReason =
+	| { code: "construct" }
+	| { code: "empty" }
+	| { code: "program"; program: string }
+	| { code: "argument"; program: string }
+	| { code: "subcommand"; program: string; subcommand?: string }
+	| { code: "file-action"; action: string };
+
+/** Undefined when the segment only reads. */
+function segmentWriteReason(words: string[]): WriteReason | undefined {
 	const [program, ...args] = programWords(words);
-	if (!program) return true;
+	if (!program) return undefined;
 	const name = program.split("/").pop()!;
 	const argText = args.join(" ");
 	const writeFlag = WRITE_FLAGS[name];
-	if (writeFlag?.test(argText)) return false;
-	if (READ_ONLY_PROGRAMS.has(name)) return true;
-	if (name === "top") return topIsBatch(args);
+	if (writeFlag?.test(argText)) return { code: "argument", program: name };
+	if (READ_ONLY_PROGRAMS.has(name)) return undefined;
+	if (name === "top") return topIsBatch(args) ? undefined : { code: "argument", program: name };
 	const subcommands = READ_ONLY_SUBCOMMANDS[name];
-	if (subcommands === undefined) return false;
-	if (subcommands.length === 0) return true;
+	if (subcommands === undefined) return { code: "program", program: name };
+	if (subcommands.length === 0) return undefined;
 	const first = firstSubcommand(name, args, subcommands);
-	if (first === undefined) return name !== "crontab";
-	if (!subcommands.includes(first)) return false;
+	if (first === undefined) return name === "crontab" ? { code: "subcommand", program: name } : undefined;
+	if (!subcommands.includes(first)) return { code: "subcommand", program: name, subcommand: first };
 	// `git branch NAME` creates a branch; only listing forms are reads.
-	if (name === "git" && first === "branch") {
-		return args.slice(args.indexOf("branch") + 1).every((arg) => arg.startsWith("-"));
+	if (name === "git" && first === "branch" && !args.slice(args.indexOf("branch") + 1).every((arg) => arg.startsWith("-"))) {
+		return { code: "subcommand", program: name, subcommand: first };
 	}
-	return true;
+	return undefined;
 }
 
-/** read = safe to run without asking in auto mode. */
-export function classifyCommand(command: string): OperationKind {
+/** Why a command line counts as a write; undefined when it only reads. */
+export function commandWriteReason(command: string): WriteReason | undefined {
 	const parsed = parseCommand(command);
-	if (parsed.unsafe || parsed.segments.length === 0) return "write";
-	return parsed.segments.every((segment) => isReadOnlySegment(segment.words)) ? "read" : "write";
+	if (parsed.unsafe) return { code: "construct" };
+	if (parsed.segments.length === 0) return { code: "empty" };
+	for (const segment of parsed.segments) {
+		const reason = segmentWriteReason(segment.words);
+		if (reason) return reason;
+	}
+	return undefined;
+}
+
+/** read = safe to run without asking at the auto level. */
+export function classifyCommand(command: string): OperationKind {
+	return commandWriteReason(command) ? "write" : "read";
 }
 
 const READ_FILE_ACTIONS = new Set(["list", "stat", "read", "get"]);
 
+function fileAction(args: Record<string, unknown>): string {
+	return typeof args.action === "string" ? args.action.trim().toLowerCase() : "";
+}
+
+/** Why a Termius MCP call counts as a write; undefined for a read. */
+export function writeReason(tool: string, args: Record<string, unknown>): WriteReason | undefined {
+	if (tool === "exec") return commandWriteReason(typeof args.command === "string" ? args.command : "");
+	if (tool === "files") {
+		const action = fileAction(args);
+		return READ_FILE_ACTIONS.has(action) ? undefined : { code: "file-action", action };
+	}
+	return undefined;
+}
+
 /** Classify a Termius MCP call by tool name and arguments. */
 export function classifyTermiusCall(tool: string, args: Record<string, unknown>): OperationKind {
-	if (tool === "exec") return classifyCommand(typeof args.command === "string" ? args.command : "");
-	if (tool === "files") {
-		const action = typeof args.action === "string" ? args.action.trim().toLowerCase() : "";
-		return READ_FILE_ACTIONS.has(action) ? "read" : "write";
-	}
-	return "read";
+	return writeReason(tool, args) ? "write" : "read";
 }
 
 /** Tools of the Termius server that reach a remote host. */
 export const GATED_TERMIUS_TOOLS = new Set(["exec", "files"]);
 
-export function needsApproval(mode: ApprovalMode, kind: OperationKind): boolean {
-	if (mode === "dangerously") return false;
-	if (mode === "review") return true;
-	return kind === "write";
+// ── catastrophic commands ────────────────────────────────────────────────────
+
+export type CatastrophicRule =
+	| "wipe-system-path"
+	| "format-disk"
+	| "write-disk"
+	| "partition"
+	| "power"
+	| "firewall"
+	| "ssh-daemon"
+	| "delete-user"
+	| "system-permissions"
+	| "kill-init"
+	| "fork-bomb";
+
+/** Top-level directories whose loss breaks the system. */
+const SYSTEM_DIRS = new Set([
+	"bin", "boot", "dev", "etc", "home", "lib", "lib32", "lib64", "opt", "proc", "root", "run", "sbin", "srv", "sys", "usr", "var",
+]);
+
+/** `/`, `/*`, `/etc`, `/usr/`, `/var/*`, `~`, `$HOME`: a path whose removal is catastrophic. */
+export function isSystemPath(path: string): boolean {
+	const text = path.trim().replace(/^["']|["']$/g, "");
+	if (["~", "~/", "~/*", "$HOME", "${HOME}", "$HOME/", "$HOME/*"].includes(text)) return true;
+	if (!text.startsWith("/")) return false;
+	const parts = text.split("/").filter((part) => part !== "" && part !== ".");
+	if (parts.length === 0) return true;
+	if (parts.length === 1) return parts[0] === "*" || SYSTEM_DIRS.has(parts[0]!);
+	return parts.length === 2 && SYSTEM_DIRS.has(parts[0]!) && parts[1] === "*";
+}
+
+const WRAPPERS = new Set(["sudo", "doas", "nohup", "exec", "command", "builtin", "time", "nice", "ionice", "stdbuf", "setsid", "env"]);
+/** Options of wrappers that take a separate value (`sudo -u root`, `nice -n 5`). */
+const WRAPPER_VALUE_OPTIONS: Record<string, ReadonlySet<string>> = {
+	sudo: new Set(["-u", "-g", "-h", "-p", "-C", "-U", "-r", "-t", "-T", "-D", "--user", "--group", "--host", "--prompt", "--chdir"]),
+	doas: new Set(["-u", "-C"]),
+	nice: new Set(["-n", "--adjustment"]),
+	ionice: new Set(["-c", "-n", "-p", "--class", "--classdata", "--pid"]),
+	stdbuf: new Set(["-i", "-o", "-e"]),
+	env: new Set(["-u", "-C", "--unset", "--chdir"]),
+};
+
+/** The words of the actual program, past sudo / env / nice / timeout and assignments. */
+function unwrap(words: string[]): string[] {
+	let rest = words;
+	for (let guard = 0; guard < 8; guard++) {
+		while (rest.length > 0 && /^[A-Za-z_][A-Za-z0-9_]*=/.test(rest[0]!)) rest = rest.slice(1);
+		const name = rest[0]?.split("/").pop();
+		if (name === "timeout") {
+			rest = rest.slice(1);
+			while (rest[0]?.startsWith("-")) rest = rest.slice(1);
+			rest = rest.slice(1);
+			continue;
+		}
+		if (!name || !WRAPPERS.has(name)) return rest;
+		rest = rest.slice(1);
+		while (rest[0]?.startsWith("-")) {
+			const option = rest[0]!;
+			rest = rest.slice(WRAPPER_VALUE_OPTIONS[name]?.has(option) ? 2 : 1);
+		}
+	}
+	return rest;
+}
+
+const SSH_UNITS = /^(ssh|sshd|openssh-server)(\.service|\.socket)?$/;
+const SHELLS = new Set(["sh", "bash", "zsh", "dash", "ksh", "ash", "su"]);
+
+function hasFlag(args: readonly string[], short: string, long?: string): boolean {
+	return args.some((arg) => (long !== undefined && arg === long) || (/^-[A-Za-z]+$/.test(arg) && arg.slice(1).includes(short)));
+}
+
+function positional(args: readonly string[]): string[] {
+	return args.filter((arg) => !arg.startsWith("-"));
+}
+
+function segmentCatastrophe(words: string[]): CatastrophicRule | undefined {
+	const [program, ...args] = unwrap(words);
+	if (!program) return undefined;
+	const name = program.split("/").pop()!;
+	const lower = args.map((arg) => arg.toLowerCase());
+	switch (name) {
+		case "rm":
+			if (args.includes("--no-preserve-root")) return "wipe-system-path";
+			return hasFlag(args, "r", "--recursive") || hasFlag(args, "R") ? (positional(args).some(isSystemPath) ? "wipe-system-path" : undefined) : undefined;
+		case "chmod":
+		case "chown":
+		case "chgrp":
+			return (hasFlag(args, "R", "--recursive") && positional(args).slice(1).some(isSystemPath)) ? "system-permissions" : undefined;
+		case "mkswap":
+		case "mke2fs":
+		case "wipefs":
+			return "format-disk";
+		case "dd":
+			return args.some((arg) => /^of=\/dev\/(?!null$|zero$|stdout$|stderr$)/.test(arg)) ? "write-disk" : undefined;
+		case "shred":
+			return positional(args).some((arg) => arg.startsWith("/dev/")) ? "write-disk" : undefined;
+		case "fdisk":
+		case "sfdisk":
+		case "gdisk":
+		case "cfdisk":
+		case "sgdisk":
+			return args.some((arg) => /^(-l|--list|-d|--dump|-J|--json|-p|--print|-s|--show-size)$/.test(arg)) ? undefined : "partition";
+		case "parted":
+			return lower.some((arg) => /^(mklabel|mktable|mkpart|rm|resizepart|resize|rescue)$/.test(arg)) ? "partition" : undefined;
+		case "reboot":
+		case "poweroff":
+		case "halt":
+		case "shutdown":
+			return args.includes("--help") ? undefined : "power";
+		case "init":
+		case "telinit":
+			return args.some((arg) => arg === "0" || arg === "6") ? "power" : undefined;
+		case "systemctl": {
+			const [verb, ...units] = positional(args);
+			if (verb && /^(reboot|poweroff|halt|kexec|rescue|emergency|soft-reboot)$/.test(verb)) return "power";
+			if (verb && /^(stop|disable|mask|kill)$/.test(verb) && units.some((unit) => SSH_UNITS.test(unit))) return "ssh-daemon";
+			return undefined;
+		}
+		case "service":
+			return args[0] && SSH_UNITS.test(args[0]) && args[1] === "stop" ? "ssh-daemon" : undefined;
+		case "pkill":
+		case "killall":
+			return positional(args).some((arg) => SSH_UNITS.test(arg)) ? "ssh-daemon" : undefined;
+		case "kill":
+			return positional(args).includes("1") ? "kill-init" : undefined;
+		case "iptables":
+		case "ip6tables":
+		case "iptables-legacy":
+		case "iptables-nft":
+			if (args.some((arg) => arg === "-F" || arg === "--flush" || arg === "-X")) return "firewall";
+			for (let i = 0; i < args.length - 2; i++) {
+				if ((args[i] === "-P" || args[i] === "--policy") && /^INPUT$/i.test(args[i + 1]!) && /^(DROP|REJECT)$/i.test(args[i + 2]!)) return "firewall";
+			}
+			return undefined;
+		case "nft":
+			return lower[0] === "flush" && lower[1] === "ruleset" ? "firewall" : undefined;
+		case "ufw":
+			return lower[0] === "reset" || lower[0] === "disable" ? "firewall" : undefined;
+		case "userdel":
+		case "deluser":
+			return "delete-user";
+		default:
+			if (/^mkfs(\.\w+)?$/.test(name)) return "format-disk";
+			return undefined;
+	}
+}
+
+/** `sh -c '...'` and `su -c '...'` run their argument as a command line. */
+function nestedCommands(words: string[]): string[] {
+	const [program, ...args] = unwrap(words);
+	if (!program || !SHELLS.has(program.split("/").pop()!)) return [];
+	const index = args.findIndex((arg) => /^-[A-Za-z]*c[A-Za-z]*$/.test(arg));
+	return index === -1 || args[index + 1] === undefined ? [] : [args[index + 1]!];
+}
+
+/** Bodies of `$(...)` and backticks (not nested). */
+function substitutions(command: string): string[] {
+	const bodies: string[] = [];
+	for (const match of command.matchAll(/\$\(([^()]*)\)|`([^`]*)`/g)) bodies.push(match[1] ?? match[2] ?? "");
+	return bodies;
+}
+
+const FORK_BOMB = /:\s*\(\s*\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:/;
+const DISK_REDIRECT = />\s*\/dev\/(sd|hd|vd|xvd|nvme|mmcblk|disk|mapper\/)/;
+
+function commandCatastrophe(command: string, depth = 0): CatastrophicRule | undefined {
+	if (depth > 3) return undefined;
+	if (FORK_BOMB.test(command)) return "fork-bomb";
+	if (DISK_REDIRECT.test(command)) return "write-disk";
+	const parsed = parseCommand(command);
+	for (const segment of parsed.segments) {
+		const rule = segmentCatastrophe(segment.words);
+		if (rule) return rule;
+		for (const nested of nestedCommands(segment.words)) {
+			const inner = commandCatastrophe(nested, depth + 1);
+			if (inner) return inner;
+		}
+	}
+	for (const body of substitutions(command)) {
+		const inner = commandCatastrophe(body, depth + 1);
+		if (inner) return inner;
+	}
+	return undefined;
+}
+
+/** The catastrophic rule a call matches, if any. */
+export function catastrophicRule(tool: string, args: Record<string, unknown>): CatastrophicRule | undefined {
+	if (tool === "exec") return typeof args.command === "string" ? commandCatastrophe(args.command) : undefined;
+	if (tool === "files") {
+		const action = fileAction(args);
+		const path = typeof args.path === "string" ? args.path : "";
+		if (action === "rm" && args.recursive === true && isSystemPath(path)) return "wipe-system-path";
+		if (action === "rename" && isSystemPath(path)) return "wipe-system-path";
+	}
+	return undefined;
 }
 
 /** One-line description of a gated call for the approval dialog. */

@@ -6,14 +6,15 @@ import logging
 
 from ..account.managers import AccountManager
 from ..core.exceptions import ApiError, NotSignedIn
-from ..core.models.terminal import Group, Host, Identity, Snippet, SshKey
+from ..core.models.terminal import Group, Host, Identity, Snippet, SshKey, TagHost
 from ..core.ssh_command import render_command
 from ..core.ssh_control import SshCancelled
 from ..core.ssh_exec import SshExecError, run_host_command, ssh_target
 from ..core.ssh_files import ACTIONS as FILE_ACTIONS
 from ..core.ssh_files import SshFileError, run_file_action
-from ..core.proxy import ProxyError, proxy_for
+from ..core.proxy import ProxyError
 from ..core.ssh_merge import HostLookupError, find_host, get_jump_route, get_merged_ssh_config
+from ..policy import PolicyError, describe_route, load_policy, plan_route, policy_key
 from ..redact import redact_payload, redact_text, vault_secrets
 from ..sync import (
     ensure_fresh, inventory_counts, last_synced_raw, pull, status_payload,
@@ -118,12 +119,20 @@ TOOLS = [
         'hosts',
         'List Hosts',
         (
-            'List Termius hosts (id, label, address, group, username). '
+            'List Termius hosts (id, label, address, group, username, '
+            'tags, route). In pi each row also has access: the user\'s '
+            'approval level for the host (read-only hosts refuse anything '
+            'that changes them; review asks the user for every call; auto '
+            'asks for writes; trusted runs everything except catastrophic '
+            'commands). Hosts the user disabled are left out; hidden counts '
+            'them. route says how the host is reached (the user\'s choice; '
+            'do not try another way). '
             'Pulls Termius Cloud when the local cache is older than 600 '
             'seconds. If that pull fails, returns the local cache and sets '
             'stale to true. Filter with query '
-            'against label, address, group, or username. Use host for full '
-            'SSH settings. Use exec to run a command. Use files for SFTP.'
+            'against label, address, group, username, or tag. Use host for '
+            'full SSH settings. Use exec to run a command. Use files for '
+            'SFTP.'
         ),
         _input_schema({
             'query': {
@@ -140,11 +149,12 @@ TOOLS = [
         'host',
         'Host Details',
         (
-            'One host plus merged SSH settings and a generated ssh(1) '
-            'command. Pulls Termius Cloud when the local cache is older '
-            'than 600 seconds. If that pull fails, returns the local cache '
-            'and sets stale to true. name is id or '
-            'label. Does not return passwords or private keys.'
+            'One host plus merged SSH settings, its route, and a generated '
+            'ssh(1) command. Pulls Termius Cloud when the local cache is '
+            'older than 600 seconds. If that pull fails, returns the local '
+            'cache and sets stale to true. name is id or '
+            'label. A host the user disabled fails with host_disabled. '
+            'Does not return passwords or private keys.'
         ),
         _input_schema({
             'name': {
@@ -165,9 +175,11 @@ TOOLS = [
             'closed and the result has timed_out true, exit_code null, and '
             'the output so far; the remote process may keep running. Uses '
             'the '
-            'username, password, or key from the vault. Auto-pulls a stale '
-            'vault first (TERMIUS_SYNC_TTL). Returns stdout, stderr, and '
-            'exit_code. Never echo '
+            'username, password, or key from the vault, and the route the '
+            'user set for the host; a route that does not connect is an '
+            'error, never retried another way. Auto-pulls a stale '
+            'vault first (TERMIUS_SYNC_TTL). Returns stdout, stderr, '
+            'exit_code, and the route taken. Never echo '
             'secrets from the output unless the user asked for that command.'
         ),
         _input_schema({
@@ -331,17 +343,75 @@ def _apply_sync_state(data, sync):
     return data
 
 
-def _host_row(runtime, host):
+def _policy():
+    try:
+        return load_policy()
+    except PolicyError as exc:
+        raise ToolError(str(exc), code='policy_unreadable')
+
+
+def tags_by_host(runtime):
+    """Tag labels per local host id."""
+    tags = {}
+    try:
+        links = runtime.storage.get_all(TagHost)
+    except Exception:  # pylint: disable=broad-except
+        LOGGER.warning('Tags could not be read', exc_info=True)
+        return tags
+    for link in links:
+        host = getattr(link, 'host', None)
+        host_id = getattr(host, 'id', host)
+        label = getattr(getattr(link, 'tag', None), 'label', None)
+        if host_id is not None and label:
+            tags.setdefault(host_id, []).append(label)
+    return tags
+
+
+_CHAIN_MODES = ('termius', 'termius-proxy')
+
+
+def host_route(runtime, host, policy):
+    """``(hops, proxy, route)`` for ``host`` under ``policy``.
+
+    hops are ``(jump_host, merged_config)`` pairs. When the route cannot be
+    used (a missing jump host, a proxy that is needed but absent), hops and
+    proxy are None and ``route['error']`` says why.
+    """
+    key = policy_key(host)
+    mode, source = policy.route_for(key)
+    try:
+        chain = get_jump_route(runtime.storage, host) if mode in _CHAIN_MODES else []
+        hops, proxy = plan_route(mode, chain, host.address, policy.proxy_url_for(key))
+    except (HostLookupError, ProxyError) as exc:
+        return None, None, describe_route(mode, source, [], None, error=str(exc))
+    return hops, proxy, describe_route(mode, source, [hop for hop, _ in hops], proxy)
+
+
+def host_row(runtime, host, policy, tags):
     ssh_config = get_merged_ssh_config(host)
     identity = ssh_config.identity
     return {
         'id': host.id,
+        'cloud_id': policy_key(host),
         'label': host.label,
         'address': host.address,
         'group': getattr(host.group, 'label', None),
         'username': identity.username if identity else None,
         'has_password': bool(identity and identity.password),
+        'tags': tags.get(host.id, []),
+        'route': host_route(runtime, host, policy)[2],
     }
+
+
+def _refuse_disabled(host, policy):
+    if policy.is_disabled(policy_key(host)):
+        raise ToolError(
+            '{} is disabled by the user in /termius. Do not reach it another '
+            'way; ask the user to enable it there if it is needed.'.format(
+                host.label or host.address
+            ),
+            code='host_disabled',
+        )
 
 
 def _matches_query(row, query):
@@ -353,7 +423,7 @@ def _matches_query(row, query):
         str(row.get('address') or ''),
         str(row.get('group') or ''),
         str(row.get('username') or ''),
-    )
+    ) + tuple(str(tag) for tag in row.get('tags') or ())
     return any(needle in item.lower() for item in haystacks)
 
 
@@ -401,18 +471,26 @@ def handle_sync(runtime, arguments):
 def handle_hosts(runtime, arguments):
     sync = _auto_sync(runtime, ttl=HOST_PULL_TTL, allow_stale=True)
     query = arguments.get('query') or ''
+    policy = _policy()
+    tags = tags_by_host(runtime)
     rows = []
+    hidden = 0
     for host in runtime.storage.get_all(Host):
-        row = _host_row(runtime, host)
+        if policy.is_disabled(policy_key(host)):
+            hidden += 1
+            continue
+        row = host_row(runtime, host, policy, tags)
         if _matches_query(row, query):
             rows.append(row)
-    data = _apply_sync_state({'hosts': rows, 'count': len(rows)}, sync)
+    data = {'hosts': rows, 'count': len(rows)}
+    if hidden:
+        data['hidden'] = hidden
+    data = _apply_sync_state(data, sync)
+    summary = '{} hosts.'.format(len(rows))
+    if hidden:
+        summary += ' {} more disabled by the user in /termius.'.format(hidden)
     if data.get('stale'):
-        summary = (
-            '{} hosts. Cloud pull failed; this list is the local cache.'
-        ).format(len(rows))
-    else:
-        summary = '{} hosts.'.format(len(rows))
+        summary += ' Cloud pull failed; this list is the local cache.'
     return data, summary
 
 
@@ -422,19 +500,21 @@ def handle_host(runtime, arguments):
         host = find_host(runtime.storage, arguments.get('name'))
     except HostLookupError as exc:
         raise ToolError(str(exc), code='host_not_found')
+    policy = _policy()
+    _refuse_disabled(host, policy)
     ssh_config = get_merged_ssh_config(host)
     identity = ssh_config.identity
     ssh_key = ssh_config.get_ssh_key()
     ssh_config['agent_forwarding'] = (
         AccountManager(runtime.config).get_settings().get('agent_forwarding')
     )
-    route = _route(runtime, host)
+    hops, _proxy, route = host_route(runtime, host, policy)
     jumps = [
         '{}@{}{}'.format(
             (cfg.identity.username if cfg.identity else '') or '', hop.address,
             ':{}'.format(cfg.port) if cfg.port and int(cfg.port) != 22 else '',
         ).lstrip('@')
-        for hop, cfg in route
+        for hop, cfg in hops or []
     ]
     command = render_command(ssh_config, host.address)
     if jumps:
@@ -442,6 +522,7 @@ def handle_host(runtime, arguments):
     snippet = ssh_config.startup_snippet
     data = {
         'id': host.id,
+        'cloud_id': policy_key(host),
         'label': host.label,
         'address': host.address,
         'group': getattr(host.group, 'label', None),
@@ -455,8 +536,10 @@ def handle_host(runtime, arguments):
         'keep_alive_packages': ssh_config.keep_alive_packages,
         'agent_forwarding': ssh_config.agent_forwarding,
         'startup_snippet': snippet.label if snippet else None,
-        'jump_hosts': [hop.label or hop.address for hop, _ in route],
-        'proxy': _proxy_text(host, route),
+        'tags': tags_by_host(runtime).get(host.id, []),
+        'jump_hosts': route['jump_hosts'],
+        'proxy': route['proxy'],
+        'route': route,
         'ssh_command': command,
     }
     _apply_sync_state(data, sync)
@@ -475,33 +558,44 @@ def _route(runtime, host):
         raise ToolError(str(exc), code='host_not_found')
 
 
-def _proxy_text(host, route):
-    if route:
-        return None
+def resolve_connection(runtime, host, policy):
+    """``(target, hops, proxy)`` for ``host`` along its route: plain values
+    that no longer touch storage. Raises ToolError when the route cannot be
+    used."""
+    key = policy_key(host)
+    mode, _source = policy.route_for(key)
+    chain = _route(runtime, host) if mode in _CHAIN_MODES else []
     try:
-        proxy = proxy_for(host.address)
+        hops, proxy = plan_route(mode, chain, host.address, policy.proxy_url_for(key))
     except ProxyError as exc:
-        return 'invalid proxy setting: {}'.format(exc)
-    return proxy.describe() if proxy else None
-
-
-def _ssh_target_for(runtime, name):
-    """Sync, find the host, and resolve its credentials and jump hosts.
-
-    Returns ``(target, route)``: plain SshTargets that no longer touch
-    storage, so the SSH work can run without the lock. The caller must
-    hold ``runtime.lock``.
-    """
-    _auto_sync(runtime)
-    host = _lookup_host(runtime, name)
-    route = _route(runtime, host)
+        raise ToolError(
+            'Route {} for {} cannot be used: {}. The user picks routes in '
+            '/termius; do not try another way.'.format(
+                mode, host.label or host.address, exc,
+            ),
+            code='route_unavailable',
+        )
     try:
         return (
             ssh_target(host, get_merged_ssh_config(host)),
-            [ssh_target(hop, hop_config) for hop, hop_config in route],
+            [ssh_target(hop, hop_config) for hop, hop_config in hops],
+            proxy,
         )
     except SshExecError as exc:
         raise ToolError(str(exc), code='ssh_failed')
+
+
+def _ssh_target_for(runtime, name):
+    """Sync, find the host, refuse it when disabled, and resolve its route.
+
+    Returns ``(target, hops, proxy)``, so the SSH work can run without the
+    lock. The caller must hold ``runtime.lock``.
+    """
+    _auto_sync(runtime)
+    host = _lookup_host(runtime, name)
+    policy = _policy()
+    _refuse_disabled(host, policy)
+    return resolve_connection(runtime, host, policy)
 
 
 def _cancelled_error():
@@ -514,12 +608,13 @@ def handle_exec(runtime, arguments, cancel=None):
         raise ToolError('command is required', code='invalid_argument')
     timeout = _int_timeout(arguments.get('timeout'))
     with runtime.lock:
-        target, route = _ssh_target_for(runtime, arguments.get('name'))
+        target, route, proxy = _ssh_target_for(runtime, arguments.get('name'))
     # The SSH work runs without the lock, so status and other tools stay
     # responsive while a long command runs.
     try:
         result = run_host_command(
             target, command, timeout=timeout, route=route, cancel=cancel,
+            proxy=proxy,
         )
     except SshCancelled:
         raise _cancelled_error()
@@ -590,12 +685,12 @@ def _files_extra(arguments):
 
 
 def _invoke_files(target, action, path, timeout, arguments, route=None,
-                  cancel=None):
+                  cancel=None, proxy=None):
     try:
         result = run_file_action(
             target, action, path,
             timeout=timeout, extra=_files_extra(arguments), route=route,
-            cancel=cancel,
+            cancel=cancel, proxy=proxy,
         )
     except SshCancelled:
         raise _cancelled_error()
@@ -637,9 +732,10 @@ def _files_summary(result):
 def handle_files(runtime, arguments, cancel=None):
     action, path, timeout = _files_args(arguments)
     with runtime.lock:
-        target, route = _ssh_target_for(runtime, arguments.get('name'))
+        target, route, proxy = _ssh_target_for(runtime, arguments.get('name'))
     result = _invoke_files(
         target, action, path, timeout, arguments, route=route, cancel=cancel,
+        proxy=proxy,
     )
     return result, _files_summary(result)
 

@@ -17,6 +17,8 @@ import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { type Component, type KeybindingsManager, type TUI, truncateToWidth } from "@earendil-works/pi-tui";
 import type { OptionalPackage } from "./manifest.ts";
 import type { UnlistedPackage } from "./plan.ts";
+import { wrapPlain } from "./preset-menu.ts";
+import { messages } from "./preset-messages.ts";
 import { sanitizeTerminalText } from "./terminal-text.ts";
 
 interface ChecklistTheme {
@@ -29,23 +31,9 @@ function fit(text: string, width: number): string {
 	return truncateToWidth(text, width, "");
 }
 
-/** Greedy word wrap so descriptions stay readable at narrow widths. */
+/** Word wrap by display width (Chinese text included) so descriptions stay readable at narrow widths. */
 function wrapText(text: string, width: number): string[] {
-	if (width <= 0) return [];
-	const lines: string[] = [];
-	let current = "";
-	for (const word of text.split(/\s+/)) {
-		if (!word) continue;
-		const candidate = current === "" ? word : `${current} ${word}`;
-		if (candidate.length <= width) {
-			current = candidate;
-			continue;
-		}
-		if (current !== "") lines.push(current);
-		current = word;
-	}
-	if (current !== "") lines.push(current);
-	return lines.map((line) => fit(line, width));
+	return wrapPlain(text.replace(/\n+/g, " "), width).filter((line) => line !== "");
 }
 
 export interface PackageSelection {
@@ -70,10 +58,9 @@ function display(value: string): string {
 
 function unlistedDescription(source: string): string {
 	const kind = source.startsWith("npm:") ? "npm" : /^(git|github):|^(https?|ssh):\/\/|^git@/.test(source) ? "git" : "local";
-	if (kind === "local") {
-		return "Not part of the preset. Unchecked: the entry is removed from settings.json; the local directory itself is left alone.";
-	}
-	return `Not part of the preset. Unchecked: \`pi remove\` drops it from settings.json and deletes its installed ${kind} files.`;
+	const m = messages();
+	if (kind === "local") return m.unlistedLocal;
+	return m.unlistedInstalled(kind);
 }
 
 export class PackageChecklistComponent implements Component {
@@ -161,36 +148,36 @@ export class PackageChecklistComponent implements Component {
 		const row = this.rows[index]!;
 		const active = index === this.cursor;
 		const checked = this.checked.has(row.source);
+		const m = messages();
 		let suffix = "";
-		if (row.kind === "optional" && row.installed && !checked) suffix = " (installed, will be removed)";
-		else if (row.kind === "optional" && row.installed) suffix = " (installed)";
-		else if (row.kind === "unlisted" && !checked) suffix = " (will be removed)";
+		if (row.kind === "optional" && row.installed && !checked) suffix = ` (${m.installedWillBeRemoved})`;
+		else if (row.kind === "optional" && row.installed) suffix = ` (${m.installed})`;
+		else if (row.kind === "unlisted" && !checked) suffix = ` (${m.willBeRemoved})`;
 		const text = `${active ? "→" : " "} [${checked ? "x" : " "}] ${row.label}`;
 		if (active) return fit(this.theme.fg("accent", text + suffix), width);
-		const warn = suffix.includes("removed");
+		const warn = row.installed && !checked;
 		return fit(text + (warn ? this.theme.fg("warning", suffix) : this.theme.fg("dim", suffix)), width);
 	}
 
 	render(width: number): string[] {
+		const m = messages();
 		const lines: string[] = [];
 		if (this.optionalCount > 0) {
-			lines.push(fit(this.theme.bold("Optional extensions"), width));
-			lines.push(
-				fit(this.theme.fg("dim", "Checked = installed after the sync. Unchecking an installed one removes it."), width),
-			);
+			lines.push(fit(this.theme.bold(m.optionalTitle), width));
+			lines.push(fit(this.theme.fg("dim", m.optionalHelp), width));
 			for (let index = 0; index < this.optionalCount; index++) lines.push(this.renderRow(index, width));
 		}
 
 		if (this.rows.length > this.optionalCount) {
 			if (lines.length > 0) lines.push(fit("", width));
-			lines.push(fit(this.theme.bold("Packages not in the preset"), width));
-			lines.push(fit(this.theme.fg("dim", "Check the ones to keep. Unchecked packages are removed."), width));
+			lines.push(fit(this.theme.bold(m.unlistedTitle), width));
+			lines.push(fit(this.theme.fg("dim", m.unlistedHelp), width));
 			for (let index = this.optionalCount; index < this.rows.length; index++) lines.push(this.renderRow(index, width));
 		}
 
 		lines.push(fit("", width));
 		const onContinue = this.cursor === this.rows.length;
-		const continueRow = `${onContinue ? "→" : " "} Continue`;
+		const continueRow = `${onContinue ? "→" : " "} ${m.continue}`;
 		lines.push(fit(onContinue ? this.theme.fg("accent", continueRow) : continueRow, width));
 		const active = this.rows[this.cursor];
 		if (active) {
@@ -199,7 +186,7 @@ export class PackageChecklistComponent implements Component {
 				lines.push(fit(this.theme.fg("dim", `  ${line}`), width));
 			}
 		}
-		lines.push(fit(this.theme.fg("dim", "↑↓ navigate · Enter toggle/continue · Esc cancel"), width));
+		lines.push(fit(this.theme.fg("dim", m.checklistKeys), width));
 		return lines;
 	}
 

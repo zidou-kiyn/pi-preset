@@ -6,6 +6,7 @@
  */
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { messages } from "./pi-preset-messages.ts";
 
 export const FONT_FAMILY = "Maple Mono Normal NF CN";
 
@@ -16,6 +17,7 @@ export const FONT_FAMILY = "Maple Mono Normal NF CN";
  */
 export const FONT_URL = "https://github.com/subframe7536/maple-font/releases/download/v8.0-beta.3/MapleMonoNormal-NF-CN-unhinted.zip";
 
+/** Sent to the model, so it stays English whatever the UI language. */
 export const FONT_INSTALL_PROMPT = [
 	`Set up the ${FONT_FAMILY} font for me end to end; do every step yourself, do not hand any step back to me.`,
 	"1. Check whether it is already installed for my operating system; if it is, skip to step 3.",
@@ -27,16 +29,13 @@ export const FONT_INSTALL_PROMPT = [
 /** Send the prompt; requires a model, queues as a follow-up while the agent is busy. */
 export function sendFontInstallPrompt(pi: ExtensionAPI, ctx: ExtensionCommandContext): void {
 	if (!ctx.model) {
-		ctx.ui.notify(
-			"pi-preset font: no model is selected yet. Set one up first (Apply models.json template, then /model), then pick this entry again.",
-			"warning",
-		);
+		ctx.ui.notify(messages().fontNoModel, "warning");
 		return;
 	}
 	if (ctx.isIdle()) {
 		pi.sendUserMessage(FONT_INSTALL_PROMPT);
 	} else {
 		pi.sendUserMessage(FONT_INSTALL_PROMPT, { deliverAs: "followUp" });
-		ctx.ui.notify("pi-preset font: queued; it is sent when the current run finishes", "info");
+		ctx.ui.notify(messages().fontQueued, "info");
 	}
 }

@@ -51,6 +51,7 @@ import {
 	type WarmUsage,
 	warmPayload,
 } from "../src/idle-keepwarm.ts";
+import { messages } from "../src/idle-keepwarm-messages.ts";
 
 const STATUS_KEY = "keepwarm";
 const ENTRY_TYPE = "pi-preset-keepwarm";
@@ -104,15 +105,16 @@ export default function idleKeepwarm(pi: ExtensionAPI): void {
 	/** Plain-text form for pi's default footer; vibrant-footer renders the snapshot itself. */
 	const statusText = (state: KeepwarmSnapshot | undefined): string | undefined => {
 		if (!state) return undefined;
-		if (state.note) return `keepwarm: ${state.note}`;
+		const m = messages();
+		if (state.note) return m.status(state.note);
 		const parts: string[] = [];
 		if (state.expiresAt !== undefined) {
 			const left = state.expiresAt - Date.now();
-			parts.push(left > 0 ? `cache ${formatRemaining(left)}` : "cache expired");
+			parts.push(left > 0 ? m.cacheLeft(formatRemaining(left)) : m.cacheExpired);
 		}
-		if (state.warming) parts.push("warming");
+		if (state.warming) parts.push(m.warming);
 		else if (state.nextWarmAt !== undefined) {
-			parts.push(`warm ${formatClock(state.nextWarmAt)}${state.warms > 0 ? ` (${state.warms}x)` : ""}`);
+			parts.push(m.nextWarm(formatClock(state.nextWarmAt), state.warms));
 		}
 		return parts.join(" · ") || undefined;
 	};
@@ -171,14 +173,14 @@ export default function idleKeepwarm(pi: ExtensionAPI): void {
 		const ctx = ctxRef;
 		if (!last || !ctx || running || !ctx.isIdle()) return render();
 
-		if (Date.now() - lastRealRequest >= config.maxIdleMs) return pause("idle limit reached");
+		if (Date.now() - lastRealRequest >= config.maxIdleMs) return pause(messages().idleLimit);
 		const model = ctx.model;
 		if (!model || model.provider !== last.model.provider || model.id !== last.model.id) {
-			return pause("model changed");
+			return pause(messages().modelChanged);
 		}
 		// Timer ran late (sleep, blocked loop): the entry is likely gone and a
 		// refresh would be a full cache write, the billed part.
-		if (Date.now() >= lastTouch + last.ttlMs - LATE_MARGIN_MS) return pause("cache expired, resumes on next message");
+		if (Date.now() >= lastTouch + last.ttlMs - LATE_MARGIN_MS) return pause(messages().expiredResumes);
 
 		const controller = new AbortController();
 		inflight = controller;
@@ -203,16 +205,13 @@ export default function idleKeepwarm(pi: ExtensionAPI): void {
 			if (controller.signal.aborted || inflight !== controller || captured !== last) return;
 			inflight = undefined;
 			if (message.stopReason === "error" || message.stopReason === "aborted") {
-				return pause(`refresh failed (${message.errorMessage ?? message.stopReason}), resumes on next message`);
+				return pause(messages().refreshFailed(message.errorMessage ?? message.stopReason));
 			}
 			const usage: WarmUsage = message.usage;
 			pi.appendEntry(ENTRY_TYPE, { provider: message.provider, model: message.model, usage });
 			if (isCacheMiss(usage)) {
-				notify(
-					`refresh missed the cache (read ${usage.cacheRead ?? 0}, wrote ${usage.cacheWrite ?? 0} tokens); stopped until the next message`,
-					"warning",
-				);
-				return pause("stopped after a cache miss");
+				notify(messages().cacheMiss(usage.cacheRead ?? 0, usage.cacheWrite ?? 0), "warning");
+				return pause(messages().stoppedAfterMiss);
 			}
 			warms++;
 			lastTouch = sentAt;
@@ -220,7 +219,7 @@ export default function idleKeepwarm(pi: ExtensionAPI): void {
 		} catch (error) {
 			if (controller.signal.aborted || inflight !== controller) return;
 			inflight = undefined;
-			pause(`refresh failed (${(error as Error)?.message ?? String(error)}), resumes on next message`);
+			pause(messages().refreshFailed((error as Error)?.message ?? String(error)));
 		}
 	};
 
@@ -285,9 +284,9 @@ export default function idleKeepwarm(pi: ExtensionAPI): void {
 	});
 
 	// The captured prefix is no longer what the next request extends.
-	pi.on("model_select", async () => pause("model changed"));
-	pi.on("session_compact", async () => pause("compacted"));
-	pi.on("session_tree", async () => pause("tree navigation"));
+	pi.on("model_select", async () => pause(messages().modelChanged));
+	pi.on("session_compact", async () => pause(messages().compacted));
+	pi.on("session_tree", async () => pause(messages().treeNavigation));
 
 	// While idle this extension owns refreshes; during runs pi's streaming warmer does.
 	pi.on("cache_warming_decision", async () => (!running && captured ? { action: "stop" as const } : undefined));

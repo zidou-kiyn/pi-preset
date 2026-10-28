@@ -13,6 +13,8 @@ import {
 	type TUI,
 	truncateToWidth,
 } from "@earendil-works/pi-tui";
+import { wrapPlain } from "./preset-menu.ts";
+import { messages } from "./preset-messages.ts";
 
 export interface PresetTheme {
 	fg(color: string, text: string): string;
@@ -24,25 +26,9 @@ function fit(text: string, width: number): string {
 	return truncateToWidth(text, width, "");
 }
 
-/** Greedy word wrap so option descriptions stay readable at narrow widths. */
+/** Word wrap by display width (Chinese text included) so descriptions stay readable at narrow widths. */
 function wrapText(text: string, width: number): string[] {
-	if (width <= 0) return [];
-	const lines: string[] = [];
-	for (const paragraph of text.split("\n")) {
-		let current = "";
-		for (const word of paragraph.split(/\s+/)) {
-			if (!word) continue;
-			const candidate = current === "" ? word : `${current} ${word}`;
-			if (candidate.length <= width) {
-				current = candidate;
-				continue;
-			}
-			if (current !== "") lines.push(current);
-			current = word;
-		}
-		if (current !== "") lines.push(current);
-	}
-	return lines.map((line) => fit(line, width));
+	return wrapPlain(text, width).filter((line) => line !== "");
 }
 
 /** Single-line input whose value is never rendered; for API keys. */
@@ -63,10 +49,10 @@ export class MaskedInputComponent implements Component, Focusable {
 		keybindings: KeybindingsManager,
 		requestRender: () => void,
 		done: (result: string | undefined) => void,
-		hint = "The key is hidden while you type.",
+		hint?: string,
 	) {
 		this.title = title;
-		this.hint = hint;
+		this.hint = hint ?? messages().maskedHint;
 		this.theme = theme;
 		this.keybindings = keybindings;
 		this.requestRender = requestRender;
@@ -149,10 +135,10 @@ export class DiffConfirmationComponent implements Component {
 		requestRender: () => void,
 		done: (result: boolean) => void,
 		maxVisible = 16,
-		subtitle = "Review the changes below.",
+		subtitle?: string,
 	) {
 		this.title = title;
-		this.subtitle = subtitle;
+		this.subtitle = subtitle ?? messages().reviewChanges;
 		this.diffLines = diffLines;
 		this.theme = theme;
 		this.keybindings = keybindings;
@@ -189,6 +175,7 @@ export class DiffConfirmationComponent implements Component {
 
 	render(width: number): string[] {
 		const visible = this.diffLines.slice(this.scroll, this.scroll + this.maxVisible);
+		const m = messages();
 		const lines = [fit(this.theme.bold(this.title), width), fit(this.theme.fg("dim", this.subtitle), width)];
 		for (const line of visible) {
 			const trimmed = line.trimStart();
@@ -206,13 +193,13 @@ export class DiffConfirmationComponent implements Component {
 				fit(
 					this.theme.fg(
 						"dim",
-						`showing ${this.scroll + 1}-${Math.min(this.diffLines.length, this.scroll + this.maxVisible)} of ${this.diffLines.length}`,
+						m.showingLines(this.scroll + 1, Math.min(this.diffLines.length, this.scroll + this.maxVisible), this.diffLines.length),
 					),
 					width,
 				),
 			);
 		}
-		lines.push(fit(this.theme.fg("dim", "↑↓/PageUp/PageDown scroll · Enter apply · Esc cancel"), width));
+		lines.push(fit(this.theme.fg("dim", m.reviewKeys), width));
 		return lines;
 	}
 
@@ -295,7 +282,7 @@ export class DescribedSelectComponent implements Component {
 				lines.push(fit(this.theme.fg("dim", `  ${line}`), width));
 			}
 		}
-		lines.push(fit(this.theme.fg("dim", "↑↓ navigate · Enter select · Esc cancel"), width));
+		lines.push(fit(this.theme.fg("dim", messages().selectKeys), width));
 		return lines;
 	}
 

@@ -19,6 +19,9 @@ import { apply } from "../src/apply.ts";
 import { deepMerge, type JsonObject, readJsonObject, writeJsonObjectAtomic } from "../src/json-merge.ts";
 import type { SyncPlan } from "../src/plan.ts";
 
+// UI text is asserted in English whatever the system locale.
+process.env.PI_PRESET_LANG = "en";
+
 function makeHome(): string {
 	return mkdtempSync(join(tmpdir(), "pi-preset-json-merge-test-"));
 }

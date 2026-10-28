@@ -17,13 +17,16 @@
 
 import { createEditToolDefinition, type ExtensionAPI, keyHint } from "@earendil-works/pi-coding-agent";
 import { readLineBudget, withLineCap } from "../src/compact-tools.ts";
+import { messages } from "../src/compact-tools-messages.ts";
 
 export default function compactTools(pi: ExtensionAPI): void {
 	const editLines = readLineBudget(process.env.PI_PRESET_EDIT_LINES, 16);
 	if (editLines === undefined) return;
 
-	const hint = (hidden: number, theme: { fg(color: string, text: string): string }) =>
-		`${theme.fg("muted", `… ${hidden} more line${hidden === 1 ? "" : "s"} (`)}${keyHint("app.tools.expand", "to expand")}${theme.fg("muted", ")")}`;
+	const hint = (hidden: number, theme: { fg(color: string, text: string): string }) => {
+		const m = messages();
+		return `${theme.fg("muted", m.moreLines(hidden))}${keyHint("app.tools.expand", m.toExpand)}${theme.fg("muted", m.close)}`;
+	};
 
 	// Re-registered per session so the definition carries the session's cwd.
 	pi.on("session_start", async (_event, ctx) => {

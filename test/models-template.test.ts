@@ -17,6 +17,9 @@ import { type ModelsTemplateIO, runPresetModelsTemplate } from "../src/models-te
 import { MaskedInputComponent, type PresetTheme } from "../src/preset-ui.ts";
 import { assertModeOnPosix } from "./platform-test-utils.ts";
 
+// UI text is asserted in English whatever the system locale.
+process.env.PI_PRESET_LANG = "en";
+
 const theme: PresetTheme = { fg: (_color, text) => text, bold: (text) => text };
 
 function makeDir(): string {

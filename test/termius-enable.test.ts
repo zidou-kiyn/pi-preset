@@ -15,7 +15,9 @@ after(() => {
 	rmSync(agentDir, { recursive: true, force: true });
 });
 
-const { installDir, readConfig, serverBinary, sourceHash, writeConfig } = await import("../src/termius/install.ts");
+process.env.PI_PRESET_LANG = "en";
+const { installDir, serverBinary, sourceHash } = await import("../src/termius/install.ts");
+const { readConfig, writeConfig } = await import("../src/termius/config.ts");
 const { default: termiusExtension } = await import("../extensions/termius.ts");
 
 const configFile = () => join(installDir(), "config.json");

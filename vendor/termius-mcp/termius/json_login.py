@@ -13,11 +13,21 @@ Request::
     {"action": "logout"}
     {"action": "status"}
     {"action": "sync"}
+    {"action": "hosts", "sync": true}
+    {"action": "test", "host": "<cloud id, id, or label>", "timeout": 15}
 
 A successful sign-in also pulls the inventory with the password it was given,
 so the host list is there at once; a failed pull does not fail the sign-in
 (the response carries ``synced: false`` and ``sync_error``). ``sync`` pulls
 with the remembered vault password.
+
+``hosts`` returns every host for pi's host list, disabled ones included
+(the user manages them there), with tags, the route, and the cloud ids of
+the jump hosts the route goes through; ``sync: true`` pulls first when the
+cache is over 10 minutes old (a failed pull still returns the cache, with
+``sync_error``). ``test`` connects to a host along its route, one hop at a
+time, authenticates, runs nothing, and reports each hop and its time; on a
+failure it names the hop that failed. Neither returns a secret.
 
 Response: ``{"ok": true, ...}`` or ``{"ok": false, "code": ..., "error": ...}``
 with code ``otp_required`` (retry with an authenticator code),
@@ -30,8 +40,9 @@ from __future__ import unicode_literals
 
 import json
 import sys
+import time
 
-from .redact import redact_text
+from .redact import redact_text, vault_secrets
 
 
 def _fail(code, message, secrets=()):
@@ -58,6 +69,91 @@ def _pull(runtime, password, secrets=()):
     return {'synced': True, 'hosts': data.get('hosts', 0), 'last_synced': data.get('last_synced') or ''}
 
 
+def _hosts(runtime, request):
+    from .core.models.terminal import Host
+    from .core.ssh_merge import get_merged_ssh_config
+    from .mcp.tools import host_route, host_row, tags_by_host
+    from .policy import PolicyError, load_policy, policy_key
+    from .sync import ensure_fresh, is_signed_in, last_synced_raw
+    response = {'ok': True, 'logged_in': is_signed_in(runtime.config)}
+    if request.get('sync') and response['logged_in']:
+        try:
+            ensure_fresh(runtime, ttl=600)
+        except Exception as exc:  # pylint: disable=broad-except
+            response['sync_error'] = redact_text(str(exc), vault_secrets(runtime))
+    try:
+        policy = load_policy()
+    except PolicyError as exc:
+        return _fail('policy_unreadable', str(exc))
+    tags = tags_by_host(runtime)
+    rows = []
+    for host in runtime.storage.get_all(Host):
+        row = host_row(runtime, host, policy, tags)
+        hops = host_route(runtime, host, policy)[0] or []
+        row['via'] = [policy_key(hop) for hop, _ in hops]
+        row['port'] = int(get_merged_ssh_config(host).port or 22)
+        row['os'] = host.os_name or None
+        rows.append(row)
+    response['hosts'] = rows
+    response['last_synced'] = last_synced_raw(runtime.config)
+    return response
+
+
+def _find_host(runtime, name):
+    from .core.models.terminal import Host
+    from .core.ssh_merge import HostLookupError, find_host
+    from .policy import policy_key
+    for host in runtime.storage.get_all(Host):
+        if policy_key(host) == str(name):
+            return host
+    try:
+        return find_host(runtime.storage, name)
+    except HostLookupError:
+        return None
+
+
+def _test(runtime, request):
+    from .core.ssh_control import close_quiet
+    from .mcp.tools import ToolError, host_route, resolve_connection
+    from .policy import PolicyError, load_policy
+    from .core.ssh_exec import connect_host
+    host = _find_host(runtime, request.get('host'))
+    if host is None:
+        return _fail('host_not_found', 'Host not found: {}'.format(request.get('host')))
+    try:
+        policy = load_policy()
+        target, hops, proxy = resolve_connection(runtime, host, policy)
+    except PolicyError as exc:
+        return _fail('policy_unreadable', str(exc))
+    except ToolError as exc:
+        return _fail(exc.code or 'route_unavailable', str(exc), vault_secrets(runtime))
+    route = host_route(runtime, host, policy)[2]
+    try:
+        timeout = max(1, int(request.get('timeout') or 15))
+    except (TypeError, ValueError):
+        timeout = 15
+    stages = []
+    started = time.monotonic()
+    try:
+        client, _ = connect_host(
+            target, timeout=timeout, route=hops, proxy=proxy, on_stage=stages.append,
+        )
+    except Exception as exc:  # pylint: disable=broad-except
+        sequence = list(hops) + [target]
+        failed = sequence[min(len(stages), len(sequence) - 1)]
+        response = _fail('test_failed', str(exc), vault_secrets(runtime))
+        response.update({
+            'route': route, 'stages': stages,
+            'failed': {'label': failed.label, 'address': failed.address, 'port': failed.port},
+        })
+        return response
+    close_quiet(client)
+    return {
+        'ok': True, 'route': route, 'stages': stages,
+        'seconds': round(time.monotonic() - started, 3),
+    }
+
+
 def handle(request, runtime_factory):
     """Process one request dict and return the response dict."""
     if not isinstance(request, dict):
@@ -80,6 +176,10 @@ def handle(request, runtime_factory):
     if action == 'logout':
         from .session import logout
         return logout(runtime)
+    if action == 'hosts':
+        return _hosts(runtime, request)
+    if action == 'test':
+        return _test(runtime, request)
     if action == 'sync':
         from .sync import is_signed_in
         from .vault import resolve

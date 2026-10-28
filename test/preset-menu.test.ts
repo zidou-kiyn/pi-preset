@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { type MenuSpec, MenuComponent, Signal, wrapPlain } from "../src/preset-menu.ts";
 
+// UI text is asserted in English whatever the system locale.
+process.env.PI_PRESET_LANG = "en";
+
 const KEYS: Record<string, string> = { "tui.select.up": "UP", "tui.select.down": "DOWN", "tui.select.confirm": "ENTER", "tui.select.cancel": "ESC" };
 const keybindings = { matches: (data: string, id: string) => KEYS[id] === data } as never;
 const theme = { fg: (_c: string, t: string) => t, bold: (t: string) => t };
@@ -82,6 +85,7 @@ test("Signal notifies subscribers until they unsubscribe", () => {
 test("wrapPlain hard-splits words longer than the width", () => {
 	assert.deepEqual(wrapPlain("abcdefgh ij", 4), ["abcd", "efgh", "ij"]);
 	assert.deepEqual(wrapPlain("one two three", 7), ["one two", "three"]);
+	assert.deepEqual(wrapPlain("同步预设的包和配置", 8), ["同步预设", "的包和配", "置"], "Chinese splits by display width");
 });
 
 test("captureNotices routes notify to the menu and passes everything else through", async () => {

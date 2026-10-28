@@ -9,6 +9,9 @@ import { OPTIONAL_PACKAGES, PRESET_SELF_SOURCE, REQUIRED_PACKAGES, SUPERSEDED_PA
 import { PackageChecklistComponent, type PackageSelection } from "../src/optional-packages-ui.ts";
 import { plan, type PlanOptions, readInstalledPackages, renderPlan, type Step } from "../src/plan.ts";
 
+// UI text is asserted in English whatever the system locale.
+process.env.PI_PRESET_LANG = "en";
+
 type RemoveStep = Extract<Step, { kind: "settings.packages.remove" }>;
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
