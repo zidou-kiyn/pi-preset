@@ -1,6 +1,6 @@
 /**
  * escape-over-ssh — Esc that is quick, and a double Esc that counts as two,
- * over SSH.
+ * over SSH and inside tmux.
  *
  * 1. Esc timeout inside tmux. A lone ESC byte may start a longer key
  *    sequence, so pi waits before taking it as the Esc key: 10 ms locally,
@@ -12,16 +12,20 @@
  *    terminal, which is when pi reads the variable. Esc in every dialog goes
  *    from ~105 ms to ~14 ms.
  *
- * 2. Double Esc merged into Alt+Esc. Two quick presses can reach tmux in the
- *    same read (seen with Termius desktop). tmux, like any terminal parser,
- *    takes ESC ESC as Meta+Escape and hands pi one Alt+Esc: `\x1b[27;3u`
- *    with `extended-keys-format csi-u`, `\x1b[27;3;27~` with the xterm
- *    format, a bare `\x1b\x1b` without extended keys. pi binds nothing to
- *    Alt+Esc (matchesKey never matches `alt+escape`), so the press did
- *    nothing: no interrupt, and double Esc never opened /tree. A terminal
- *    input listener rewrites Alt+Esc to Esc and feeds a second Esc through
- *    stdin right after, so pi sees the two presses that were typed. Nothing
- *    is lost: pi has no use for Alt+Esc.
+ * 2. Double Esc merged into Alt+Esc. tmux 3.8 holds a lone ESC for at least
+ *    500 ms, whatever `escape-time` says, while a size query to the outer
+ *    terminal is unanswered: when the terminal reports zero pixels and does
+ *    not answer CSI 14t (Termius desktop over SSH), that is the whole
+ *    session (tmux issue #5777). A second Esc inside those 500 ms is parsed
+ *    together with the first as Meta+Escape, and pi gets one Alt+Esc:
+ *    `\x1b[27;3u` with `extended-keys-format csi-u`, `\x1b[27;3;27~` with
+ *    the xterm format, a bare `\x1b\x1b` without extended keys. pi binds
+ *    nothing to Alt+Esc (matchesKey never matches `alt+escape`), so the
+ *    double press did nothing: no interrupt, and double Esc never opened
+ *    /tree. A terminal input listener rewrites Alt+Esc to Esc and feeds a
+ *    second Esc through stdin right after, so pi sees the two presses that
+ *    were typed. Nothing is lost: pi has no use for Alt+Esc. Once tmux is
+ *    fixed the merge stops and this part simply never fires.
  *
  * Runtime: pi-preset/extensions/escape-over-ssh.ts
  * Command: none
