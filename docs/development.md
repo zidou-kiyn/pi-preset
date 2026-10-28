@@ -66,6 +66,7 @@ In this repository, `/preset-upstream [package... | mcp | skills | trellis]` ([`
 | `extensions/trellis-lite.ts` | Project memory for `.trellis/` projects: spec, journal, light task plans (see [trellis-lite](trellis-lite.md)). `/trellis-lite`, `/trellis-lite-migrate` |
 | `extensions/todo-nudge.ts` | A one-line reminder in a tool result when a todo task stays in_progress too long, and a note when a second task is started on top (see [Todo nudges](extensions.md#todo-nudges-extensionstodo-nudgets)). No command |
 | `extensions/inherit-model.ts` | `/new` keeps the model and thinking level you were just using instead of falling back to `defaultModel` (see below). No command, no UI |
+| `extensions/double-escape.ts` | A double Esc that reaches pi as one Alt+Esc (two quick presses in one SSH read, merged by tmux) still counts as two, so Esc interrupts and double Esc opens `/tree` (see [extensions.md](extensions.md#double-esc-over-ssh-extensionsdouble-escapets)). No command, no UI |
 | `vendor/` | The vendored extensions (see [Extensions](extensions.md)) |
 | `skills/` | `grill-me`, `grilling`, and `handoff` (see [Skills](../README.md#skills)) |
 | `trellis-lite/` | trellis-lite's skills (loaded only in Trellis projects), its CLI, the migration prompt, and upstream baselines |

@@ -102,3 +102,11 @@ The Anthropic templates set `cacheRead` to `0`, because Claude subscription gate
 pi rebuilds every `/new` session from `settings.json` (`defaultModel`, `defaultThinkingLevel`) or the CLI flags it was started with, so a model picked with `/model` or ctrl+p is dropped the moment you start a fresh session. `/resume` and `/fork` restore the target session's own model and are not affected.
 
 `inherit-model.ts` stashes the active provider / model id / thinking level on the `session_shutdown` that precedes a `/new`, and reapplies it on the paired `session_start`. The value is parked on `globalThis` because `/new` recreates the resource loader and every extension instance, so module state would not survive. It is consumed once and never leaks into a later `/new`. If the model has vanished from the registry or its provider has no auth configured, pi's default is left alone. To go back to stock behavior, run `pi config` and untick it, or add `"extensions": ["!extensions/inherit-model.ts"]` to the preset's `packages[]` entry.
+
+## Double Esc over SSH: `extensions/double-escape.ts`
+
+Over SSH two quick Esc presses can reach tmux in the same read (seen with Termius desktop). tmux, like any terminal parser, reads ESC ESC as Meta+Escape and hands pi a single Alt+Esc: `\x1b[27;3u` with `extended-keys-format csi-u`, `\x1b[27;3;27~` with the xterm format, a bare `\x1b\x1b` without extended keys. pi binds nothing to Alt+Esc, so the double press did nothing: no interrupt, and `doubleEscapeAction` never opened `/tree`. A single Esc is unaffected.
+
+`double-escape.ts` rewrites Alt+Esc to Esc and feeds a second Esc through stdin right after, so pi sees the two presses that were typed. Nothing is lost, since pi has no use for Alt+Esc.
+
+Related: over SSH pi waits 100 ms before taking a lone ESC as the Esc key (other keys start with ESC too), which makes Esc feel slow in every dialog. Inside tmux, which has already assembled the keys, `PI_TUI_ESC_TIMEOUT=10` is safe, e.g. `[ -n "$TMUX" ] && export PI_TUI_ESC_TIMEOUT=10` in your shell rc.
