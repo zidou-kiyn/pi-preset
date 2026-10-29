@@ -441,3 +441,29 @@ test("extension: /skills find hands the need to the agent", async () => {
 		assert.equal(ctx.notes.at(-1)!.level, "warning");
 	});
 });
+
+test("menu: number picks past 9 take two digits, a digit nothing could extend picks at once", async () => {
+	const { MenuComponent } = await import("../src/preset-menu.ts");
+	const items = Array.from({ length: 13 }, (_, i) => ({ value: `v${i + 1}`, label: `item ${i + 1}` }));
+	const theme = { fg: (_c: string, t: string) => t, bold: (t: string) => t };
+	const keys = { matches: () => false } as any;
+	const make = () => {
+		let picked: string | undefined | "none" = "none";
+		const menu = new MenuComponent(() => ({ title: "t", items }), theme as any, keys, () => {}, (v) => (picked = v));
+		return { menu, picked: () => picked };
+	};
+	let m = make();
+	m.menu.handleInput("1");
+	assert.equal(m.picked(), "none", "1 could still become 10-13");
+	m.menu.handleInput("2");
+	assert.equal(m.picked(), "v12");
+	m = make();
+	m.menu.handleInput("5");
+	assert.equal(m.picked(), "v5", "50 > 13, so 5 is final");
+	m = make();
+	m.menu.handleInput("1");
+	m.menu.handleInput("9");
+	assert.equal(m.picked(), "none", "19 is out of range: dropped");
+	const lines = m.menu.render(40);
+	assert.ok(lines.some((l) => l.includes("13.")), "every item is numbered");
+});

@@ -1,7 +1,7 @@
 {
   "name": "pi-preset",
   "version": "0.3.0",
-  "description": "Personal pi environment preset: ramp status bar footer, a vendored extension set, grilling skills, and a models.json template",
+  "description": "Personal pi environment preset: ramp status bar footer, a vendored extension set, a skill store, and a models.json template",
   "keywords": [
     "pi-package"
   ],
@@ -21,11 +21,7 @@
       "./vendor/pi-apply-patch/src/index.ts",
       "./vendor/pi-context-view/src/index.ts"
     ],
-    "skills": [
-      "./skills/grill-me",
-      "./skills/grilling",
-      "./skills/handoff"
-    ]
+    "skills": []
   },
   "scripts": {
     "test": "node --experimental-strip-types --test --test-force-exit 'test/*.test.ts' 'vendor/pi-patty-bg-tasks/src/__tests__/*.test.ts'",

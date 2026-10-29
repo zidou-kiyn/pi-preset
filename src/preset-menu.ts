@@ -5,7 +5,9 @@
  *   - status lines under the title, rebuilt whenever the caller signals (so a
  *     status fetched in the background appears without reopening the menu);
  *   - a notice line for the result of the last action;
- *   - items that wrap around with ↑↓, a number key picks an item directly,
+ *   - items that wrap around with ↑↓, a number key picks an item directly
+ *     (two digits for lists past 9: the first digit highlights, the second
+ *     picks, and a digit that no later item could extend picks at once),
  *     and the highlighted item's description is shown below the list;
  *   - with `filterable`, typing narrows the list to items whose label, hint,
  *     or value contains the text (number keys then type too); Backspace
@@ -146,6 +148,8 @@ export class MenuComponent implements Component {
 	private cursorValue: string | undefined;
 	private settled = false;
 	private query = "";
+	/** Digits typed so far toward a number pick (lists past 9 items). */
+	private digits = "";
 
 	constructor(
 		build: () => MenuSpec,
@@ -187,6 +191,24 @@ export class MenuComponent implements Component {
 		}
 		const items = spec.filterable ? filterItems(spec.items, this.query) : spec.items;
 		const index = this.cursor(items);
+		if (!spec.filterable && /^[0-9]$/.test(data)) {
+			const typed = this.digits + data;
+			const n = Number(typed);
+			if (n < 1 || n > items.length) {
+				this.digits = "";
+				return;
+			}
+			// Another digit could still name an item: highlight and wait for it (or Enter).
+			if (n * 10 <= items.length) {
+				this.digits = typed;
+				this.cursorValue = items[n - 1]!.value;
+				this.requestRender();
+				return;
+			}
+			this.finish(items[n - 1]!.value);
+			return;
+		}
+		this.digits = "";
 		if (this.keybindings.matches(data, "tui.select.up")) {
 			if (items.length === 0) return;
 			this.cursorValue = items[index === 0 ? items.length - 1 : index - 1]!.value;
@@ -196,9 +218,6 @@ export class MenuComponent implements Component {
 		} else if (this.keybindings.matches(data, "tui.select.confirm")) {
 			if (items.length === 0) return;
 			this.finish(items[index]!.value);
-			return;
-		} else if (!spec.filterable && /^[1-9]$/.test(data) && Number(data) <= items.length) {
-			this.finish(items[Number(data) - 1]!.value);
 			return;
 		} else if (spec.filterable && isTypedText(data)) {
 			this.query += data;
@@ -233,9 +252,10 @@ export class MenuComponent implements Component {
 		const index = this.cursor(items);
 		const labelWidth = Math.max(0, ...items.map((item) => visibleWidth(item.label)));
 		if (items.length === 0) lines.push(fit(`   ${theme.fg("dim", m.noMatches)}`, width));
+		const numberWidth = `${items.length}.`.length;
 		items.forEach((item, i) => {
 			const active = i === index;
-			const number = !spec.filterable && items.length > 1 && i < 9 ? `${i + 1}.` : "  ";
+			const number = !spec.filterable && items.length > 1 ? `${i + 1}.`.padStart(numberWidth) : " ".repeat(numberWidth);
 			const label = item.hint ? item.label + " ".repeat(labelWidth - visibleWidth(item.label)) : item.label;
 			const row = `${active ? "→" : " "} ${theme.fg("dim", number)} ${active ? theme.fg("accent", label) : label}`;
 			lines.push(fit(item.hint ? `${row}  ${theme.fg("dim", item.hint)}` : row, width));

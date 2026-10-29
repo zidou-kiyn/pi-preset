@@ -15,8 +15,10 @@ Same name: the local one wins. The bundled skills are:
 |---|---|
 | `skill-authoring` | How to write a pi skill and where to put it (skill vs prompt template, frontmatter, no environment details, `skills create`) |
 | `git-conventions` | House rules for git and GitHub: commit message format, one change per commit, branches and force-push rules, PR and issue templates, releases, the `gh` commands |
+| `grill-me`, `grilling` | A relentless interview about a plan, round by round through `ask_user_question` (`/skills use grill-me <plan>`; grill-me loads grilling by its relative path) |
+| `handoff` | A handoff document for a fresh session (`/skills use handoff [focus]`) |
 
-Both are **enabled always** by default: they are short, and their value is that every session follows the same rules. Turn either off from `/skills`; the choice sticks (a default added by a later version is enabled once, then left to you).
+The first two are **enabled always** by default: they are short, and their value is that every session follows the same rules. Turn either off from `/skills`; the choice sticks (a default added by a later version is enabled once, then left to you).
 
 Skills about your own machines do not belong in a public preset even without addresses in them: the procedures alone describe the setup. Keep those in a private repository and install them into the local store (`/skills install git@github.com:you/ops-skills.git`); that is what the store is for.
 

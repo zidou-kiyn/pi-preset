@@ -1,6 +1,6 @@
 # pi-preset
 
-My [pi](https://pi.dev) environment as one pi package: a status bar, the extensions I work with (vendored and maintained here), two MCP servers, project memory for `.trellis/` projects, three skills plus a store of on-demand ones, and a `models.json` template for OpenAI / Anthropic / DeepSeek relays.
+My [pi](https://pi.dev) environment as one pi package: a status bar, the extensions I work with (vendored and maintained here), two MCP servers, project memory for `.trellis/` projects, a store of on-demand skills, and a `models.json` template for OpenAI / Anthropic / DeepSeek relays.
 
 It sets up a new machine in two commands and ships no credentials. Updating this one package updates everything in it.
 
@@ -39,25 +39,16 @@ Details: [docs/setup.md](docs/setup.md) covers what the sync writes, the package
 | Browser | chrome-devtools MCP, called from codemode | automatic after sync | [mcp](docs/mcp.md) |
 | SSH | Termius hosts: exec and SFTP, secrets never shown to the model, per-host access levels and routes, activity log | `/termius` | [mcp](docs/mcp.md#ssh-the-termius-mcp-server) |
 | Project memory | Specs, journal, and task plans in `.trellis/`, with path-scoped specs | `/trellis-lite`, `/trellis-lite-migrate` | [trellis-lite](docs/trellis-lite.md) |
-| Skills | Grill a plan until every decision is settled; hand a long session off to a fresh one | `/skill:grill-me`, `/skill:handoff` | [below](#skills) |
-| Skill store | Skills kept on hand but loaded only when enabled (session / project / always); install from GitHub, search skills.sh, let the model find and use them | `/skills`, `skills` tool | [skills-store](docs/skills-store.md) |
+| Skills | A store of skills loaded only when enabled (session / project / always): house rules for git and skill writing, grill a plan, hand a session off; install from GitHub, search skills.sh, let the model find and use them | `/skills`, `skills` tool | [below](#skills), [skills-store](docs/skills-store.md) |
 
 ## Skills
 
-`grill-me`, `grilling`, and `handoff` are adapted from Matt Pocock's [skills](https://github.com/mattpocock/skills) (MIT, see [`skills/NOTICE.md`](skills/NOTICE.md)):
+Skills you need now and then do not belong in `~/.pi/agent/skills`, where pi loads them into every session. `/skills` keeps them in a store and enables one for the session, for this directory, or always; "use now" sends it into the conversation without a reload. The model has the same store as the `skills` tool: ask it to find a skill for a task and it searches, installs after you confirm, and loads it. See [docs/skills-store.md](docs/skills-store.md).
 
-- `/skill:grill-me` starts a session. It is hidden from the model's skill list.
-- The model also loads `grilling` on its own for "grill me"-style requests.
+The store ships with:
 
-Each round goes through `ask_user_question` with the recommended answer first. The model looks up facts itself and asks you only for decisions.
-
-- `/skill:handoff [what the next session is for]` writes a handoff document to the temp directory: what is done, what is next, decisions already made, and the skills to load. Existing specs, plans, and commits are referenced by path, not copied. It is hidden from the model's skill list.
-
-Use it when a session's context has grown large or the work moves elsewhere: run `/new` (the model is kept), then ask the new session to read the file it named. For a side task, start a background agent on the file and keep going. To stay in the same session, `/compact` is enough.
-
-### The skill store
-
-Skills you need now and then do not belong in `~/.pi/agent/skills`, where pi loads them into every session. `/skills` keeps them in a store and enables one for the session, for this directory, or always; "use now" sends it into the conversation without a reload. The store holds two house-rule skills that are on by default (`skill-authoring`: skill vs prompt template and how to write one; `git-conventions`: commit, branch, PR, issue, and release rules so every session does git the same way) plus whatever you install from GitHub, a path, the recommended list, or a skills.sh search. The model has the same store as the `skills` tool: ask it to find a skill for a task and it searches, installs after you confirm, and loads it. See [docs/skills-store.md](docs/skills-store.md).
+- `skill-authoring` and `git-conventions`, **on by default**: skill vs prompt template and how to write one; commit, branch, PR, issue, and release rules so every session does git the same way.
+- `grill-me`, `grilling`, and `handoff`, off until you want them, adapted from Matt Pocock's [skills](https://github.com/mattpocock/skills) (MIT, see [`skills-store/NOTICE.md`](skills-store/NOTICE.md)). `/skills use grill-me <plan>` starts an interview that goes round by round through `ask_user_question`, recommended answer first; the model looks up facts itself and asks you only for decisions. `/skills use handoff [what the next session is for]` writes a handoff document to the temp directory (what is done, what is next, decisions made, skills to load; existing files referenced by path): run `/new`, then ask the new session to read the file it named. Enable them for a session or always and `/skill:grill-me` / `/skill:handoff` work as before.
 
 ## Language
 
@@ -92,4 +83,4 @@ See [docs/development.md](docs/development.md) for testing a local checkout, ver
 
 ## License
 
-MIT. Vendored code keeps its upstream license in its own directory (MIT; BSD 3-clause for termius-mcp). The skills' notice is in `skills/NOTICE.md`.
+MIT. Vendored code keeps its upstream license in its own directory (MIT; BSD 3-clause for termius-mcp). The adapted skills' notice is in `skills-store/NOTICE.md`.

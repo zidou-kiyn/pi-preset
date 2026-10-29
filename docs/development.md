@@ -70,8 +70,7 @@ In this repository, `/preset-upstream [package... | mcp | skills | trellis]` ([`
 | `extensions/escape-over-ssh.ts` | Esc over SSH: inside tmux, Esc no longer waits pi's 100 ms SSH timeout, and a double Esc that tmux 3.8 merged into one Alt+Esc still counts as two, so double Esc opens `/tree` (see [extensions.md](extensions.md#esc-over-ssh-extensionsescape-over-sshts)). No command, no UI |
 | `vendor/` | The vendored extensions (see [Extensions](extensions.md)) |
 | `extensions/skills-store.ts` | The skill store: `/skills`, the `skills` tool, enabled skills reported through `resources_discover`; the parts live in `src/skills-store/` (see [skills-store.md](skills-store.md)) |
-| `skills/` | `grill-me`, `grilling`, and `handoff` (see [Skills](../README.md#skills)) |
-| `skills-store/` | The bundled store skills (`skill-authoring`, `git-conventions`). Not in `package.json` `pi.skills`: the extension loads them only when enabled |
+| `skills-store/` | The bundled store skills: `skill-authoring` and `git-conventions` (on by default), `grill-me`, `grilling`, `handoff` (see [Skills](../README.md#skills)). Not in `package.json` `pi.skills`: the extension loads them only when enabled |
 | `trellis-lite/` | trellis-lite's skills (loaded only in Trellis projects), its CLI, the migration prompt, and upstream baselines |
 | `templates/models.json`, `templates/settings.json` | The provider template (placeholder endpoints and keys) and its default provider/model |
 | `scripts/upstream.mjs`, `scripts/migrate-vendored.ts` | Upstream tracking and the 0.1 → 0.2 migration |

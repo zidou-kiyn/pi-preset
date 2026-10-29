@@ -8,7 +8,7 @@ import { localized } from "./i18n.ts";
 
 const en = {
 	// preset-menu.ts
-	menuKeys: (cancel: string) => `↑↓ move · Enter or 1-9 select · Esc ${cancel}`,
+	menuKeys: (cancel: string) => `↑↓ move · Enter or number select · Esc ${cancel}`,
 	menuKeysFilter: (cancel: string) => `type to filter · ↑↓ move · Enter select · Esc clear / ${cancel}`,
 	filterHint: "type to filter",
 	noMatches: "no matches",
@@ -41,7 +41,7 @@ const en = {
 type Messages = typeof en;
 
 const zh: Messages = {
-	menuKeys: (cancel) => `↑↓ 移动 · Enter 或 1-9 选择 · Esc ${cancel}`,
+	menuKeys: (cancel) => `↑↓ 移动 · Enter 或数字选择 · Esc ${cancel}`,
 	menuKeysFilter: (cancel) => `输入即过滤 · ↑↓ 移动 · Enter 选择 · Esc 清空 / ${cancel}`,
 	filterHint: "输入以过滤",
 	noMatches: "没有匹配",
