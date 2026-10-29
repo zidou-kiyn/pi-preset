@@ -85,7 +85,8 @@ Pi / OMP (`~/.omp/agent/mcp.json`):
 
 Restart the MCP client after you edit the config. `connecting [stdio]` is the
 handshake. It becomes connected when `initialize` succeeds. Sign in with
-`termius login` before that, or use the login tools after connect.
+`termius login` (or `/termius login` in pi) before or after that; no MCP
+tool signs in.
 
 Timeouts and cancellation:
 
@@ -215,28 +216,17 @@ termius logout
 
 ### MCP tools
 
-After the server is connected, you can also use the tools.
+pi-preset removed the upstream `login`, `login_complete`, and `logout`
+tools, and `sync` takes no password: those put the vault password in a
+model-visible tool argument. Sign in and out with `termius login` /
+`termius logout` or `/termius login` in pi; the vault password is
+remembered there.
 
-If a previous login already stored a DeviceToken:
+1. Call `status`. Expect `logged_in: true` and `vault_remembered: true`.
+   With `logged_in: false` or `vault_remembered: false`, sign in again.
+2. Call `hosts`. It pulls when the local cache is older than 600 seconds.
 
-1. Call `status`. Expect `logged_in: true` and often `vault_remembered: false`.
-2. Call `sync` with the **vault encryption password** from the Termius app
-   (not the Google password). Default `remember=true` stores it in the
-   secret store.
-3. Call `hosts`. It pulls when the local cache is older than 600 seconds.
-
-If this machine has never signed in and you are not using `termius login`:
-
-1. Call `status`. Expect `logged_in: false`.
-2. Google: call `login` with `method=google`. Open the returned URL. Sign in.
-   When the page tries to open Termius, copy
-   `termius://app/continue-sso?...`. Call `login_complete` with that URL and
-   the vault encryption password.
-3. Email: call `login` with `method=email`, username, and the vault password.
-   Add `otp` if 2FA is on.
-4. Call `hosts`.
-
-The process never returns the vault password in a tool result.
+The process never takes or returns the vault password in a tool call.
 
 ## Tools
 
@@ -245,10 +235,7 @@ Call `status` first.
 | Tool | Purpose |
 | --- | --- |
 | `status` | Login state, last sync, stale flag, vault remembered, counts. Pulls only when signed in but never synced. |
-| `login` | `method=email` with username + password, or `method=google` to get an SSO URL |
-| `login_complete` | Finish Google SSO with `callback_url` + vault password |
-| `logout` | Clear the session, remembered password, and local inventory |
-| `sync` | Force a pull now; also how you pass and remember the vault password |
+| `sync` | Force a pull now with the remembered vault password |
 | `hosts` | List hosts (optional `query`). Pulls when the cache is older than 600 seconds. Returns the local cache if the pull fails |
 | `host` | One host + merged SSH settings + `ssh_command`. Pulls when the cache is older than 600 seconds. Returns the local cache if the pull fails |
 | `exec` | Run a remote command over SSH |
