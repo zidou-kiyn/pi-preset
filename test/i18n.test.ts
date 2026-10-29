@@ -21,6 +21,7 @@ import { catalogs as footerCatalogs } from "../src/footer-messages.ts";
 import { catalogs as keepwarmCatalogs } from "../src/idle-keepwarm-messages.ts";
 import { catalogs as piPresetCatalogs } from "../src/pi-preset-messages.ts";
 import { catalogs as presetCatalogs } from "../src/preset-messages.ts";
+import { catalogs as secretRedactCatalogs } from "../src/secret-redact/messages.ts";
 import { catalogs as skillsStoreCatalogs } from "../src/skills-store/messages.ts";
 import { catalogs as termiusCatalogs } from "../src/termius/messages.ts";
 import { catalogs as trellisLiteCatalogs } from "../src/trellis-lite/messages.ts";
@@ -32,6 +33,7 @@ const CATALOGS: Record<string, Record<Lang, object>> = {
 	keepwarm: keepwarmCatalogs,
 	"pi-preset": piPresetCatalogs,
 	preset: presetCatalogs,
+	"secret-redact": secretRedactCatalogs,
 	"skills-store": skillsStoreCatalogs,
 	termius: termiusCatalogs,
 	"trellis-lite": trellisLiteCatalogs,

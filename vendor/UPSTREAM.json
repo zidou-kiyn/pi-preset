@@ -397,6 +397,24 @@
 			"localChanges": [
 				"Skill vendored into the store unchanged (Apache-2.0; LICENSE.txt is upstream's per-skill license)."
 			]
+		},
+		"betterleaks-rules": {
+			"repo": "https://github.com/betterleaks/betterleaks",
+			"path": "",
+			"track": {
+				"tags": "v*"
+			},
+			"commit": "81aff7a638638aae3a659845d089043e1d8fe9ac",
+			"version": "1.9.0",
+			"license": "MIT",
+			"dest": "vendor/betterleaks-rules",
+			"include": [
+				"config/betterleaks.toml",
+				"LICENSE"
+			],
+			"localChanges": [
+				"None: the rule file is read as is by src/secret-redact/rules.ts, which converts the Go RE2 patterns to JavaScript at load time. Validation (live HTTP checks) and the token-ratio filter are not used."
+			]
 		}
 	}
 }

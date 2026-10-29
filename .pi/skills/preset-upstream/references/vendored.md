@@ -28,3 +28,5 @@ Update the vendored-package table in `docs/extensions.md`.
 ## Verify
 
 `npm run upstream -- check` shows no unexplained difference for the package.
+
+`betterleaks-rules` is data, not code: `src/secret-redact/rules.ts` reads `config/betterleaks.toml` as is and converts the Go RE2 patterns at load. After a pull, `node --experimental-strip-types --test test/secret-redact.test.ts` must still show no rule that "does not convert"; a new pattern feature (a new flag, `\p{...}`) needs the converter extended. Take a new release whole; there are no local changes.

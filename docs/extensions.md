@@ -16,6 +16,8 @@ Everything except the preset's own `extensions/` is vendored under [`vendor/`](.
 | `pi-context-view` 0.8.1 | [dimk90/pi-context-view](https://github.com/dimk90/pi-context-view) | `/context`: what fills the context, including tool definitions and injections | — |
 | `termius-mcp` 3.2.0 | [MiaM1ku/termius-mcp](https://github.com/MiaM1ku/termius-mcp) | Python MCP server: SSH into Termius hosts (see [SSH](mcp.md#ssh-the-termius-mcp-server)) | no secret-bearing tools, output redaction, pinned host keys, stdin login, per-host disabled hosts and routes (`policy.py`), `login-json` host list and connection test |
 
+| `betterleaks-rules` 1.9.0 | [betterleaks/betterleaks](https://github.com/betterleaks/betterleaks) `config/betterleaks.toml` | the secret rule set `secret-redact` reads (see [Secrets in tool results](#secrets-in-tool-results-extensionssecret-redactts)) | — (read as is, converted at load) |
+
 All of them are MIT-licensed except termius-mcp (BSD 3-clause, from the Termius CLI); each directory keeps its upstream LICENSE (or the repository's, for monorepo packages).
 
 `/fuck` and workspace-history work together: the rewind goes through pi's tree navigation, which workspace-history intercepts to offer restoring the files to the same point. `/undo` does the same for the last finished turn and also puts the prompt back in the editor; `/fuck` additionally aborts a running turn.
@@ -46,6 +48,22 @@ The todo guideline says to keep one task in_progress and complete it as soon as 
 - an update sets a task in_progress while another still is: that todo result gets a note to complete the other one or set it back to pending.
 
 A codemode script counts as one call, and a todo call inside it counts as an update. Nothing is added to the system prompt or the tools, so a session that keeps its list tidy pays nothing. `PI_PRESET_TODO_NUDGE=off` disables it; a number changes the 8.
+
+## Secrets in tool results: `extensions/secret-redact.ts`
+
+Whatever a tool returns goes to the model provider and into the session file, and most leaks come from the agent's own tools: a `read` of `.env`, a `bash` that prints a config or `env`, an MCP tool echoing a token. secret-redact scans every tool result (nested codemode calls included, and `structuredContent` and `details` too) before the model sees it and replaces each secret with a placeholder such as `[REDACTED:github-pat-1]`. The files themselves are untouched. A secret is:
+
+- anything the [Betterleaks](https://github.com/betterleaks/betterleaks) rule set recognizes (about 420 formats: cloud keys, API tokens, private keys, credentials in URLs). Betterleaks is the MIT successor of Gitleaks by the same author; its TOML is vendored unchanged and its Go RE2 patterns are converted to JavaScript at load. Each rule only runs when one of its keywords is in the text, so a typical result costs a few milliseconds; a rule that takes over 250 ms on one text is switched off for the session (JavaScript regexes backtrack where RE2 does not). Live validation, which would send candidate secrets to the provider, is not used.
+- a value pi itself knows: environment variables named like secrets (`OPENAI_API_KEY`, `GITHUB_TOKEN`, `DB_PASSWORD`, not paths such as `SSH_AUTH_SOCK`), and the keys in `auth.json`, `models.json`, and `mcp.json`. Rules miss internal tokens and plain passwords; exact values do not.
+- optionally, a value whose name says secret (`password = ...`, `API_KEY: ...`, from Betterleaks' `generic-api-key` / `generic-password`). Off by default: it guesses, and also hides ordinary values the agent may need.
+
+The same value keeps its placeholder for the life of the pi process (also across `/reload`), so the agent can tell secrets apart and see where one recurs; the values stay in memory only. `write`, `edit`, and `apply_patch` put the real value back, so editing a file that holds a secret keeps it intact, and their diffs are redacted again on the way out. A placeholder from an earlier session cannot be restored; such a write is refused once, and goes through as literal text if the agent repeats it. `bash`, `powershell`, and MCP tools refuse a call that contains a placeholder this process issued: they never get the value back, since a command could send it anywhere, and the placeholder text would end up in a file or a request.
+
+Termius results also carry the termius server's own `[redacted:...]` markers for vault secrets, which are never restored ([details](mcp.md#ssh-the-termius-mcp-server)).
+
+This hides secrets from accidental exposure; it is not a boundary. An agent that transforms output (`| base64`, `rev`) gets around it, as does a secret that matches no rule and is not known. What you type yourself is not redacted.
+
+`/secret-redact` shows what was replaced this session, the rule and known-value counts, and switches redaction and the named-value rules (`/secret-redact on|off`, `named on|off`); the choice is saved in `<agent dir>/pi-preset/settings.json`. `PI_PRESET_SECRET_REDACT=off` disables it for one process.
 
 ## Tool rows: `extensions/compact-tools.ts`
 

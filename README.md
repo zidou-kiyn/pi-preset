@@ -32,6 +32,7 @@ Details: [docs/setup.md](docs/setup.md) covers what the sync writes, the package
 | Undo | File snapshots per turn; rewind the last prompt | `/undo`, `/redo`, `/diff`, `/checkpoint`, `/fuck` | [extensions](docs/extensions.md) |
 | Planning | Task list (with a reminder when a task is left in_progress); structured questions | `todo`, `ask_user_question` | [extensions](docs/extensions.md#todo-nudges-extensionstodo-nudgets) |
 | Web | Search through the current provider, no extra key | `web_search` | [extensions](docs/extensions.md) |
+| Secrets | API keys, tokens, private keys, and pi's own credentials in tool results become placeholders before the model sees them; file edits put the real value back | automatic, `/secret-redact` | [extensions](docs/extensions.md#secrets-in-tool-results-extensionssecret-redactts) |
 | Context | Native provider compaction; context breakdown; compact `edit` rows | `/compact`, `/context` | [extensions](docs/extensions.md#native-compaction) |
 | Cache | 1h prompt cache, kept warm while idle | automatic | [extensions](docs/extensions.md#prompt-cache-kept-warm-while-idle) |
 | Models | `/new` keeps the current model; Codex `apply_patch` for OpenAI | automatic | [extensions](docs/extensions.md) |
