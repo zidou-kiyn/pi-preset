@@ -297,6 +297,106 @@
 				"core/ssh_exec.py: connect_host takes the first-connection proxy explicitly (AUTO_PROXY keeps the old rule) and reports each connected hop through on_stage; run_host_command and ssh_files.run_file_action pass proxy through; files results carry route. mcp/tools.py: _ssh_target_for returns (target, hops, proxy) along the host's route; host rows carry cloud_id, tags, and route; hosts and the query filter cover tags; tool descriptions mention access levels, hidden hosts, and routes.",
 				"json_login.py: `hosts` lists every host for pi's menu (disabled ones too, with the cloud ids its route goes through, optional pull when older than 10 minutes) and `test` connects along a host's route hop by hop, authenticating and running nothing; neither returns a secret. tests/unit/policy_test.py (new) covers policy.py, routes, disabled hosts, and both actions; the fake run_host_command in route_test.py and tools_test.py accepts proxy."
 			]
+		},
+		"skill-humanizer-zh": {
+			"repo": "https://github.com/op7418/Humanizer-zh",
+			"path": "",
+			"track": {
+				"branch": "main"
+			},
+			"commit": "f4518a8eab97b8bfebc66a89d34320a89bef6930",
+			"license": "MIT",
+			"dest": "skills-store/humanizer/humanizer-zh",
+			"include": [
+				"SKILL.md",
+				"LICENSE",
+				"README.md"
+			],
+			"localChanges": [
+				"Skill vendored into the store (SKILL.md, LICENSE, README only; upstream tests/ not taken)."
+			]
+		},
+		"skill-humanizer": {
+			"repo": "https://github.com/blader/humanizer",
+			"path": "",
+			"track": {
+				"branch": "main"
+			},
+			"commit": "0ef9fe5bc3572734fd3ae6c448fe00a30cd5dcf0",
+			"license": "MIT",
+			"dest": "skills-store/humanizer/humanizer",
+			"include": [
+				"SKILL.md",
+				"LICENSE",
+				"README.md"
+			],
+			"localChanges": [
+				"Skill vendored into the store (SKILL.md, LICENSE, README only; upstream scripts/validate-package.py is a packaging helper, not taken)."
+			]
+		},
+		"skill-frontend-design": {
+			"repo": "https://github.com/anthropics/skills",
+			"path": "skills/frontend-design",
+			"track": {
+				"branch": "main"
+			},
+			"commit": "ca45fc496a3436251f191354091d557da31c15b5",
+			"license": "Apache-2.0",
+			"dest": "skills-store/anthropics/frontend-design",
+			"include": [
+				"**"
+			],
+			"localChanges": [
+				"Skill vendored into the store unchanged (Apache-2.0; LICENSE.txt is upstream's per-skill license)."
+			]
+		},
+		"skill-mcp-builder": {
+			"repo": "https://github.com/anthropics/skills",
+			"path": "skills/mcp-builder",
+			"track": {
+				"branch": "main"
+			},
+			"commit": "ca45fc496a3436251f191354091d557da31c15b5",
+			"license": "Apache-2.0",
+			"dest": "skills-store/anthropics/mcp-builder",
+			"include": [
+				"**"
+			],
+			"localChanges": [
+				"Skill vendored into the store unchanged (Apache-2.0; LICENSE.txt is upstream's per-skill license)."
+			]
+		},
+		"skill-skill-creator": {
+			"repo": "https://github.com/anthropics/skills",
+			"path": "skills/skill-creator",
+			"track": {
+				"branch": "main"
+			},
+			"commit": "ca45fc496a3436251f191354091d557da31c15b5",
+			"license": "Apache-2.0",
+			"dest": "skills-store/anthropics/skill-creator",
+			"include": [
+				"**"
+			],
+			"localChanges": [
+				"Skill vendored into the store unchanged (Apache-2.0; LICENSE.txt is upstream's per-skill license)."
+			]
+		},
+		"skill-webapp-testing": {
+			"repo": "https://github.com/anthropics/skills",
+			"path": "skills/webapp-testing",
+			"track": {
+				"branch": "main"
+			},
+			"commit": "ca45fc496a3436251f191354091d557da31c15b5",
+			"license": "Apache-2.0",
+			"dest": "skills-store/anthropics/webapp-testing",
+			"include": [
+				"**"
+			],
+			"localChanges": [
+				"Skill vendored into the store unchanged (Apache-2.0; LICENSE.txt is upstream's per-skill license)."
+			]
 		}
 	}
 }

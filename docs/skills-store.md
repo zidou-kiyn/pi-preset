@@ -6,19 +6,29 @@ pi loads every skill in `~/.pi/agent/skills`, `~/.agents/skills`, and a project'
 
 | Layer | Where | What |
 |---|---|---|
-| Bundled | `skills-store/` in the preset | Shipped with the preset, **not** listed in `package.json` `pi.skills`, so pi never loads them on its own |
+| Bundled | `skills-store/<group>/<name>/` in the preset | Shipped with the preset, **not** listed in `package.json` `pi.skills`, so pi never loads them on its own |
 | Local | `~/.pi/agent/pi-preset/skills/<name>/` | Installed from GitHub, created with the tool, or moved in from pi's own directories |
 
-Same name: the local one wins. The bundled skills are:
+Same name: the local one wins.
 
-| Skill | For |
-|---|---|
-| `skill-authoring` | How to write a pi skill and where to put it (skill vs prompt template, frontmatter, no environment details, `skills create`) |
-| `git-conventions` | House rules for git and GitHub: commit message format, one change per commit, branches and force-push rules, PR and issue templates, releases, the `gh` commands |
-| `grill-me`, `grilling` | A relentless interview about a plan, round by round through `ask_user_question` (`/skills use grill-me <plan>`; grill-me loads grilling by its relative path) |
-| `handoff` | A handoff document for a fresh session (`/skills use handoff [focus]`) |
+## Groups
 
-The first two are **enabled always** by default: they are short, and their value is that every session follows the same rules. Turn either off from `/skills`; the choice sticks (a default added by a later version is enabled once, then left to you).
+Every skill belongs to a group, and the menu shows the store group by group: bundled groups first (`pi-preset` on top), then one group per repository skills were installed from (`owner/repo`, read from the install record), then `local` for skills created with the tool or moved in from pi's directories. A group row shows how many of its skills are on; selecting it enables all of them at a level, turns them all off, checks or installs updates for the whole group, or removes it.
+
+The bundled groups:
+
+| Group | Skill | For |
+|---|---|---|
+| `pi-preset` | `skill-authoring` | How to write a pi skill and where to put it (skill vs prompt template, frontmatter, no environment details, `skills create`) |
+| | `git-conventions` | House rules for git and GitHub: commit message format, one change per commit, branches and force-push rules, PR and issue templates, releases, the `gh` commands |
+| | `grill-me` | A relentless interview about a plan, round by round through `ask_user_question` (`/skills use grill-me <plan>`); upstream's grill-me and grilling as one skill |
+| | `handoff` | A handoff document for a fresh session (`/skills use handoff [focus]`) |
+| `humanizer` | `humanizer-zh`, `humanizer` | Remove AI-writing tells from Chinese / English text (op7418/Humanizer-zh, blader/humanizer; MIT) |
+| `anthropics` | `frontend-design`, `mcp-builder`, `skill-creator`, `webapp-testing` | From anthropics/skills (Apache-2.0): distinctive web UI, building MCP servers, designing larger skills, Playwright testing of a local web app |
+
+The vendored groups are recorded in `vendor/UPSTREAM.json` with their upstream commit and followed with `npm run upstream -- status | diff | pull` like the extensions. Anthropic's docx/xlsx/pptx/pdf skills are under a proprietary license and cannot be redistributed here; they are on the recommended list instead.
+
+`skill-authoring` and `git-conventions` are **enabled always** by default: they are short, and their value is that every session follows the same rules. Turn either off from `/skills`; the choice sticks (a default added by a later version is enabled once, then left to you).
 
 Skills about your own machines do not belong in a public preset even without addresses in them: the procedures alone describe the setup. Keep those in a private repository and install them into the local store (`/skills install git@github.com:you/ops-skills.git`); that is what the store is for.
 
@@ -42,7 +52,7 @@ The menu lists the store, enabled skills first (session, project, always) and th
 
 - **Use now** sends the skill into the conversation the way `/skill:name` does, without a reload. For a one-off task.
 - **Install** takes `owner/repo`, `owner/repo@skill`, a GitHub URL (`/tree/<ref>/<path>` included), any git URL, or a local directory. The repository is cloned shallowly to a temp directory, the skill directories are listed, and the chosen one is copied into the local store with a `.pi-preset-source.json` (source, path, commit). Nothing from the download is executed. When a source holds several skills and no `@name` is given, the menu asks which.
-- **Recommended** is a short curated list (`CURATED` in `src/skills-store/catalog.ts`): humanizer-zh and humanizer (Chinese and English), Anthropic's skill-creator, docx/xlsx/pptx/pdf, frontend-design, webapp-testing, and mcp-builder, superpowers' systematic-debugging and brainstorming, and Vercel's React best practices. They are fetched on demand, never vendored.
+- **Recommended** is a short curated list (`CURATED` in `src/skills-store/catalog.ts`) of skills that are not bundled: officecli (the officecli binary's own skill; it installs the binary on first use), Anthropic's docx/xlsx/pptx/pdf (proprietary license), superpowers' systematic-debugging and brainstorming, and Vercel's React best practices. "All n" installs the whole list with one clone per repository.
 - **Search skills.sh** queries the registry `npx skills find` uses (its JSON endpoint; the CLI as a fallback) and shows install counts.
 - **Check updates** runs one `git ls-remote` per installed skill and compares with the recorded commit. Nothing is checked at startup.
 - The first time `/skills` opens and `~/.pi/agent/skills` or `~/.agents/skills` hold skills, it offers to move them into the store (copied in, originals go to `~/.pi/agent/pi-preset/skills-import-backup/<stamp>/`). Declining is remembered; the item stays in the menu.

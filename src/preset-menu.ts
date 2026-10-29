@@ -32,6 +32,8 @@ export interface MenuItem {
 	description?: string;
 	/** Current value, right of the label (e.g. the active mode). */
 	hint?: string;
+	/** A group row: drawn as a heading over the items that follow it. Selectable like any item. */
+	heading?: boolean;
 }
 
 export type NoticeType = "info" | "success" | "warning" | "error";
@@ -250,14 +252,23 @@ export class MenuComponent implements Component {
 		lines.push("");
 		const items = spec.filterable ? filterItems(spec.items, this.query) : spec.items;
 		const index = this.cursor(items);
-		const labelWidth = Math.max(0, ...items.map((item) => visibleWidth(item.label)));
+		const labelWidth = Math.max(0, ...items.filter((item) => !item.heading).map((item) => visibleWidth(item.label)));
 		if (items.length === 0) lines.push(fit(`   ${theme.fg("dim", m.noMatches)}`, width));
 		const numberWidth = `${items.length}.`.length;
+		// Under headings, the other rows step in so the groups read as groups.
+		const indent = items.some((item) => item.heading) ? "  " : "";
 		items.forEach((item, i) => {
 			const active = i === index;
 			const number = !spec.filterable && items.length > 1 ? `${i + 1}.`.padStart(numberWidth) : " ".repeat(numberWidth);
+			if (item.heading) {
+				if (i > 0) lines.push("");
+				const title = active ? theme.fg("accent", theme.bold(item.label)) : theme.bold(item.label);
+				const row = `${active ? "→" : " "} ${theme.fg("dim", number)} ${title}`;
+				lines.push(fit(item.hint ? `${row}  ${theme.fg("dim", item.hint)}` : row, width));
+				return;
+			}
 			const label = item.hint ? item.label + " ".repeat(labelWidth - visibleWidth(item.label)) : item.label;
-			const row = `${active ? "→" : " "} ${theme.fg("dim", number)} ${active ? theme.fg("accent", label) : label}`;
+			const row = `${active ? "→" : " "} ${theme.fg("dim", number)} ${indent}${active ? theme.fg("accent", label) : label}`;
 			lines.push(fit(item.hint ? `${row}  ${theme.fg("dim", item.hint)}` : row, width));
 		});
 		const description = items[index]?.description;

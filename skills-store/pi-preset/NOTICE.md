@@ -1,14 +1,15 @@
 # Skills
 
-`grill-me`, `grilling`, and `handoff` are adapted from Matt Pocock's [skills](https://github.com/mattpocock/skills)
+`grill-me` and `handoff` are adapted from Matt Pocock's [skills](https://github.com/mattpocock/skills)
 (`skills/productivity/grill-me`, `skills/productivity/grilling`, and `skills/productivity/handoff`, commit
 `59db609eb1e18aaf59b63284d0e52255aff0c63c`, 2026-10-27). They are maintained here and are not
 synced from upstream automatically; compare against upstream by hand when it changes.
 
-Changes from upstream in `grill-me` / `grilling`:
+Changes from upstream in `grill-me` (upstream's `grill-me` + `grilling`):
 
-- `grill-me` loads `grilling` by reading its SKILL.md instead of calling a `Skill` tool, which pi does not have.
-- `grilling` asks each round through the `ask_user_question` tool (at most 4 questions per call, the
+- The two are one skill here: upstream's `grill-me` only loaded `grilling` through a `Skill` tool pi does not
+  have, so `grill-me` carries the `grilling` instructions itself and the model may also load it on its own.
+- It asks each round through the `ask_user_question` tool (at most 4 questions per call, the
   recommended answer as the first option) and keeps the numbered text format only as a fallback.
 - Fact finding uses the agent's own tools or `agent_bg` instead of a sub-agent tool.
 - The session ends with a summary of the settled decisions before asking for confirmation.

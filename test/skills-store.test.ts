@@ -11,8 +11,11 @@ import {
 	loadStore,
 	missingCurated,
 	parseSkillFrontmatter,
-	scanStoreDir,
+	PRESET_GROUP,
+	scanBundledDir,
+	scanLocalDir,
 	SOURCE_FILE,
+	sourceRepo,
 	validateSkill,
 } from "../src/skills-store/catalog.ts";
 import { skillsFooterText } from "../src/skills-store/footer-state.ts";
@@ -98,12 +101,24 @@ test("validateSkill reports each rule", () => {
 	assert.match(validateSkill("---\nname: a\ndescription: d\n---\n\n") ?? "", /no instructions/);
 });
 
-test("loadStore merges bundled and local by name, local shadows", () => {
+test("sourceRepo reads owner/repo out of every source form", () => {
+	assert.equal(sourceRepo("o/r"), "o/r");
+	assert.equal(sourceRepo("o/r@skill"), "o/r");
+	assert.equal(sourceRepo("https://github.com/o/r"), "o/r");
+	assert.equal(sourceRepo("https://github.com/o/r.git"), "o/r");
+	assert.equal(sourceRepo("https://github.com/o/r/tree/main/skills/x"), "o/r");
+	assert.equal(sourceRepo("git@github.com:o/r.git"), "o/r");
+	assert.equal(sourceRepo("git@github-alias:o/r.git"), "o/r");
+	assert.equal(sourceRepo("/local/path"), undefined);
+});
+
+test("loadStore merges bundled and local by name, local shadows; groups follow the directory or the source", () => {
 	const tree = makeTree({
-		"bundled/one/SKILL.md": SKILL("one"),
-		"bundled/two/SKILL.md": SKILL("two"),
-		"bundled/.hidden/SKILL.md": SKILL("hidden"),
-		"bundled/broken/SKILL.md": "no frontmatter",
+		"bundled/g1/one/SKILL.md": SKILL("one"),
+		"bundled/g1/two/SKILL.md": SKILL("two"),
+		"bundled/.hidden/x/SKILL.md": SKILL("hidden"),
+		"bundled/g2/broken/SKILL.md": "no frontmatter",
+		"bundled/stray.md": "not a group",
 		"local/two/SKILL.md": SKILL("two", "Local two."),
 		"local/two/.pi-preset-source.json": JSON.stringify({ source: "o/r@two", path: "two", commit: "abc", installedAt: "t" }),
 		"local/three/SKILL.md": SKILL("three"),
@@ -111,16 +126,17 @@ test("loadStore merges bundled and local by name, local shadows", () => {
 	try {
 		const skills = loadStore({ bundledDir: join(tree.root, "bundled"), localDir: join(tree.root, "local") });
 		assert.deepEqual(
-			skills.map((s) => [s.name, s.origin, s.shadows ?? false]),
+			skills.map((s) => [s.name, s.origin, s.group, s.shadows ?? false]),
 			[
-				["one", "bundled", false],
-				["three", "local", false],
-				["two", "local", true],
+				["one", "bundled", "g1", false],
+				["three", "local", "local", false],
+				["two", "local", "o/r", true],
 			],
 		);
 		assert.equal(skills.find((s) => s.name === "two")?.description, "Local two.");
 		assert.equal(skills.find((s) => s.name === "two")?.install?.commit, "abc");
-		assert.equal(scanStoreDir(join(tree.root, "none"), "local").length, 0);
+		assert.equal(scanLocalDir(join(tree.root, "none")).length, 0);
+		assert.equal(scanBundledDir(join(tree.root, "none")).length, 0);
 		assert.deepEqual(
 			missingCurated(skills).map((c) => c.name),
 			CURATED.map((c) => c.name),
@@ -131,11 +147,12 @@ test("loadStore merges bundled and local by name, local shadows", () => {
 });
 
 test("the bundled store validates", () => {
-	const skills = scanStoreDir(join(import.meta.dirname, "..", "skills-store"), "bundled");
+	const skills = scanBundledDir(join(import.meta.dirname, "..", "skills-store"));
 	const names = skills.map((s) => s.name);
 	for (const expected of DEFAULT_ALWAYS) {
-		assert.ok(names.includes(expected), `${expected} is bundled`);
+		assert.equal(skills.find((s) => s.name === expected)?.group, PRESET_GROUP, `${expected} is bundled in ${PRESET_GROUP}`);
 	}
+	assert.ok(skills.some((s) => s.group === "humanizer"), "vendored groups are scanned");
 	for (const skill of skills) {
 		assert.equal(validateSkill(readFileSync(skill.filePath, "utf8"), skill.name), undefined, skill.name);
 	}
@@ -301,7 +318,7 @@ test("search: words, scores, registry and CLI parsing", () => {
 	assert.deepEqual(queryWords("TCP tuning, 调优 a"), ["tcp", "tuning", "调优"]);
 	assert.equal(matchScore(["tcp"], "vps-tcp-tune", "x"), 3);
 	assert.equal(matchScore(["tune"], "x", "tune it"), 1);
-	const tree = makeTree({ "vps-tcp-tune/SKILL.md": SKILL("vps-tcp-tune", "Tune TCP. Use for retransmits."), "other/SKILL.md": SKILL("other") });
+	const tree = makeTree({ "g/vps-tcp-tune/SKILL.md": SKILL("vps-tcp-tune", "Tune TCP. Use for retransmits."), "g/other/SKILL.md": SKILL("other") });
 	try {
 		const skills = loadStore({ bundledDir: tree.root, localDir: "/none" });
 		assert.equal(searchStore("tcp retransmits", skills)[0]?.name, "vps-tcp-tune");
@@ -320,7 +337,7 @@ test("search: words, scores, registry and CLI parsing", () => {
 test("skillMessage is the /skill:name shape", () => {
 	const tree = makeTree({ "s/SKILL.md": SKILL("s") });
 	try {
-		const [skill] = scanStoreDir(tree.root, "local");
+		const [skill] = scanLocalDir(tree.root);
 		const text = skillMessage(skill!, "do it");
 		assert.ok(text.startsWith(`<skill name="s" location="${skill!.filePath}">\n---`));
 		assert.ok(text.endsWith("</skill>\n\ndo it"));
@@ -355,7 +372,7 @@ test("extension: resources_discover reports enabled skills; the tool enables, us
 		const list = await tool.execute("1", { action: "list" }, undefined, undefined, ctx);
 		assert.match(list.content[0].text, /- alpha \[always\]/);
 		assert.match(list.content[0].text, /- beta \[off\]/);
-		assert.match(list.content[0].text, /humanizer-zh \(op7418\/Humanizer-zh\)/);
+		assert.match(list.content[0].text, /officecli \(officecli\/officecli@officecli\)/);
 
 		const enabled = await tool.execute("2", { action: "enable", name: "beta" }, undefined, undefined, ctx);
 		assert.match(enabled.content[0].text, /Skill "beta" \(files in .*beta; resolve/);

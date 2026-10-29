@@ -13,7 +13,7 @@ Read the code, the relevant spec index, and recent journal entries before asking
 
 ## 2. Settle the decisions
 
-Use the `grilling` skill for the interview: a few questions per round through `ask_user_question`, each with your recommendation first. Stop asking once every decision that changes the plan is made.
+Interview the user the way the `grill-me` skill does (load it when it is listed; otherwise: a few questions per round through `ask_user_question`, each with your recommendation first, facts looked up by you, decisions left to the user). Stop asking once every decision that changes the plan is made.
 
 ## 3. Write the files
 

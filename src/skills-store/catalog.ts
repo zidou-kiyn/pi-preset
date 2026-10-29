@@ -2,12 +2,15 @@
  * The skill store: skills kept on disk but loaded only when enabled.
  *
  * Two layers, merged by name (a local skill shadows a bundled one):
- *   - bundled:  <preset>/skills-store/<name>/SKILL.md, shipped with the
- *               preset but NOT listed in package.json `pi.skills`, so pi
- *               never loads them on its own;
+ *   - bundled:  <preset>/skills-store/<group>/<name>/SKILL.md, shipped with
+ *               the preset but NOT listed in package.json `pi.skills`, so pi
+ *               never loads them on its own. The group directory names the
+ *               origin (pi-preset, humanizer, anthropics) and may hold the
+ *               upstream LICENSE / NOTICE;
  *   - local:    <agent dir>/pi-preset/skills/<name>/SKILL.md, what the user
  *               installed from GitHub, created, or imported from pi's own
- *               skill directories.
+ *               skill directories. Grouped by the repository they came from
+ *               (owner/repo), or "local" when created or imported.
  *
  * Neither directory is one pi scans. The extension reports enabled skills
  * through `resources_discover`; everything else stays out of the system
@@ -52,9 +55,16 @@ export interface InstallRecord {
 
 export type SkillOrigin = "bundled" | "local";
 
+/** Group of skills created or imported by hand. */
+export const LOCAL_GROUP = "local";
+/** The bundled group of the preset's own skills; shown first. */
+export const PRESET_GROUP = "pi-preset";
+
 export interface StoreSkill {
 	name: string;
 	description: string;
+	/** Where it comes from: the bundled group directory, or the owner/repo it was installed from, or LOCAL_GROUP. */
+	group: string;
 	/** Directory holding SKILL.md. */
 	dir: string;
 	/** Absolute path of SKILL.md; what resources_discover reports. */
@@ -81,54 +91,29 @@ export interface CuratedSkill {
  */
 export const CURATED: readonly CuratedSkill[] = [
 	{
-		name: "humanizer-zh",
-		source: "op7418/Humanizer-zh",
-		what: "Removes AI-writing tells from Chinese text (the Chinese port of blader/humanizer)",
-	},
-	{
-		name: "humanizer",
-		source: "blader/humanizer",
-		what: "Removes AI-writing tells from English text; based on Wikipedia's 'Signs of AI writing'",
-	},
-	{
-		name: "skill-creator",
-		source: "anthropics/skills@skill-creator",
-		what: "Anthropic's guide for designing and iterating on larger skills (ours, skill-authoring, covers pi specifics)",
+		name: "officecli",
+		source: "officecli/officecli@officecli",
+		what: "Create, inspect, and edit .docx/.xlsx/.pptx through the officecli binary (installs it on first use); DOM-level edits and a built-in help schema",
 	},
 	{
 		name: "docx",
 		source: "anthropics/skills@docx",
-		what: "Create and edit Word documents with tracked changes and comments",
+		what: "Create and edit Word documents with tracked changes and comments (Anthropic; proprietary license, so fetched rather than bundled)",
 	},
 	{
 		name: "xlsx",
 		source: "anthropics/skills@xlsx",
-		what: "Create and analyze spreadsheets with formulas and formatting",
+		what: "Create and analyze spreadsheets with formulas and formatting (Anthropic; proprietary license)",
 	},
 	{
 		name: "pptx",
 		source: "anthropics/skills@pptx",
-		what: "Create and edit PowerPoint presentations",
+		what: "Create and edit PowerPoint presentations (Anthropic; proprietary license)",
 	},
 	{
 		name: "pdf",
 		source: "anthropics/skills@pdf",
-		what: "Read, fill, merge, and create PDF files",
-	},
-	{
-		name: "frontend-design",
-		source: "anthropics/skills@frontend-design",
-		what: "Anthropic's guide to distinctive, well-crafted web UI instead of generic AI-looking pages",
-	},
-	{
-		name: "webapp-testing",
-		source: "anthropics/skills@webapp-testing",
-		what: "Test a local web app with Playwright: screenshots, clicks, console output",
-	},
-	{
-		name: "mcp-builder",
-		source: "anthropics/skills@mcp-builder",
-		what: "Build an MCP server the way Anthropic recommends",
+		what: "Read, fill, merge, and create PDF files (Anthropic; proprietary license)",
 	},
 	{
 		name: "systematic-debugging",
@@ -138,7 +123,7 @@ export const CURATED: readonly CuratedSkill[] = [
 	{
 		name: "brainstorming",
 		source: "obra/superpowers@brainstorming",
-		what: "Clarify the requirement and the design before writing code (from superpowers)",
+		what: "Clarify the requirement and the design before writing code (from superpowers; expects its sibling writing-plans skill, grill-me is the standalone equivalent here)",
 	},
 	{
 		name: "vercel-react-best-practices",
@@ -215,6 +200,18 @@ export function validateSkill(text: string, expectedName?: string): string | und
 	return undefined;
 }
 
+/** "owner/repo" for any source form; undefined for a local path. */
+export function sourceRepo(source: string): string | undefined {
+	const s = source.trim();
+	let match = s.match(/^https?:\/\/(?:github\.com|gitlab\.com)\/([^/]+)\/([^/#?]+?)(?:\.git)?(?:\/.*)?$/u);
+	if (match) return `${match[1]}/${match[2]}`;
+	match = s.match(/^(?:git@[^:]+:|ssh:\/\/[^/]+\/)([^/]+)\/([^/]+?)(?:\.git)?$/u);
+	if (match) return `${match[1]}/${match[2]}`;
+	match = s.match(/^([\w.-]+)\/([\w.-]+?)(?:@[\w.-]+)?$/u);
+	if (match) return `${match[1]}/${match[2]}`;
+	return undefined;
+}
+
 function readInstall(dir: string): InstallRecord | undefined {
 	try {
 		const data = JSON.parse(readFileSync(join(dir, SOURCE_FILE), "utf8")) as InstallRecord;
@@ -225,7 +222,7 @@ function readInstall(dir: string): InstallRecord | undefined {
 }
 
 /** Read one skill directory; undefined when it holds no usable SKILL.md. */
-export function readStoreSkill(dir: string, origin: SkillOrigin): StoreSkill | undefined {
+export function readStoreSkill(dir: string, origin: SkillOrigin, group?: string): StoreSkill | undefined {
 	const filePath = join(dir, "SKILL.md");
 	let text: string;
 	try {
@@ -235,31 +232,53 @@ export function readStoreSkill(dir: string, origin: SkillOrigin): StoreSkill | u
 	}
 	const fm = parseSkillFrontmatter(text);
 	if (!fm?.name || !fm.description) return undefined;
-	const skill: StoreSkill = { name: fm.name, description: fm.description, dir, filePath, origin };
+	const skill: StoreSkill = { name: fm.name, description: fm.description, group: group ?? LOCAL_GROUP, dir, filePath, origin };
 	if (origin === "local") {
 		const install = readInstall(dir);
-		if (install) skill.install = install;
+		if (install) {
+			skill.install = install;
+			skill.group = sourceRepo(install.source) ?? LOCAL_GROUP;
+		}
 	}
 	return skill;
 }
 
-/** Every `<dir>/<name>/SKILL.md` under a store directory, by directory name. */
-export function scanStoreDir(dir: string, origin: SkillOrigin): StoreSkill[] {
+function subdirs(dir: string): string[] {
 	if (!existsSync(dir)) return [];
+	return readdirSync(dir)
+		.sort()
+		.filter((entry) => {
+			if (entry.startsWith(".")) return false;
+			try {
+				return statSync(join(dir, entry)).isDirectory();
+			} catch {
+				return false;
+			}
+		});
+}
+
+/** The local store: every `<dir>/<name>/SKILL.md`, grouped by install source. */
+export function scanLocalDir(dir: string): StoreSkill[] {
 	const skills: StoreSkill[] = [];
-	for (const entry of readdirSync(dir).sort()) {
-		if (entry.startsWith(".")) continue;
-		const full = join(dir, entry);
-		try {
-			if (!statSync(full).isDirectory()) continue;
-		} catch {
-			continue;
-		}
-		const skill = readStoreSkill(full, origin);
+	for (const entry of subdirs(dir)) {
+		const skill = readStoreSkill(join(dir, entry), "local");
 		if (skill) skills.push(skill);
 	}
 	return skills;
 }
+
+/** The bundled store: every `<dir>/<group>/<name>/SKILL.md`. */
+export function scanBundledDir(dir: string): StoreSkill[] {
+	const skills: StoreSkill[] = [];
+	for (const group of subdirs(dir)) {
+		for (const entry of subdirs(join(dir, group))) {
+			const skill = readStoreSkill(join(dir, group, entry), "bundled", group);
+			if (skill) skills.push(skill);
+		}
+	}
+	return skills;
+}
+
 
 export interface Store {
 	bundledDir: string;
@@ -273,8 +292,8 @@ export function defaultStore(): Store {
 /** Both layers merged by name, local first; sorted by name. */
 export function loadStore(store: Store = defaultStore()): StoreSkill[] {
 	const byName = new Map<string, StoreSkill>();
-	for (const skill of scanStoreDir(store.bundledDir, "bundled")) byName.set(skill.name, skill);
-	for (const skill of scanStoreDir(store.localDir, "local")) {
+	for (const skill of scanBundledDir(store.bundledDir)) byName.set(skill.name, skill);
+	for (const skill of scanLocalDir(store.localDir)) {
 		if (byName.has(skill.name)) skill.shadows = true;
 		byName.set(skill.name, skill);
 	}

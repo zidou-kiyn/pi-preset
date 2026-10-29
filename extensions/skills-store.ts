@@ -30,7 +30,7 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-c
 import { Type } from "typebox";
 import { type MenuItem, type Notice, showMenu } from "../src/preset-menu.ts";
 import { confirmLinesWithUi } from "../src/preset-ui.ts";
-import { defaultStore, loadStore, missingCurated, type StoreSkill } from "../src/skills-store/catalog.ts";
+import { defaultStore, loadStore, LOCAL_GROUP, missingCurated, PRESET_GROUP, sourceRepo, type StoreSkill } from "../src/skills-store/catalog.ts";
 import { publishSkillsFooter } from "../src/skills-store/footer-state.ts";
 import { findImportable, importSkill } from "../src/skills-store/import.ts";
 import {
@@ -271,24 +271,65 @@ export default function skillsStore(pi: ExtensionAPI): void {
 		return lines;
 	};
 
-	/** Enabled skills first (session, project, always: the ones you toggle on top), then the rest; by name within a group. */
-	const ordered = (cwd: string): StoreSkill[] => {
+	/** Within a group: enabled skills first (session, project, always: the ones you toggle on top), then by name. */
+	const ordered = (list: readonly StoreSkill[], cwd: string): StoreSkill[] => {
 		const rank = (skill: StoreSkill) => {
 			const at = level(skill.name, cwd);
 			return at ? LEVELS.indexOf(at) : LEVELS.length;
 		};
-		return skills().sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
+		return [...list].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
+	};
+
+	interface Group {
+		name: string;
+		origin: "bundled" | "local";
+		skills: StoreSkill[];
+	}
+
+	/** The store by group: bundled groups first (pi-preset on top), then repositories, then hand-made skills. */
+	const groups = (all: readonly StoreSkill[] = skills()): Group[] => {
+		const byName = new Map<string, Group>();
+		for (const skill of all) {
+			const key = `${skill.origin}:${skill.group}`;
+			let group = byName.get(key);
+			if (!group) {
+				group = { name: skill.group, origin: skill.origin, skills: [] };
+				byName.set(key, group);
+			}
+			group.skills.push(skill);
+		}
+		const rank = (group: Group) =>
+			group.origin === "bundled" ? (group.name === PRESET_GROUP ? 0 : 1) : group.name === LOCAL_GROUP ? 3 : 2;
+		return [...byName.values()].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
+	};
+
+	const groupHint = (group: Group, cwd: string): string => {
+		const on = group.skills.filter((skill) => level(skill.name, cwd)).length;
+		return messages().groupHint(on, group.skills.length, group.origin);
 	};
 
 	const mainItems = (cwd: string): MenuItem[] => {
 		const m = messages();
 		const all = skills();
-		const items: MenuItem[] = ordered(cwd).map((skill) => ({
-			value: `skill:${skill.name}`,
-			label: skill.name,
-			hint: m.levelName(level(skill.name, cwd)),
-			description: `${skill.description}\n(${m.originName(skill.origin)})`,
-		}));
+		const items: MenuItem[] = [];
+		for (const group of groups(all)) {
+			items.push({
+				value: `group:${group.origin}:${group.name}`,
+				label: group.name,
+				hint: groupHint(group, cwd),
+				heading: true,
+				description: m.groupHelp,
+			});
+			for (const skill of ordered(group.skills, cwd)) {
+				items.push({
+					value: `skill:${skill.name}`,
+					label: skill.name,
+					hint: m.levelName(level(skill.name, cwd)),
+					description: skill.description,
+				});
+			}
+		}
+		items.push({ value: "actions", label: m.actionsHeading, heading: true, description: m.actionsHelp });
 		items.push({ value: "find", label: m.findLabel, description: m.findHelp });
 		items.push({ value: "install", label: m.installLabel, description: m.installHelp });
 		if (missingCurated(all).length > 0) items.push({ value: "curated", label: m.curatedLabel, description: m.curatedHelp });
@@ -339,20 +380,132 @@ export default function skillsStore(pi: ExtensionAPI): void {
 		}
 	};
 
+	/**
+	 * Install several sources, one fetch per repository: "owner/repo@a" and
+	 * "owner/repo@b" share a clone. Each skill is confirmed on its own.
+	 */
+	const installMany = async (ctx: Ctx, sources: readonly string[]): Promise<Notice> => {
+		const m = messages();
+		const byRepo = new Map<string, string[]>();
+		for (const source of sources) {
+			const repo = sourceRepo(source) ?? source;
+			byRepo.set(repo, [...(byRepo.get(repo) ?? []), source]);
+		}
+		const names: string[] = [];
+		const errors: string[] = [];
+		for (const [repo, list] of byRepo) {
+			ctx.ui.notify(m.fetching(repo), "info");
+			let fetched: Fetched;
+			try {
+				fetched = await fetchSource(repo);
+			} catch (error) {
+				errors.push(`${repo}: ${(error as Error).message}`);
+				continue;
+			}
+			try {
+				for (const source of list) {
+					const wanted = source.includes("@") ? source.slice(source.lastIndexOf("@") + 1) : undefined;
+					let candidates: Candidate[];
+					try {
+						candidates = chooseCandidates({ ...fetched, parsed: { ...fetched.parsed, skill: wanted } });
+					} catch (error) {
+						errors.push((error as Error).message);
+						continue;
+					}
+					for (const candidate of candidates) {
+						const replaced = find(candidate.name)?.origin === "local";
+						if (!(await ctx.ui.confirm(m.confirmInstall(candidate.name, source, replaced), candidate.description))) continue;
+						names.push(installCandidate({ ...fetched, parsed: { ...fetched.parsed, source } }, candidate, store.localDir).skill.name);
+					}
+				}
+			} finally {
+				fetched.cleanup();
+			}
+		}
+		if (names.length === 0) return { text: errors[0] ?? m.cancelled, type: errors.length > 0 ? "error" : "info" };
+		return { text: [m.installed(names.join(", ")), ...errors].join("\n"), type: errors.length > 0 ? "warning" : "success" };
+	};
+
 	const curatedMenu = async (ctx: Ctx): Promise<Notice | undefined> => {
 		const m = messages();
 		const entries = missingCurated(skills());
 		const picked = await showMenu(ctx, () => ({
 			title: m.curatedLabel.replace(/…$/u, ""),
-			items: entries.map((entry) => ({
-				value: entry.source,
-				label: entry.name,
-				hint: entry.source,
-				description: m.curatedWhat(entry.name, entry.what),
-			})),
+			items: [
+				...(entries.length > 1 ? [{ value: "*", label: m.installAll(entries.length), description: entries.map((e) => e.name).join(", ") }] : []),
+				...entries.map((entry) => ({
+					value: entry.source,
+					label: entry.name,
+					hint: entry.source,
+					description: m.curatedWhat(entry.name, entry.what),
+				})),
+			],
 			cancelLabel: m.backToList,
 		}));
-		return picked ? installFrom(ctx, picked) : undefined;
+		if (!picked) return undefined;
+		return picked === "*" ? installMany(ctx, entries.map((e) => e.source)) : installFrom(ctx, picked);
+	};
+
+	/** One group: enable or disable every skill in it, update or remove it as a whole. */
+	const groupMenu = async (ctx: Ctx, origin: "bundled" | "local", name: string): Promise<Notice | Close | undefined> => {
+		const m = messages();
+		let notice: Notice | undefined;
+		for (;;) {
+			const group = groups().find((g) => g.origin === origin && g.name === name);
+			if (!group) return notice;
+			const status = [m.originName(origin), group.skills.map((s) => `${s.name} (${m.levelName(level(s.name, ctx.cwd))})`).join(" · ")];
+			const first = group.skills.find((s) => s.install);
+			if (first?.install && origin === "local" && name !== LOCAL_GROUP) status.push(m.installedFrom(name, first.install.commit));
+			const items: MenuItem[] = [];
+			for (const target of LEVELS) items.push({ value: `enable:${target}`, label: m.enableAllLabel(target), description: m.enableHelp(target) });
+			if (group.skills.some((s) => level(s.name, ctx.cwd))) items.push({ value: "off", label: m.offAllLabel, description: m.offHelp });
+			if (origin === "local" && group.skills.some((s) => s.install?.repo)) {
+				items.push({ value: "check", label: m.checkLabel, description: m.checkHelp });
+				items.push({ value: "update", label: m.updateAllLabel, description: m.updateHelp });
+			}
+			if (origin === "local") items.push({ value: "remove", label: m.removeAllLabel, description: m.removeHelp });
+			const choice = await showMenu(ctx, () => ({ title: name, status, notice, items, cancelLabel: m.backToList }));
+			if (!choice) return notice;
+			notice = undefined;
+			if (choice.startsWith("enable:")) {
+				const target = choice.slice("enable:".length) as Level;
+				for (const s of group.skills) {
+					enable(s.name, ctx.cwd, target);
+					pending.delete(s.name);
+				}
+				const result = await reload(ctx, { text: m.enabledAll(name, target), type: "success" });
+				return result === "close" ? "close" : { text: m.enabledNoReload(name, target), type: "warning" };
+			}
+			if (choice === "off") {
+				for (const s of group.skills) {
+					enable(s.name, ctx.cwd, undefined);
+					pending.delete(s.name);
+				}
+				const result = await reload(ctx, { text: m.disabled(name), type: "success" });
+				return result === "close" ? "close" : { text: m.disabled(name), type: "warning" };
+			}
+			if (choice === "check") {
+				const results = await Promise.all(group.skills.filter((s) => s.install?.repo).map((s) => checkUpdate(s)));
+				const outdated = results.filter((r) => r.outdated).map((r) => r.name);
+				const errors = results.filter((r) => r.error).map((r) => r.name);
+				notice = { text: m.updatesSummary(outdated, results.length - errors.length, errors), type: outdated.length > 0 ? "warning" : "success" };
+			} else if (choice === "update") {
+				notice = await installMany(ctx, group.skills.filter((s) => s.install).map((s) => s.install!.source));
+			} else if (choice === "remove") {
+				if (await ctx.ui.confirm(m.confirmRemoveAll(name, group.skills.length), group.skills.map((s) => s.name).join(", "))) {
+					let wasOn = false;
+					for (const s of group.skills) {
+						wasOn ||= level(s.name, ctx.cwd) !== undefined;
+						removeSkill(s);
+						enable(s.name, ctx.cwd, undefined);
+					}
+					const done = { text: m.removed(name), type: "success" as const };
+					if (!wasOn) return done;
+					const result = await reload(ctx, done);
+					return result === "close" ? "close" : done;
+				}
+			}
+		}
 	};
 
 	const searchMenu = async (ctx: Ctx): Promise<Notice | undefined> => {
@@ -521,7 +674,12 @@ export default function skillsStore(pi: ExtensionAPI): void {
 			notice = undefined;
 			try {
 				let result: Notice | Close | undefined;
+				if (choice === "actions") continue;
 				if (choice.startsWith("skill:")) result = await skillMenu(ctx, choice.slice("skill:".length));
+				else if (choice.startsWith("group:")) {
+					const [, origin, ...rest] = choice.split(":");
+					result = await groupMenu(ctx, origin as "bundled" | "local", rest.join(":"));
+				}
 				else if (choice === "find") {
 					const need = (await ctx.ui.input(messages().findPrompt))?.trim();
 					if (need) {

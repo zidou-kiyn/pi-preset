@@ -16,7 +16,7 @@ Start from a clean working tree (`git status`); if it is dirty, stop and ask.
 - **chrome-devtools-mcp.** Only a version pin: `CHROME_DEVTOOLS_MCP_VERSION` in `src/manifest.ts`.
   - Compare it with `npm view chrome-devtools-mcp version`.
   - If newer, read the changelog for breaking changes, the flags and env we set, telemetry defaults, and Node requirements.
-- **Skills `grill-me` / `grilling` / `handoff`.** Record in `skills-store/NOTICE.md`; ported by hand (MIT).
+- **Skills `grill-me` / `handoff`.** Record in `skills-store/pi-preset/NOTICE.md`; ported by hand (MIT). The vendored store skills (`skill-*` entries in `vendor/UPSTREAM.json`, under `skills-store/humanizer/` and `skills-store/anthropics/`) go through the same `status` / `diff` / `pull` as the extensions.
   - Clone or fetch a blobless bare clone at `~/.cache/pi-preset-upstream/github.com_mattpocock_skills`.
   - Run `git diff <NOTICE commit>..HEAD -- skills/productivity/grill-me skills/productivity/grilling skills/productivity/handoff`.
 - **trellis-lite.** Clean room: upstream is AGPL, so read for behavior only. Rules and decision log are in `docs/trellis-lite-upstream.md`.
@@ -56,7 +56,7 @@ Update the vendored-package table in `docs/extensions.md` too.
 
 **chrome-devtools-mcp.** Bump the constant and the version in `docs/mcp.md` and `docs/setup.md`. Adjust args or env if the changelog requires it.
 
-**Skills.** Port the chosen changes by hand, keeping the adaptations listed in `skills-store/NOTICE.md`. Update its commit, date, and change list.
+**Skills.** Port the chosen changes by hand, keeping the adaptations listed in `skills-store/pi-preset/NOTICE.md`. Update its commit, date, and change list.
 
 **trellis-lite.**
 

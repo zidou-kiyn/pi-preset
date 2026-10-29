@@ -91,8 +91,13 @@ test("package manifest: every extension and skill path exists, every vendored pa
 		assert.ok(existsSync(join(REPO_ROOT, entry.dest)), `${name}: ${entry.dest} is missing`);
 		assert.match(entry.commit, /^[0-9a-f]{40}$/, `${name}: commit must be a full sha`);
 		// rpiv-config is a library; termius-mcp is a Python MCP server that
-		// extensions/termius.ts installs and registers.
+		// extensions/termius.ts installs and registers; skills-store/ holds
+		// vendored skills the store loads on demand (never through pi.skills).
 		if (name === "rpiv-config" || name === "termius-mcp") continue;
+		if (entry.dest.startsWith("skills-store/")) {
+			assert.ok(existsSync(join(REPO_ROOT, entry.dest, "SKILL.md")), `${name}: no SKILL.md`);
+			continue;
+		}
 		assert.ok(
 			pkg.pi.extensions.some((path: string) => path.startsWith(`./${entry.dest}/`)),
 			`${name} is vendored but not loaded`,

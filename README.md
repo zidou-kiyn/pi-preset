@@ -45,10 +45,13 @@ Details: [docs/setup.md](docs/setup.md) covers what the sync writes, the package
 
 Skills you need now and then do not belong in `~/.pi/agent/skills`, where pi loads them into every session. `/skills` keeps them in a store and enables one for the session, for this directory, or always; "use now" sends it into the conversation without a reload. The model has the same store as the `skills` tool: ask it to find a skill for a task and it searches, installs after you confirm, and loads it. See [docs/skills-store.md](docs/skills-store.md).
 
-The store ships with:
+The store is shown in groups: the bundled groups, then each repository you installed from, then hand-made skills. A group row enables, updates, or removes all of its skills at once. Bundled:
 
-- `skill-authoring` and `git-conventions`, **on by default**: skill vs prompt template and how to write one; commit, branch, PR, issue, and release rules so every session does git the same way.
-- `grill-me`, `grilling`, and `handoff`, off until you want them, adapted from Matt Pocock's [skills](https://github.com/mattpocock/skills) (MIT, see [`skills-store/NOTICE.md`](skills-store/NOTICE.md)). `/skills use grill-me <plan>` starts an interview that goes round by round through `ask_user_question`, recommended answer first; the model looks up facts itself and asks you only for decisions. `/skills use handoff [what the next session is for]` writes a handoff document to the temp directory (what is done, what is next, decisions made, skills to load; existing files referenced by path): run `/new`, then ask the new session to read the file it named. Enable them for a session or always and `/skill:grill-me` / `/skill:handoff` work as before.
+- **pi-preset**: `skill-authoring` and `git-conventions`, **on by default** (skill vs prompt template and how to write one; commit, branch, PR, issue, and release rules so every session does git the same way); `grill-me` and `handoff`, adapted from Matt Pocock's [skills](https://github.com/mattpocock/skills) (MIT, see [`skills-store/pi-preset/NOTICE.md`](skills-store/pi-preset/NOTICE.md)). `/skills use grill-me <plan>` starts an interview that goes round by round through `ask_user_question`, recommended answer first; the model looks up facts itself and asks you only for decisions. `/skills use handoff [what the next session is for]` writes a handoff document to the temp directory: run `/new`, then ask the new session to read the file it named.
+- **humanizer**: [humanizer-zh](https://github.com/op7418/Humanizer-zh) and [humanizer](https://github.com/blader/humanizer) (MIT), which take the AI tells out of Chinese and English text.
+- **anthropics**: `frontend-design`, `mcp-builder`, `skill-creator`, `webapp-testing` from [anthropics/skills](https://github.com/anthropics/skills) (Apache-2.0).
+
+The vendored groups are tracked like the extensions (`vendor/UPSTREAM.json`, `npm run upstream -- status`). Anthropic's document skills (docx, xlsx, pptx, pdf) are under a proprietary license, so they stay on the recommended list and are fetched when you pick them.
 
 ## Language
 
@@ -83,4 +86,4 @@ See [docs/development.md](docs/development.md) for testing a local checkout, ver
 
 ## License
 
-MIT. Vendored code keeps its upstream license in its own directory (MIT; BSD 3-clause for termius-mcp). The adapted skills' notice is in `skills-store/NOTICE.md`.
+MIT. Vendored code keeps its upstream license in its own directory (MIT; BSD 3-clause for termius-mcp). The adapted skills' notice is in `skills-store/pi-preset/NOTICE.md`; vendored store skills keep their license in their own directory (MIT, Apache-2.0).

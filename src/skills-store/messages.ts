@@ -22,6 +22,18 @@ const en = {
 	originName: (origin: "bundled" | "local"): string => (origin === "bundled" ? "bundled with the preset" : "local"),
 	installedFrom: (source: string, commit: string | undefined) => `Installed from ${source}${commit ? ` @ ${commit.slice(0, 7)}` : ""}`,
 	shadows: "A bundled skill of the same name is hidden by this one.",
+	groupHint: (on: number, total: number, origin: "bundled" | "local"): string =>
+		`${on}/${total} on${origin === "bundled" ? " · bundled" : ""}`,
+	groupHelp: "The whole group: enable or turn off every skill in it, update or remove it.",
+	actionsHeading: "Store",
+	actionsHelp: "Find, install, search, update, import.",
+	enableAllLabel: (level: Level): string =>
+		level === "session" ? "Enable all for this session" : level === "project" ? "Enable all in this project" : "Enable all always",
+	offAllLabel: "Turn all off",
+	updateAllLabel: "Update all",
+	removeAllLabel: "Remove the group from the store",
+	enabledAll: (group: string, level: Level) => `${group}: every skill ${en.levelName(level)}.`,
+	confirmRemoveAll: (group: string, count: number) => `Delete ${group} (${count} skills) from the store?`,
 
 	findLabel: "Let the agent find one…",
 	findHelp: "Describe what you need in your own words. The agent derives the queries, searches the store, the recommended list, and skills.sh, and comes back with a recommendation. Closes this menu.",
@@ -108,18 +120,13 @@ type Messages = typeof en;
 
 /** Chinese one-liners for the curated list, by name; falls back to the English `what`. */
 const CURATED_ZH: Record<string, string> = {
-	"humanizer-zh": "去掉中文文本里的 AI 味（blader/humanizer 的中文版）",
-	humanizer: "去掉英文文本里的 AI 味；基于维基百科 “Signs of AI writing”",
-	"skill-creator": "Anthropic 的大型 skill 设计与迭代指南（pi 相关的细节由内置的 skill-authoring 负责）",
-	docx: "创建和编辑 Word 文档，支持修订与批注",
-	xlsx: "创建和分析电子表格，含公式与格式",
-	pptx: "创建和编辑 PowerPoint 演示文稿",
-	pdf: "读取、填写、合并、创建 PDF",
-	"frontend-design": "Anthropic 的前端设计指南：做出有品味、不千篇一律的界面",
-	"webapp-testing": "用 Playwright 测试本地 Web 应用：截图、点击、看控制台",
-	"mcp-builder": "按 Anthropic 的规范写一个 MCP 服务器",
+	officecli: "通过 officecli 二进制创建、检查、修改 .docx/.xlsx/.pptx（首次用时自动安装）；DOM 级编辑，自带 help 规范",
+	docx: "创建和编辑 Word 文档，支持修订与批注（Anthropic；专有许可，所以拉取而非内置）",
+	xlsx: "创建和分析电子表格，含公式与格式（Anthropic；专有许可）",
+	pptx: "创建和编辑 PowerPoint 演示文稿（Anthropic；专有许可）",
+	pdf: "读取、填写、合并、创建 PDF（Anthropic；专有许可）",
 	"systematic-debugging": "superpowers 的系统化排错：先复现、再定位、再改，不乱猜",
-	"brainstorming": "superpowers 的头脑风暴：动手前先把需求和方案问清楚",
+	brainstorming: "superpowers 的头脑风暴：动手前先把需求和方案问清楚（依赖它的 writing-plans；本仓库里 grill-me 是独立的同类）",
 	"vercel-react-best-practices": "Vercel 的 React / Next.js 最佳实践",
 };
 
@@ -134,6 +141,16 @@ const zh: Messages = {
 	originName: (origin) => (origin === "bundled" ? "预置内置" : "本地"),
 	installedFrom: (source, commit) => `安装自 ${source}${commit ? ` @ ${commit.slice(0, 7)}` : ""}`,
 	shadows: "同名的内置 skill 被这个本地版本覆盖。",
+	groupHint: (on, total, origin) => `已启用 ${on}/${total}${origin === "bundled" ? " · 内置" : ""}`,
+	groupHelp: "整组操作：一起启用或关闭、更新、删除。",
+	actionsHeading: "仓库",
+	actionsHelp: "找、装、搜、更新、导入。",
+	enableAllLabel: (level) => (level === "session" ? "整组本会话启用" : level === "project" ? "整组本项目启用" : "整组始终启用"),
+	offAllLabel: "整组关闭",
+	updateAllLabel: "整组更新",
+	removeAllLabel: "从仓库删除整组",
+	enabledAll: (group, level) => `${group}：全部${zh.levelName(level)}。`,
+	confirmRemoveAll: (group, count) => `从仓库删除 ${group}（${count} 个 skill）？`,
 
 	findLabel: "让 agent 帮我找…",
 	findHelp: "用自己的话描述要做什么。agent 自己拟搜索词，搜仓库、推荐清单和 skills.sh，再给出推荐。关闭本菜单。",

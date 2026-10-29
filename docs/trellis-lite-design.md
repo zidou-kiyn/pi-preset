@@ -51,7 +51,7 @@ Worth borrowing: an upper bound on the injected text (≤4000 characters), no re
 ### 1.5 Fit with pi-preset
 
 - Switches follow the existing patterns: pi's package resource filter (`pi config`, or `"extensions": ["!extensions/…"]`) and `PI_PRESET_<FEATURE>=off`.
-- The existing `grilling` skill already runs decision interviews through `ask_user_question`; `trellis-plan` uses it instead of a second brainstorm procedure.
+- The `grill-me` store skill already runs decision interviews through `ask_user_question`; `trellis-plan` uses it instead of a second brainstorm procedure.
 - The vendored `pi-workspace-history` is undo and snapshots, not cross-session search; it does not overlap with `trellis mem`.
 - Tests use `node:test`; extension files start with a Why / Effect / Runtime / Command header.
 
@@ -61,7 +61,7 @@ Worth borrowing: an upper bound on the injected text (≤4000 characters), no re
 |---|---|
 | Spec system | Kept: `spec/<layer>/index.md`, `spec/<pkg>/<layer>/index.md`, `guides/`, plus an optional top-level `spec/index.md` |
 | update-spec | `trellis-spec` skill; break-loop is folded in as an "after a bug that could come back" section (one skill description fewer) |
-| brainstorm + prd/design/implement | `trellis-plan` skill: files only, decisions through `grilling`, archive with `git mv`; no `task.json`, no jsonl |
+| brainstorm + prd/design/implement | `trellis-plan` skill: files only, decisions through `grill-me`-style rounds, archive with `git mv`; no `task.json`, no jsonl |
 | Journal and `.developer` | Compatible formats; written by a TypeScript script the skill runs (no tool, so no standing cost); never commits |
 | Path-scoped specs | Implemented (§6): once per session, no time-based reminders, triggered by `read` / `edit` / `write` / `apply_patch` |
 | Snapshot, budgets, safe truncation | Implemented; budgets in characters |
@@ -107,7 +107,7 @@ Then trellis-lite does nothing (no section, skills, or injection) and notifies o
 
 - **`trellis-spec`**: whether a rule deserves a spec (still true next week, not visible from the code, a rule rather than a story); where it goes and the index link; how to write it (one rule per heading, why, correct and wrong example, contracts as contracts, real file names); `paths:` frontmatter and glob syntax; the after-a-bug analysis (cause class, why earlier fixes failed, the cheapest guard for the whole class, other occurrences); dropped approaches go to the journal or research marked rejected, never to spec; before finishing, the changed rule is reread against what was settled (scope, exceptions, negations); no commit.
 - **`trellis-journal`**: what an entry contains, including the paths of the spec and research files the work changed and the dead ends marked rejected; the script call `node <skill-dir>/../../bin/trellis-lite.ts journal --title … [--commits …] [--task …] [--status …]` with the summary on stdin; what the script does; projects decide their own commit rules; pi's session logs for older detail.
-- **`trellis-plan`**: facts before questions; decisions through `grilling`; `prd.md` always, `design.md` and `implement.md` when warranted, `research/` for material; stop for approval; on completion move rules to spec, `git mv` into `tasks/archive/YYYY-MM/`, offer a journal entry; leave old `task.json` / jsonl alone.
+- **`trellis-plan`**: facts before questions; decisions through `grill-me`-style rounds; `prd.md` always, `design.md` and `implement.md` when warranted, `research/` for material; stop for approval; on completion move rules to spec, `git mv` into `tasks/archive/YYYY-MM/`, offer a journal entry; leave old `task.json` / jsonl alone.
 
 **Measured standing cost**: 629 tokens (Opus 5.5 tokenizer) for the section plus the three skill entries, against a 1k ceiling and a 600 target. Each skill entry carries its absolute `location`, about a third of its cost.
 
