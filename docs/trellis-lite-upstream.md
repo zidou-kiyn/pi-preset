@@ -24,7 +24,7 @@ node scripts/check-upstream-trellis.mjs          # commits + diff stat per track
 node scripts/check-upstream-trellis.mjs --diff   # with the full diff of the watched paths
 ```
 
-Or run `/preset-upstream trellis` in this repository (part of the full `/preset-upstream` round): the agent runs the script, reads the diffs, and drafts recommendations and decision-log rows. Clones are cached in `~/.cache/pi-preset/upstream/`; no remote is added to this repository.
+Or run `/skill:preset-upstream trellis` in this repository (part of the full `/skill:preset-upstream` round): the agent runs the script, reads the diffs, and drafts recommendations and decision-log rows. Clones are cached in `~/.cache/pi-preset/upstream/`; no remote is added to this repository.
 
 Suggested rhythm: monthly, or after an upstream release. There is no scheduled job: every change needs a human decision, and an unread automatic report helps nobody.
 

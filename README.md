@@ -80,7 +80,7 @@ npm install && npm test        # npm run test:termius for the Python server
 npm run release -- minor       # then: git push --follow-tags
 ```
 
-In this repository, `/preset-upstream` reviews upstream changes to everything vendored and decides what to carry over.
+In this repository, the project skill `/skill:preset-upstream` reviews upstream changes to everything vendored and decides what to carry over.
 
 See [docs/development.md](docs/development.md) for testing a local checkout, versions, following upstream, design notes, and the repository layout.
 

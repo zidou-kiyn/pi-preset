@@ -40,7 +40,7 @@ npm run upstream -- check                  # what differs locally from the recor
 
 The vendored packages are maintained copies, not mirrors. Upstream changes are reviewed one by one and taken, adapted, or skipped. A skipped change is recorded as `Not taken from upstream …` in `localChanges`. `pull` is one way to carry changes over; porting the chosen ones by hand is the other.
 
-In this repository, `/preset-upstream [package... | mcp | skills | trellis]` ([`.pi/prompts/preset-upstream.md`](../.pi/prompts/preset-upstream.md)) has the agent do the whole round for everything the preset maintains: vendored packages, the pinned chrome-devtools-mcp, the skills, and trellis-lite's clean-room references. It judges each upstream change against our local changes, asks what to carry over, then applies, records, and tests it. It never commits.
+In this repository, `/skill:preset-upstream [package... | mcp | skills | trellis]` (project skill [`.pi/skills/preset-upstream/`](../.pi/skills/preset-upstream/SKILL.md); asking to check upstream also triggers it) has the agent do the whole round for everything the preset maintains: vendored packages, the pinned chrome-devtools-mcp, the skills, and trellis-lite's clean-room references. It judges each upstream change against our local changes, asks what to carry over, then applies, records, and tests it. It never commits.
 
 ## Design notes
 

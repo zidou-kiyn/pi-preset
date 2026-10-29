@@ -255,7 +255,7 @@ trellis-lite/bin/trellis-lite.ts           CLI: journal, migrate
 trellis-lite/skills/trellis-{spec,journal,plan}/SKILL.md
 trellis-lite/prompts/migrate.md            the /trellis-lite-migrate prompt
 trellis-lite/upstream.json                 upstream baselines and watched paths
-.pi/prompts/preset-upstream.md             maintainer prompt (all upstreams), visible only in this repository
+.pi/skills/preset-upstream/                maintainer skill (all upstreams), visible only in this repository
 scripts/check-upstream-trellis.mjs         upstream check (read-only)
 docs/trellis-lite-upstream.md              baselines, rules, decision log
 test/trellis-lite-{core,specs,journal,migrate}.test.ts, test/trellis-lite-fixtures.ts
@@ -289,7 +289,7 @@ The isolated environment has no user-level extensions, skills, or prompts, so it
 
 ## 12. Following upstream
 
-See [`trellis-lite-upstream.md`](trellis-lite-upstream.md): baselines, watched paths, evaluation rules, decision log, `scripts/check-upstream-trellis.mjs`, and `/preset-upstream trellis`. Baselines move only after the user confirms. Run monthly or after an upstream release; there is no scheduled job.
+See [`trellis-lite-upstream.md`](trellis-lite-upstream.md): baselines, watched paths, evaluation rules, decision log, `scripts/check-upstream-trellis.mjs`, and `/skill:preset-upstream trellis`. Baselines move only after the user confirms. Run monthly or after an upstream release; there is no scheduled job.
 
 ## 13. Not done, on purpose
 
