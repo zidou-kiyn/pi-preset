@@ -63,6 +63,7 @@ const en = {
 	searchPrompt: "Search skills.sh for",
 	pickSkill: "Which skill to install?",
 	pickSkillHelp: (source: string) => `${source} holds several skills.`,
+	installAll: (count: number) => `All ${count}`,
 	confirmInstall: (name: string, source: string, replaced: boolean) =>
 		`${replaced ? "Replace" : "Install"} ${name} from ${source}?`,
 	confirmRemove: (name: string) => `Delete ${name} from the store?`,
@@ -172,6 +173,7 @@ const zh: Messages = {
 	searchPrompt: "在 skills.sh 搜索",
 	pickSkill: "安装哪个 skill？",
 	pickSkillHelp: (source) => `${source} 里有多个 skill。`,
+	installAll: (count) => `全部 ${count} 个`,
 	confirmInstall: (name, source, replaced) => `${replaced ? "替换" : "安装"} ${name}（来自 ${source}）？`,
 	confirmRemove: (name) => `从仓库删除 ${name}？`,
 	confirmImport: (names, backup) => `搬进仓库：${names}\n\n原目录移至 ${backup}`,

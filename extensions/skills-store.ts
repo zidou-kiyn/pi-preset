@@ -313,11 +313,14 @@ export default function skillsStore(pi: ExtensionAPI): void {
 				const picked = await showMenu(ctx, () => ({
 					title: m.pickSkill,
 					status: [m.pickSkillHelp(source)],
-					items: candidates.map((c) => ({ value: c.name, label: c.name, description: c.description })),
+					items: [
+						{ value: "*", label: m.installAll(candidates.length), description: candidates.map((c) => c.name).join(", ") },
+						...candidates.map((c) => ({ value: c.name, label: c.name, description: c.description })),
+					],
 					cancelLabel: m.backToList,
 				}));
 				if (!picked) return undefined;
-				candidates = candidates.filter((c) => c.name === picked);
+				if (picked !== "*") candidates = candidates.filter((c) => c.name === picked);
 			}
 			const names: string[] = [];
 			for (const candidate of candidates) {
