@@ -51,7 +51,9 @@ const en = {
 		"~/.pi/agent/skills and ~/.agents/skills are always loaded by pi. Moving a skill here makes it on-demand; the original goes to a backup directory.",
 
 	useLabel: "Use now",
-	useHelp: "Sends the skill into this conversation at once, like /skill:name. No reload; not added to the skill list.",
+	useHelp: "Sends the skill into this conversation at once, like /skill:name, with a request of yours if you type one. No reload; not added to the skill list.",
+	usePrompt: (name: string) => `${name}: what should it work on? (Enter to send it alone)`,
+	usePlaceholder: "optional",
 	enableLabel: (level: Level): string =>
 		level === "session" ? "Enable for this session" : level === "project" ? "Enable in this project" : "Enable always",
 	enableHelp: (level: Level): string =>
@@ -166,7 +168,9 @@ const zh: Messages = {
 	importHelp: "~/.pi/agent/skills 和 ~/.agents/skills 是 pi 始终加载的目录。搬进仓库后变为按需启用；原目录移入备份目录。",
 
 	useLabel: "现在就用",
-	useHelp: "立刻把 skill 发进当前对话，等同 /skill:name。不 reload，也不进 skill 列表。",
+	useHelp: "立刻把 skill 发进当前对话，等同 /skill:name；可以附一句你的要求。不 reload，也不进 skill 列表。",
+	usePrompt: (name) => `${name}：要它做什么？（直接回车则只发 skill）`,
+	usePlaceholder: "可留空",
 	enableLabel: (level) => (level === "session" ? "本会话启用" : level === "project" ? "本项目启用" : "始终启用"),
 	enableHelp: (level) =>
 		level === "session"

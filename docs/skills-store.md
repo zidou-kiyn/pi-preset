@@ -50,7 +50,7 @@ The menu lists the store, enabled skills first (session, project, always) and th
 
 - **Let the agent find one** is for needs you cannot name: describe the task in your own words and the agent derives the search queries, checks the store and the recommended list before skills.sh, and comes back with up to five candidates and one recommendation. It installs nothing until you answer. (`/skills find <what you need>` does the same.)
 
-- **Use now** sends the skill into the conversation the way `/skill:name` does, without a reload. For a one-off task.
+- **Use now** asks for an optional request, then sends the skill into the conversation the way `/skill:name <request>` does, without a reload. For a one-off task.
 - **Install** takes `owner/repo`, `owner/repo@skill`, a GitHub URL (`/tree/<ref>/<path>` included), any git URL, or a local directory. The repository is cloned shallowly to a temp directory, the skill directories are listed, and the chosen one is copied into the local store with a `.pi-preset-source.json` (source, path, commit). Nothing from the download is executed. When a source holds several skills and no `@name` is given, the menu asks which.
 - **Recommended** is a short curated list (`CURATED` in `src/skills-store/catalog.ts`) of skills that are not bundled: officecli (the officecli binary's own skill; it installs the binary on first use), Anthropic's docx/xlsx/pptx/pdf (proprietary license), superpowers' systematic-debugging, and Vercel's React best practices. "All n" installs the whole list with one clone per repository.
 - **Search skills.sh** queries the registry `npx skills find` uses (its JSON endpoint; the CLI as a fallback) and shows install counts.

@@ -600,7 +600,10 @@ export default function skillsStore(pi: ExtensionAPI): void {
 			if (!choice) return notice;
 			notice = undefined;
 			if (choice === "use") {
-				pi.sendUserMessage(skillMessage(skill));
+				// Optional request to go with the skill, like the arguments after /skill:name. Esc keeps the menu.
+				const request = await ctx.ui.input(m.usePrompt(name), m.usePlaceholder);
+				if (request === undefined) continue;
+				pi.sendUserMessage(skillMessage(skill, request));
 				return "close"; // the agent starts working
 			}
 			if (choice.startsWith("enable:")) {
