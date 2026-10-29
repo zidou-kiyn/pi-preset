@@ -1,11 +1,18 @@
 /**
  * Ramp status bar — theme-reactive footer for pi.
  *
+ * Lines are grouped by meaning:
+ *   1. where and who   path · branch · session          provider · model · thinking
+ *   2. how much        context meter · ↑in ↓out · cache hit · ttl/warm · ssh ·
+ *                      skills · cost · elapsed (overflows to one more line)
+ *   3. what is loaded  extensions · MCP · open todos (hidden when empty)
+ * Narrow bars drop the provider first, then shorten the path.
+ *
  * Design: a polychromatic constellation, with the hues spent on the segments
  * that are ALWAYS visible (traffic, cache, cost, context, model) — not on
  * branch/session, which are often absent. Icon and value wear the segment hue
- * together: in=mdLink, out=success, cacheRead=syntaxOperator,
- * cacheWrite=syntaxType, cost=warning, model=accent; the ramp meter walks the
+ * together: in=mdLink, out=success, cache hit=its own good/bad tone,
+ * cost=warning, model=accent; the ramp meter walks the
  * thinking-level tokens positionally (≥1 cell always lit) so its tail is the
  * "hot" end. Every color is a semantic theme token — zero hardcoded hex — so
  * the active theme provides ALL coloration and the bar re-skins itself on
@@ -22,27 +29,30 @@
  * stays hidden when there is nothing to report, preserving the "quiet when
  * empty" philosophy.
  *
- * MCP (pi 0.99+ ships it built in): the aux line shows connected servers and
- * their tools as `mcp 2·14`, derived from the `mcp__<server>__<tool>` tools
- * the built-in extension registers, or a dim `mcp 0` while none is connected.
+ * MCP (pi 0.99+ ships it built in): the aux line shows the number of
+ * connected servers, derived from the `mcp__<server>__<tool>` tools the
+ * built-in extension registers, or a dim `0` while none is connected.
  * Extensions cannot read connection state, so failed or signed-out servers are
  * not counted; pi reports those itself after startup and in /mcp. Small
  * `cm` / `ts` tags mark the built-in `codemode` / `tool_search` tools while
  * they are active. The segment is hidden only when MCP support is disabled.
  *
- * pi-workspace-history: its plain `⟲ history` status is taken over and drawn
- * on the aux line as a success-toned history glyph (error-toned `snapshot
- * failed` when its snapshots break), instead of on the generic status line.
+ * pi-workspace-history: its plain `⟲ history` status is taken over: nothing
+ * while snapshots are healthy, an error-toned `snapshot failed` on the aux
+ * line when they break.
+ *
+ * Todos: the current task and done/total while any task is open; a finished
+ * list leaves the bar.
  *
  * Icons only by default; PI_PRESET_FOOTER_LABELS=1 restores the word labels
- * (in/out/cache r/w/hit/ttl/warm/pkg/mcp) whenever they fit in two lines.
+ * (in/out/cache/ttl/warm/pkg/mcp) whenever they fit in two lines.
  *
  * Stats line legend:
  *   meter 58k/272k 21%   current context: used / window, percent
- *   in / out             session-cumulative input and output tokens
- *   cache r / w / hit    session-cumulative cache read and cache write tokens,
- *                        and the latest turn's cache hit rate
- *   $ / Σ                session cost, or total tokens when no price is known
+ *   in / out             session-cumulative prompt tokens (cached ones
+ *                        included) and output tokens
+ *   cache                the latest turn's cache hit rate
+ *   $                    session cost; absent when the provider reports none
  *   ttl / warm           time left on the tracked prompt-cache entry and the
  *                        next idle refresh, from extensions/idle-keepwarm.ts
  *   ssh                  termius, only when its setup is not the default: the
@@ -83,9 +93,7 @@ type IconSet = {
     session: string;
     input: string;
     output: string;
-    cacheRead: string;
-    cacheWrite: string;
-    cacheHit: string;
+    cache: string;
     cacheTtl: string;
     cacheWarm: string;
     ssh: string;
@@ -114,9 +122,7 @@ const NERD_ICONS: IconSet = {
     session: "\u{f04f9}", // nf-md-tag
     input: "\u{f0da3}", // nf-md-transfer_up
     output: "\u{f0da1}", // nf-md-transfer_down
-    cacheRead: "\u{f035b}", // nf-md-memory
-    cacheWrite: "\u{f02fa}", // nf-md-import
-    cacheHit: "\u{f04fe}", // nf-md-target
+    cache: "\u{f035b}", // nf-md-memory
     cacheTtl: "\u{f0150}", // nf-md-clock_outline
     cacheWarm: "\u{f0238}", // nf-md-fire
     ssh: "\u{f048d}", // nf-md-server_network
@@ -139,9 +145,7 @@ const UNICODE_ICONS: IconSet = {
     session: "⌁",
     input: "↑",
     output: "↓",
-    cacheRead: "▤",
-    cacheWrite: "↻",
-    cacheHit: "◎",
+    cache: "▤",
     cacheTtl: "⧗",
     cacheWarm: "♨",
     ssh: "⇄",
@@ -272,6 +276,11 @@ function lseg(t: ThemeLike, glyph: string, color: string, label: string, value: 
     const g = glyph ? t.fg(color, glyph) + " " : "";
     const l = showLabel ? t.fg("dim", `${label} `) : "";
     return g + l + t.fg(color, value);
+}
+
+/** Cents once a session costs a dollar or more; a tenth of a cent below that. */
+export function formatCost(cost: number): string {
+    return cost >= 1 ? `$${cost.toFixed(2)}` : `$${cost.toFixed(3)}`;
 }
 
 function formatPercent(percent: number): string {
@@ -437,18 +446,17 @@ function latestTodos(ctx: ExtensionContext): TodoTask[] {
 const HISTORY_STATUS_KEY = "workspace-history";
 
 /**
- * pi-workspace-history's status, restyled: a quiet glyph while snapshots are
- * healthy, an error-toned "snapshot failed" when they are not. Unknown texts
- * from future versions are shown verbatim rather than dropped.
+ * pi-workspace-history's status, restyled: nothing while snapshots are
+ * healthy (its plain `⟲ history`), an error-toned "snapshot failed" when
+ * they are not. Unknown texts from future versions are shown verbatim rather
+ * than dropped.
  */
-function historySegment(t: ThemeLike, status: string | undefined, icons: IconSet): string | null {
+export function historySegment(t: ThemeLike, status: string | undefined, icons: IconSet): string | null {
     if (status === undefined) return null;
     const text = sanitizeStatusText(status);
     if (!text) return null;
     if (/fail/i.test(text)) return seg(t, icons.history, "error", messages().snapshotFailed, "error");
-    if (/^⟲\s*history$/.test(text)) {
-        return showWordLabels() ? seg(t, icons.history, "success", "history", "dim") : t.fg("success", icons.history);
-    }
+    if (/^⟲\s*history$/.test(text)) return null;
     return seg(t, icons.history, "success", text.replace(/^⟲\s*/, ""), "dim");
 }
 
@@ -524,27 +532,64 @@ function layoutSegments(segments: string[], separator: string, firstWidth: numbe
 
 // ── render lines ────────────────────────────────────────────────────────────
 
-function renderPathLine(
+type PathMode = "full" | "abbrev" | "base";
+
+/**
+ * Where and who: path · branch · session on the left, provider · model ·
+ * thinking on the right, the model being the line's one accent. When both do
+ * not fit, the provider goes first, then the path shortens (`…` tail, then
+ * the directory name); only then is the left side truncated.
+ */
+function renderTopLine(
     t: ThemeLike,
     ctx: ExtensionContext,
     branch: string | null,
     icons: IconSet,
+    thinkingLevel: string,
     width: number,
 ): string {
-    const pathMode = width < 60 ? "base" : width < 100 ? "abbrev" : "full";
-    const path = formatCwd(ctx.cwd, process.env.HOME || process.env.USERPROFILE, pathMode);
+    const sep = softSep(t);
+    const home = process.env.HOME || process.env.USERPROFILE;
     const sessionName = ctx.sessionManager.getSessionName();
+    const left = (mode: PathMode) =>
+        join(
+            [
+                seg(t, icons.path, "mdLink", formatCwd(ctx.cwd, home, mode), "text"),
+                branch ? seg(t, icons.branch, "mdQuote", branch, "thinkingText") : null,
+                sessionName ? seg(t, icons.session, "customMessageLabel", sessionName, "thinkingText") : null,
+            ],
+            sep,
+        );
 
-    const line = join(
-        [
-            seg(t, icons.path, "mdLink", path, "text"),
-            branch ? seg(t, icons.branch, "mdQuote", branch, "thinkingText") : null,
-            sessionName ? seg(t, icons.session, "customMessageLabel", sessionName, "thinkingText") : null,
-        ],
-        softSep(t),
-    );
+    const provider = ctx.model?.provider;
+    const model = t.bold(t.fg("accent", `${icons.model} ${ctx.model?.id ?? "no-model"}`));
+    let thinking: string | null = null;
+    if (ctx.model?.reasoning) {
+        const style = thinkingStyle(thinkingLevel);
+        thinking = t.fg(style.color, `${icons.thinking} ${style.label}`);
+    }
+    const right = (withProvider: boolean) =>
+        join([withProvider && provider ? t.fg("muted", provider) : null, model, thinking], sep);
 
-    return truncateToWidth(line, width, t.fg("dim", "…"));
+    const fits = (l: string, r: string) => visibleWidth(l) + 2 + visibleWidth(r) <= width;
+    const attempts: Array<[PathMode, boolean]> = [
+        ["full", true],
+        ["abbrev", true],
+        ["full", false],
+        ["abbrev", false],
+        ["base", false],
+    ];
+    for (const [mode, withProvider] of attempts) {
+        const l = left(mode);
+        const r = right(withProvider);
+        if (fits(l, r)) return padBetween(l, r, width);
+    }
+
+    // Still too wide: keep the model whole while it leaves the path some room.
+    const r = right(false);
+    const room = width - visibleWidth(r) - 2;
+    if (room >= 12) return padBetween(truncateToWidth(left("base"), room, t.fg("dim", "…")), r, width);
+    return truncateToWidth(left("base") + " " + r, width, t.fg("dim", "…"));
 }
 
 /**
@@ -586,7 +631,6 @@ function renderStatsLines(
     t: ThemeLike,
     ctx: ExtensionContext,
     usage: UsageTotals,
-    getThinking: () => string,
     icons: IconSet,
     sessionStartMs: number,
     width: number,
@@ -616,29 +660,21 @@ function renderStatsLines(
             segments.push(seg(t, icons.context, tone, "") + contextText);
         }
 
-        // Traffic: session-cumulative in/out — icon AND value wear the segment hue;
-        // a single colored glyph next to gray digits doesn't register at terminal sizes.
-        if (usage.input || usage.output) {
+        // Traffic: everything sent (cached prompt tokens included, which is what
+        // a turn really costs in context) and everything generated. Icon AND value
+        // wear the segment hue; a colored glyph next to gray digits doesn't register.
+        const sent = usage.input + usage.cacheRead + usage.cacheWrite;
+        if (sent || usage.output) {
             const parts: string[] = [];
-            if (usage.input) parts.push(lseg(t, icons.input, "mdLink", "in", formatTokens(usage.input), labels));
+            if (sent) parts.push(lseg(t, icons.input, "mdLink", "in", formatTokens(sent), labels));
             if (usage.output) parts.push(lseg(t, icons.output, "success", "out", formatTokens(usage.output), labels));
             segments.push(parts.join(" "));
         }
 
-        // Cache: read, write, hit rate (hit tone shifts as it degrades)
-        if (usage.cacheRead || usage.cacheWrite) {
-            const parts: string[] = [];
-            if (usage.cacheRead)
-                parts.push(lseg(t, icons.cacheRead, "syntaxOperator", "cache r", formatTokens(usage.cacheRead), labels));
-            if (usage.cacheWrite) {
-                const label = usage.cacheRead ? "w" : "cache w";
-                parts.push(lseg(t, icons.cacheWrite, "syntaxType", label, formatTokens(usage.cacheWrite), labels));
-            }
-            if (usage.cacheHitRate !== undefined) {
-                const hit = usage.cacheHitRate;
-                parts.push(lseg(t, icons.cacheHit, cacheTone(hit), "hit", `${hit.toFixed(0)}%`, labels));
-            }
-            segments.push(parts.join(" "));
+        // Cache: how much of the latest prompt came from cache; the tone degrades with it.
+        if (usage.cacheHitRate !== undefined && (usage.cacheRead || usage.cacheWrite)) {
+            const hit = usage.cacheHitRate;
+            segments.push(lseg(t, icons.cache, cacheTone(hit), "cache", `${hit.toFixed(0)}%`, labels));
         }
 
         const keepwarm = keepwarmSegment(t, readSnapshot(), icons, labels);
@@ -651,9 +687,8 @@ function renderStatsLines(
         const skillsText = skillsFooterText(readSkillsFooter());
         if (skillsText) segments.push(seg(t, icons.skills, "accent", skillsText, "dim"));
 
-        // Cost — or, when the provider reports no price (proxies and most OAuth
-        // subscriptions send cost.total = 0), the cumulative token volume, so the
-        // slot always carries a real number instead of silently vanishing.
+        // Cost, when the provider reports one (proxies and most OAuth
+        // subscriptions send cost.total = 0; the traffic segment covers volume).
         if (usage.cost > 0) {
             let usingOAuth = false;
             try {
@@ -661,14 +696,8 @@ function renderStatsLines(
             } catch {
                 usingOAuth = false;
             }
-            const amount = usingOAuth ? `$${usage.cost.toFixed(3)} sub` : `$${usage.cost.toFixed(3)}`;
+            const amount = formatCost(usage.cost) + (usingOAuth ? " sub" : "");
             segments.push(seg(t, icons.cost, "warning", amount, "warning"));
-        } else {
-            // Σ marks a token total, so it is never mistaken for a price.
-            const totalTokens = usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
-            if (totalTokens > 0) {
-                segments.push(seg(t, icons.cost, "warning", `Σ${formatTokens(totalTokens)}`, "warning"));
-            }
         }
 
         // Session elapsed (only after ≥5s so empty sessions stay quiet)
@@ -679,52 +708,23 @@ function renderStatsLines(
         return segments;
     };
 
-    // Right cluster: provider · model · thinking — model is the line's one accent.
-    const modelId = ctx.model?.id ?? "no-model";
-    const provider = ctx.model?.provider;
-    const supportsReasoning = Boolean(ctx.model?.reasoning);
+    const labeled = showWordLabels() ? layoutSegments(buildSegments(true), sep, width, width) : undefined;
+    return labeled?.fits ? labeled.lines : layoutSegments(buildSegments(false), sep, width, width).lines;
+}
 
-    let thinkingPart: string | null = null;
-    if (supportsReasoning) {
-        const style = thinkingStyle(getThinking());
-        thinkingPart = t.fg(style.color, `${icons.thinking} ${style.label}`);
-    }
-
-    const right = join(
-        [provider ? t.fg("muted", provider) : null, t.bold(t.fg("accent", `${icons.model} ${modelId}`)), thinkingPart],
-        sep,
-    );
-
-    const rightW = visibleWidth(right);
-    const leftBudget = rightW > 0 ? Math.max(20, width - rightW - 2) : width;
-
-    const labeled = showWordLabels() ? layoutSegments(buildSegments(true), sep, leftBudget, width) : undefined;
-    const leftLines = labeled?.fits ? labeled.lines : layoutSegments(buildSegments(false), sep, leftBudget, width).lines;
-    if (leftLines.length === 0) {
-        return [truncateToWidth(right, width, t.fg("dim", "…"))];
-    }
-
-    const firstLeft = leftLines[0]!;
-    let first: string;
-    if (rightW === 0) {
-        first = firstLeft;
-    } else if (visibleWidth(firstLeft) + 2 + rightW <= width) {
-        first = padBetween(firstLeft, right, width);
-    } else {
-        const available = Math.max(0, width - visibleWidth(firstLeft) - 1);
-        first = firstLeft + " " + truncateToWidth(right, available, t.fg("dim", "…"));
-    }
-
-    const lines = [first];
-    for (let i = 1; i < leftLines.length; i++) {
-        lines.push(leftLines[i]!);
-    }
-    return lines;
+/** Done/total and the current task, while any task is open; a finished list leaves the bar. */
+export function todoSummary(tasks: readonly TodoTask[]): { done: number; total: number; current?: string } | null {
+    const done = tasks.filter((task) => task.status === "completed").length;
+    if (tasks.length === 0 || done === tasks.length) return null;
+    const current = tasks.find((task) => task.status === "in_progress");
+    const label = current ? sanitizeStatusText(current.activeForm || current.subject || messages().working) : "";
+    return { done, total: tasks.length, ...(label ? { current: label } : {}) };
 }
 
 /**
- * Aux line: loaded packages, MCP, and todo progress. Returns null when there is nothing
- * to say, so a plain session keeps the bar at two lines.
+ * Aux line: snapshot failures, loaded extensions, MCP servers, and open todos.
+ * Returns null when there is nothing to say, so a plain session keeps the bar
+ * at two lines.
  */
 function renderAuxLine(
     t: ThemeLike,
@@ -745,30 +745,20 @@ function renderAuxLine(
         parts.push(seg(t, icons.pkg, "syntaxKeyword", `${label}${packages}`, "syntaxKeyword"));
     }
 
-    // MCP: always shown while MCP support is loaded. "mcp 0" (dim) means no
-    // server is connected; "mcp 2·14" is servers·tools. Dim cm/ts tags mark
-    // codemode / tool_search while active.
+    // MCP: connected servers, always shown while MCP support is loaded; a dim 0
+    // means none is connected. Dim cm/ts tags mark codemode / tool_search.
     const mcp = mcpSummary(pi);
     if (mcp.available || mcp.servers > 0 || mcp.codemode || mcp.toolSearch) {
         const tone = mcp.servers > 0 ? "syntaxFunction" : "dim";
         const label = showWordLabels() ? "mcp " : "";
-        const count = mcp.servers > 0 ? `${label}${mcp.servers}${DOT}${mcp.tools}` : `${label}0`;
         const tags = join([mcp.codemode ? "cm" : null, mcp.toolSearch ? "ts" : null], " ");
-        parts.push(t.fg(tone, `${icons.mcp} ${count}`) + (tags ? t.fg("dim", ` ${tags}`) : ""));
+        parts.push(t.fg(tone, `${icons.mcp} ${label}${mcp.servers}`) + (tags ? t.fg("dim", ` ${tags}`) : ""));
     }
 
-    const tasks = latestTodos(ctx);
-    if (tasks.length > 0) {
-        const done = tasks.filter((task) => task.status === "completed").length;
-        const allDone = done === tasks.length;
-        const tone = allDone ? "success" : "mdHeading";
-        parts.push(seg(t, icons.todo, tone, `${done}/${tasks.length}`, tone));
-
-        const current = tasks.find((task) => task.status === "in_progress");
-        if (current) {
-            const label = sanitizeStatusText(current.activeForm || current.subject || messages().working);
-            if (label) parts.push(seg(t, icons.todoActive, "mdHeading", label, "text"));
-        }
+    const todos = todoSummary(latestTodos(ctx));
+    if (todos) {
+        parts.push(seg(t, icons.todo, "mdHeading", `${todos.done}/${todos.total}`, "mdHeading"));
+        if (todos.current) parts.push(seg(t, icons.todoActive, "mdHeading", todos.current, "text"));
     }
 
     if (parts.length === 0) return null;
@@ -812,16 +802,8 @@ export default function (pi: ExtensionAPI) {
                     const branch = footerData.getGitBranch();
 
                     const lines = [
-                        renderPathLine(t, ctx, branch, icons, width),
-                        ...renderStatsLines(
-                            t,
-                            ctx,
-                            usage,
-                            () => pi.getThinkingLevel(),
-                            icons,
-                            sessionStartMs,
-                            width,
-                        ),
+                        renderTopLine(t, ctx, branch, icons, pi.getThinkingLevel(), width),
+                        ...renderStatsLines(t, ctx, usage, icons, sessionStartMs, width),
                     ];
 
                     const extensionStatuses = footerData.getExtensionStatuses();

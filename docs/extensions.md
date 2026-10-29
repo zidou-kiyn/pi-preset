@@ -68,21 +68,23 @@ To check what happened, run `/compact` and look at the session's compaction entr
 ## Reading the status bar
 
 ```
-✧ ~/project · ⎇ main
-▰▱▱▱▱▱ 58k/272k 21% · ↑ 48k ↓ 38k · ▤ 1.1M ↻ 90k ◎ 93% · ⧗ 47m ♨ 21:43 ×2      provider · π model · ◆ high
-◈ $0.410 · ◷ 36m52s
-⟲ · ⬡ 12 · ⧉ 2·14 cm ts · ☑ 1/3 · ▸ current task
+✧ ~/project · ⎇ main                                       provider · π model · ◆ high
+▰▱▱▱▱▱ 58k/272k 21% · ↑ 1.2M ↓ 38k · ▤ 93% · ⧗ 47m ♨ 21:43 ×2 · ◈ $0.410 · ◷ 36m52s
+⬡ 12 · ⧉ 2 cm ts · ☑ 1/3 · ▸ current task
 ```
 
-Segments show icons only (`⬡` counts the package extensions that register tools or commands; a vendored package counts once). Set `PI_PRESET_FOOTER_LABELS=1` to bring back the word labels (`in`, `out`, `cache r`, `w`, `hit`, `ttl`, `warm`, `pkg`, `mcp`); they are then shown whenever the stats fit in two lines. The list below uses those label names.
+One line per question: **where and who** (directory, branch, session name; provider, model, thinking level), **how much** (context, tokens, cache, cost, time), and **what is loaded** (extensions, MCP, open todos). The third line disappears when it has nothing to say. On a narrow terminal the provider goes first, then the path shortens; stats that do not fit continue on one more line.
+
+Segments show icons only (`⬡` counts the package extensions that register tools or commands; a vendored package counts once). Set `PI_PRESET_FOOTER_LABELS=1` to bring back the word labels (`in`, `out`, `cache`, `ttl`, `warm`, `pkg`, `mcp`); they are then shown whenever the stats fit in two lines. The list below uses those label names.
 
 - **Context**: the meter plus `used/window percent` of the current context. Its color turns warning above 70% and error above 90%.
-- **in / out**: input and output tokens summed over the whole session, not the current context.
-- **cache r / w / hit**: session totals of cache-read and cache-write tokens, and the latest turn's cache hit rate.
+- **in / out**: tokens sent and generated over the whole session, not the current context. `in` counts cached prompt tokens too, so it is what the turns actually read.
+- **cache**: how much of the latest turn's prompt came from the cache; warning below 50%, error below 25%.
 - **ttl / warm**: time left before the prompt-cache entry expires (warning-toned in the last 5 minutes), and when `idle-keepwarm` refreshes it next, with the number of refreshes since your last message. A dim note replaces both while warming is paused.
-- **◈**: session cost as `$0.410` (`sub` when the model runs on an OAuth subscription), or `Σ` total tokens when the provider reports no price.
-- **⟲**: [pi-workspace-history](https://www.npmjs.com/package/pi-workspace-history) is active (`/undo` works), shown as a success-toned glyph. The footer draws its `⟲ history` status itself; it turns into an error-toned `snapshot failed` when snapshots break (see `/history-status`). Hidden when the extension is not installed or `workspaceHistory.showStatus` is `false`.
-- **mcp servers·tools**: MCP servers connected through pi's built-in MCP support and their callable tools. Servers that failed or need a sign-in are not counted; pi reports them after startup and in `/mcp`. A dim `mcp 0` means MCP support is loaded but no server is connected. `cm` / `ts` mark the built-in `codemode` / `tool_search` tools while they are active. The segment is hidden only when the built-in MCP extension is disabled.
+- **◈**: session cost, `$0.410` below a dollar and `$18.03` above (`sub` when the model runs on an OAuth subscription). Absent when the provider reports no price.
+- **mcp**: MCP servers connected through pi's built-in MCP support. Servers that failed or need a sign-in are not counted; pi reports them after startup and in `/mcp`. A dim `0` means MCP support is loaded but no server is connected. `cm` / `ts` mark the built-in `codemode` / `tool_search` tools while they are active. The segment is hidden only when the built-in MCP extension is disabled.
+- **☑ / ▸**: todo progress and the current task, while any task is open. A finished list leaves the bar.
+- **⟲ snapshot failed**: [pi-workspace-history](https://www.npmjs.com/package/pi-workspace-history) could not take a snapshot, so `/undo` may not cover the last change (see `/history-status`). Nothing is shown while snapshots work.
 
 ## Prompt cache kept warm while idle
 

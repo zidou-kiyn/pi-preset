@@ -2,8 +2,8 @@
  * vibrant-footer UI text (en / zh). See src/i18n.ts for how a catalog works.
  *
  * Only the words the bar shows by default are here. The word labels behind
- * PI_PRESET_FOOTER_LABELS=1 (in, out, cache r, w, hit, ttl, warm, pkg, mcp,
- * history) stay English: they are terse abbreviations next to numbers.
+ * PI_PRESET_FOOTER_LABELS=1 (in, out, cache, ttl, warm, pkg, mcp) stay
+ * English: they are terse abbreviations next to numbers.
  */
 
 import { localized } from "./i18n.ts";
