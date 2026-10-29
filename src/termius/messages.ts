@@ -62,7 +62,7 @@ const en = {
 	proxyDescNothing: "nothing",
 	proxyDescNoSystem: "none (no system proxy variables)",
 	proxyDescSystem: (url: string, name: string, noProxy: string) => `${url} (system ${name}${noProxy ? `; NO_PROXY ${noProxy}` : ""})`,
-	settingsLine: (on: boolean, level: string, route: string) => `MCP ${on ? "on" : "off (every session)"} · level ${level} · route ${route}`,
+	mcpOnOff: (on: boolean) => `MCP ${on ? "on" : "off (every session)"}`,
 	itemHosts: "Hosts",
 	hostsHint: (count: number, fresh: number, session: number) =>
 		[`${count}`, fresh ? `${fresh} new` : "", session ? `${session} this session` : ""].filter(Boolean).join(" · "),
@@ -331,7 +331,7 @@ const zh: Messages = {
 	proxyDescNothing: "无",
 	proxyDescNoSystem: "无（没有系统代理变量）",
 	proxyDescSystem: (url, name, noProxy) => `${url}（系统 ${name}${noProxy ? `；NO_PROXY ${noProxy}` : ""}）`,
-	settingsLine: (on, level, route) => `MCP ${on ? "开" : "关（所有会话）"} · 全局级别 ${level} · 全局线路 ${route}`,
+	mcpOnOff: (on) => `MCP ${on ? "开" : "关（所有会话）"}`,
 	itemHosts: "主机",
 	hostsHint: (count, fresh, session) => [`${count} 台`, fresh ? `${fresh} 新` : "", session ? `${session} 本会话` : ""].filter(Boolean).join(" · "),
 	hostsHelp: "所有主机及其线路和访问级别。可以设级别、设线路、给临时放行，也可以测试连接。",

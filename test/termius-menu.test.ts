@@ -198,7 +198,8 @@ test("signed in: hosts, global level and route, proxy, sign out, off", { skip: !
 			const text = await until(view, /Hosts +3/);
 			await until(() => JSON.stringify(readConfig().knownHosts ?? null), /101/);
 			assert.match(text, /Signed in as me@example\.com · 3 hosts · synced just now/);
-			assert.match(text, /MCP on · level auto · route Termius/);
+			assert.match(text, /synced .* · MCP on/);
+			assert.doesNotMatch(text, /level auto · route/, "level and route are items, not repeated in the status");
 			assert.match(text, /1\. Hosts +3/);
 			assert.match(text, /2\. Global access level +auto/);
 			assert.match(text, /3\. Global route +Termius/);

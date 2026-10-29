@@ -18,7 +18,7 @@ Google's [chrome-devtools-mcp](https://github.com/ChromeDevTools/chrome-devtools
 
 - **Not installed:** *Install the MCP server* and on/off. The first `/termius` installs it on its own (it only asks when uv has to be installed first).
 - **Signed out:** *Sign in*, *Recent activity* (when there is any), on/off.
-- **Signed in:** status lines with the account, host count, last sync, and the global level and route; items **Hosts**, **Global access level**, **Global route**, **Proxy**, **Recent activity**, **Sign out**, on/off.
+- **Signed in:** a status line with the account, host count, last sync, and whether the server is on (the global level and route show next to their items); items **Hosts**, **Global access level**, **Global route**, **Proxy**, **Recent activity**, **Sign out**, on/off.
 
 ↑↓ wrap around, number keys pick, a list taller than half the screen scrolls, Esc goes back one level; after an action the menu returns with its result on top. There is no sync item: the server keeps the host list fresh on its own (see Sync below), and `/termius sync` still forces a pull. Menus and dialogs follow the preset's UI language (English or Chinese, see [Language](../README.md#language)); what the model reads stays English.
 

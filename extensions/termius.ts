@@ -556,8 +556,9 @@ export default function termiusExtension(pi: ExtensionAPI): void {
 		if (account.loading && !data) lines.push(m.accountChecking);
 		else if (signedIn()) {
 			const count = hosts.current?.rows.length ?? Number(data?.hosts ?? 0);
-			lines.push(`${m.signedIn(String(data?.username), count, ago(data?.last_synced))}${data?.vault_remembered ? "" : ` · ${m.vaultNotRemembered}`}`);
-			lines.push(m.settingsLine(on, m.levelName(config.mode), m.routeName(globalRoute(config))));
+			// Level and route are items of their own, with their values beside them.
+			const vault = data?.vault_remembered ? "" : ` · ${m.vaultNotRemembered}`;
+			lines.push(`${m.signedIn(String(data?.username), count, ago(data?.last_synced))} · ${m.mcpOnOff(on)}${vault}`);
 		} else if (data?.ok) lines.push(m.signedOut(on));
 		else if (data) lines.push(m.accountError(String(data.error ?? data.code ?? "unknown")));
 		return lines;
