@@ -80,7 +80,10 @@ class EnsureFreshTest(unittest.TestCase):
     def test_pulls_when_stale(self):
         self._sign_in()
         remember(self.runtime, 'secret')
-        old = (datetime.now(timezone.utc) - timedelta(seconds=120)).isoformat()
+        old = (
+            datetime.now(timezone.utc)
+            - timedelta(seconds=DEFAULT_SYNC_TTL + 60)
+        ).isoformat()
         self.runtime.config.set('CloudSynchronization', 'last_synced', old)
         self.runtime.config.write()
         with patch('termius.sync.pull') as mocked:

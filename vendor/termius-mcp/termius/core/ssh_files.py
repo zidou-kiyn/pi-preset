@@ -2,6 +2,7 @@
 from __future__ import unicode_literals
 
 import base64
+import codecs
 import os
 import stat
 
@@ -144,6 +145,33 @@ def _decode_content(data):
         return base64.b64encode(data).decode('ascii'), 'base64'
 
 
+def _decode_range(data, starts_mid, ends_mid):
+    """Decode one slice of a file: ``(text, encoding, skipped, used)``.
+
+    A slice of a UTF-8 file can start or end inside a character. Those
+    partial bytes are left out (``skipped`` at the start, and ``used`` is
+    how many bytes the text covers), so the next slice picks them up. Data
+    that is not UTF-8 text is returned whole as base64.
+    """
+    if b'\x00' not in data:
+        skipped = 0
+        if starts_mid:
+            while (skipped < 3 and skipped < len(data)
+                   and 0x80 <= data[skipped] <= 0xBF):
+                skipped += 1
+        body = data[skipped:]
+        decoder = codecs.getincrementaldecoder('utf-8')('strict')
+        try:
+            text = decoder.decode(body, final=not ends_mid)
+        except UnicodeDecodeError:
+            pass
+        else:
+            held = len(decoder.getstate()[0])
+            if held < len(body) or not body:
+                return text, 'utf-8', skipped, len(body) - held
+    return base64.b64encode(data).decode('ascii'), 'base64', 0, len(data)
+
+
 def _encode_content(extra):
     content = extra.get('content')
     if content is None:
@@ -190,20 +218,46 @@ def _action_stat(sftp, path, extra):
     return row
 
 
+def _read_range(extra, file_size):
+    """``(offset, length)`` for a read: a negative offset counts from the
+    end of the file; length defaults to and is capped at MAX_CONTENT."""
+    offset = extra.get('offset')
+    length = extra.get('length')
+    offset = int(offset or 0)
+    if offset < 0:
+        offset = max(file_size + offset, 0)
+    offset = min(offset, file_size)
+    length = MAX_CONTENT if length is None else int(length)
+    if length < 1:
+        raise SshFileError('length must be at least 1')
+    return offset, min(length, MAX_CONTENT)
+
+
 def _action_read(sftp, path, extra):
-    del extra
-    size = sftp.stat(path).st_size or 0
-    _check_size(size, MAX_CONTENT, 'Remote file')
+    file_size = sftp.stat(path).st_size or 0
+    offset, length = _read_range(extra, file_size)
     with sftp.open(path, 'rb') as handle:
-        data = handle.read(MAX_CONTENT + 1)
-    _check_size(len(data), MAX_CONTENT, 'Remote file')
-    text, encoding = _decode_content(data)
-    return {
+        if offset:
+            handle.seek(offset)
+        data = handle.read(length)
+    end = offset + len(data)
+    text, encoding, skipped, used = _decode_range(
+        data, starts_mid=offset > 0, ends_mid=end < file_size,
+    )
+    start = offset + skipped
+    stop = start + used
+    payload = {
         'path': path,
-        'size': len(data),
+        'size': used,
+        'file_size': file_size,
+        'offset': start,
         'encoding': encoding,
         'content': text,
+        'truncated': stop < file_size or start > 0,
     }
+    if stop < file_size:
+        payload['next_offset'] = stop
+    return payload
 
 
 def _action_write(sftp, path, extra):

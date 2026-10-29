@@ -113,7 +113,7 @@ TOOLS = [
             'new last_synced and the counts.'
         ),
         _input_schema(),
-        _WRITE,
+        dict(_WRITE, idempotentHint=True),
     ),
     _tool(
         'hosts',
@@ -139,7 +139,7 @@ TOOLS = [
                 'type': 'string',
                 'description': (
                     'Optional case-insensitive substring on label, '
-                    'address, group, or username'
+                    'address, group, username, or tag'
                 ),
             },
         }),
@@ -178,8 +178,10 @@ TOOLS = [
             'username, password, or key from the vault, and the route the '
             'user set for the host; a route that does not connect is an '
             'error, never retried another way. Auto-pulls a stale '
-            'vault first (TERMIUS_SYNC_TTL). Returns stdout, stderr, '
-            'exit_code, and the route taken. Never echo '
+            'vault first (TERMIUS_SYNC_TTL); if that pull fails it uses the '
+            'local cache and sets stale true. Returns stdout, stderr, '
+            'exit_code, and the route taken; output longer than 200000 '
+            'characters keeps its start and end (truncated true). Never echo '
             'secrets from the output unless the user asked for that command.'
         ),
         _input_schema({
@@ -194,7 +196,8 @@ TOOLS = [
             'timeout': {
                 'type': 'integer',
                 'description': (
-                    'Total seconds for connect plus run (default 60)'
+                    'Total seconds for connect plus run (default 60). '
+                    'Raise it for long commands'
                 ),
             },
         }, ['name', 'command']),
@@ -210,10 +213,14 @@ TOOLS = [
             'to .). '
             'Uses the username, '
             'password, or key from the vault. Auto-pulls a stale vault '
-            'first (TERMIUS_SYNC_TTL). action=list lists a directory; stat '
+            'first (TERMIUS_SYNC_TTL); if that pull fails it uses the local '
+            'cache and sets stale true. action=list lists a directory; stat '
             'shows one path; '
-            'read returns file content (utf-8 or base64, max 200000 '
-            'bytes); write uploads content; get copies remote -> '
+            'read returns up to 200000 bytes of file content (utf-8 or '
+            'base64); a longer file comes back with truncated true and '
+            'next_offset, and offset/length read another part (offset '
+            '-20000 reads the last 20000 bytes of a log); write uploads '
+            'content (max 200000 bytes); get copies remote -> '
             'local_path on this machine; put copies local_path -> remote; '
             'mkdir creates a directory (recursive=true creates parents); '
             'rm deletes a file or empty dir (recursive=true deletes a '
@@ -258,6 +265,17 @@ TOOLS = [
                 'enum': ['utf-8', 'base64'],
                 'description': 'write payload encoding. Default utf-8',
             },
+            'offset': {
+                'type': 'integer',
+                'description': (
+                    'read: first byte to read; negative counts from the '
+                    'end of the file. Default 0'
+                ),
+            },
+            'length': {
+                'type': 'integer',
+                'description': 'read: bytes to read (default and max 200000)',
+            },
             'recursive': {
                 'type': 'boolean',
                 'description': (
@@ -279,7 +297,8 @@ TOOLS = [
         'List Inventory',
         (
             'List groups, identities, SSH keys, or snippets. Auto-pulls a '
-            'stale vault first (TERMIUS_SYNC_TTL). Identities and keys omit '
+            'stale vault first (TERMIUS_SYNC_TTL); if that pull fails it '
+            'uses the local cache and sets stale true. Identities and keys omit '
             'secret material; snippets list labels only.'
         ),
         _input_schema({
@@ -588,14 +607,22 @@ def resolve_connection(runtime, host, policy):
 def _ssh_target_for(runtime, name):
     """Sync, find the host, refuse it when disabled, and resolve its route.
 
-    Returns ``(target, hops, proxy)``, so the SSH work can run without the
-    lock. The caller must hold ``runtime.lock``.
+    Returns ``(target, hops, proxy, sync)``, so the SSH work can run without
+    the lock. The caller must hold ``runtime.lock``.
+
+    pi-preset: a failed pull falls back to the local cache (``sync`` says
+    so), so a cloud outage does not stop SSH to hosts whose credentials are
+    already here. Disabled hosts and routes are local policy and still apply.
     """
-    _auto_sync(runtime)
+    sync = _auto_sync(runtime, allow_stale=True)
     host = _lookup_host(runtime, name)
     policy = _policy()
     _refuse_disabled(host, policy)
-    return resolve_connection(runtime, host, policy)
+    target, hops, proxy = resolve_connection(runtime, host, policy)
+    return target, hops, proxy, sync
+
+
+_STALE_NOTE = ' Cloud pull failed; used the local vault cache.'
 
 
 def _cancelled_error():
@@ -608,7 +635,9 @@ def handle_exec(runtime, arguments, cancel=None):
         raise ToolError('command is required', code='invalid_argument')
     timeout = _int_timeout(arguments.get('timeout'))
     with runtime.lock:
-        target, route, proxy = _ssh_target_for(runtime, arguments.get('name'))
+        target, route, proxy, sync = _ssh_target_for(
+            runtime, arguments.get('name'),
+        )
     # The SSH work runs without the lock, so status and other tools stay
     # responsive while a long command runs.
     try:
@@ -620,18 +649,20 @@ def handle_exec(runtime, arguments, cancel=None):
         raise _cancelled_error()
     except SshExecError as exc:
         raise ToolError(str(exc), code='ssh_failed')
+    _apply_sync_state(result, sync)
+    note = _STALE_NOTE if result.get('stale') else ''
     if result.get('timed_out'):
         result['ok'] = False
         summary = (
             'timed out after {} s on {}; the output so far is returned. '
             'The remote process may still be running.'
         ).format(timeout, result.get('host'))
-        return result, summary
+        return result, summary + note
     result['ok'] = result.get('exit_code') == 0
     summary = 'exit {} on {}.'.format(
         result.get('exit_code'), result.get('host')
     )
-    return result, summary
+    return result, summary + note
 
 
 def _int_timeout(value):
@@ -674,6 +705,18 @@ def _files_args(arguments):
     )
 
 
+def _optional_int(arguments, key):
+    value = arguments.get(key)
+    if value is None or value == '':
+        return None
+    if isinstance(value, bool):
+        raise ToolError('{} must be an integer'.format(key), code='invalid_argument')
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        raise ToolError('{} must be an integer'.format(key), code='invalid_argument')
+
+
 def _files_extra(arguments):
     return {
         'local_path': arguments.get('local_path'),
@@ -681,6 +724,8 @@ def _files_extra(arguments):
         'content': arguments.get('content'),
         'encoding': arguments.get('encoding'),
         'recursive': _bool_arg(arguments, 'recursive', False),
+        'offset': _optional_int(arguments, 'offset'),
+        'length': _optional_int(arguments, 'length'),
     }
 
 
@@ -710,9 +755,7 @@ def _files_summary(result):
         'list': '{} entries in {} on {}.'.format(
             result.get('count'), path, host
         ),
-        'read': 'read {} ({} bytes) on {}.'.format(
-            path, result.get('size'), host
-        ),
+        'read': _read_summary(result),
         'stat': '{} {} on {}.'.format(result.get('type'), path, host),
         'get': 'get {} -> {} on {}.'.format(
             path, result.get('local_path'), host
@@ -729,19 +772,42 @@ def _files_summary(result):
     return '{} {} on {}.'.format(action, path, host)
 
 
+def _read_summary(result):
+    summary = 'read {} ({} bytes) on {}.'.format(
+        result.get('path'), result.get('size'), result.get('host'),
+    )
+    if result.get('truncated'):
+        summary += ' Bytes {}-{} of {}.'.format(
+            result.get('offset'),
+            (result.get('offset') or 0) + (result.get('size') or 0),
+            result.get('file_size'),
+        )
+        if result.get('next_offset') is not None:
+            summary += ' Continue with offset={}.'.format(
+                result.get('next_offset'),
+            )
+    return summary
+
+
 def handle_files(runtime, arguments, cancel=None):
     action, path, timeout = _files_args(arguments)
+    # Validate before any connection is opened.
+    _files_extra(arguments)
     with runtime.lock:
-        target, route, proxy = _ssh_target_for(runtime, arguments.get('name'))
+        target, route, proxy, sync = _ssh_target_for(
+            runtime, arguments.get('name'),
+        )
     result = _invoke_files(
         target, action, path, timeout, arguments, route=route, cancel=cancel,
         proxy=proxy,
     )
-    return result, _files_summary(result)
+    _apply_sync_state(result, sync)
+    note = _STALE_NOTE if result.get('stale') else ''
+    return result, _files_summary(result) + note
 
 
 def handle_inventory(runtime, arguments):
-    _auto_sync(runtime)
+    sync = _auto_sync(runtime, allow_stale=True)
     kind = (arguments.get('kind') or '').strip().lower()
     if kind == 'groups':
         rows = [
@@ -780,8 +846,11 @@ def handle_inventory(runtime, arguments):
             'kind must be groups, identities, keys, or snippets',
             code='invalid_argument',
         )
-    data = {'kind': kind, 'items': rows, 'count': len(rows)}
-    return data, '{} {}.'.format(len(rows), kind)
+    data = _apply_sync_state(
+        {'kind': kind, 'items': rows, 'count': len(rows)}, sync,
+    )
+    note = _STALE_NOTE if data.get('stale') else ''
+    return data, '{} {}.{}'.format(len(rows), kind, note)
 
 
 HANDLERS = {

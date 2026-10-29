@@ -94,23 +94,31 @@ Timeouts and cancellation:
 - When `exec` times out, the server closes the SSH connection. The result
   has `timed_out: true`, `exit_code: null`, and the output read so far. A
   remote process that does not write output can keep running.
+- Output longer than 200000 characters per stream keeps its start and its
+  end, with a marker for the cut middle, and the result has
+  `truncated: true`.
 - When `files` times out, the call fails. Pass a larger `timeout` for a big
   `get` or `put`.
 - Each tool call runs in its own thread. A long `exec` does not block
   `status` or other calls.
 - When the client sends `notifications/cancelled`, the server closes the SSH
   connection of that call and sends no response.
-- Set the client tool timeout higher than the largest `timeout` that you
-  pass. Otherwise the client cancels the call first. For example, Codex
-  `tool_timeout_sec = 60.0` cancels an `exec` with `timeout: 180` after 60
-  seconds.
+- When a `tools/call` request carries `_meta.progressToken`, the server
+  sends `notifications/progress` every 15 seconds until it answers. Clients
+  that restart their request timeout on progress (pi does) keep waiting for
+  an `exec` or `files` call with a larger `timeout`.
+- A client that does not send a progress token, or does not restart its
+  timeout on progress, needs a tool timeout higher than the largest
+  `timeout` that you pass. Otherwise the client cancels the call first. For
+  example, Codex `tool_timeout_sec = 60.0` cancels an `exec` with
+  `timeout: 180` after 60 seconds.
 
 Optional environment variables:
 
 | Variable | Purpose |
 | --- | --- |
 | `TERMIUS_VAULT_PASSWORD` | Vault encryption password (preferred over the remember file) |
-| `TERMIUS_SYNC_TTL` | Seconds before an automatic pull in `exec`, `files`, and `inventory`. Default `60`. `0` pulls on every read. `hosts` and `host` pull when their cache is older than 600 seconds, then fall back to the local cache if the pull fails. |
+| `TERMIUS_SYNC_TTL` | Seconds before an automatic pull in `exec`, `files`, and `inventory`. Default `300`. `0` pulls on every read. `hosts` and `host` pull when their cache is older than 600 seconds. Every tool falls back to the local cache if the pull fails. |
 | `TERMIUS_KEYRING` | `1` forces the OS keychain, `0` forces the local secrets file. Default: use the backend saved in `config`. With no saved choice, pick automatically. `PYTHON_KEYRING_BACKEND` selects the keychain only before a choice is saved. |
 | `TERMIUS_SECRETS_KEY` | Passphrase that seals `~/.termius/secrets` instead of the machine id. Set this in a container so a new container can read the same file. |
 
@@ -251,12 +259,18 @@ Call `status` first.
 If that pull fails, they return the local cache and set `stale` to true.
 `sync_error` is the pull error. A missing sign-in or vault password is still
 an error. `exec`, `files`, and `inventory` pull when the local cache is older
-than `TERMIUS_SYNC_TTL` and a vault password is available. Those three tools
-still fail the call when the pull fails.
+than `TERMIUS_SYNC_TTL` and a vault password is available. When that pull
+fails they also use the local cache, set `stale` to true, and say so in the
+summary, so a Termius Cloud outage does not stop SSH to hosts whose
+credentials are already cached.
 
 `files` uses SFTP on the same SSH credentials as `exec`. `get` and `put` copy
 between the MCP host filesystem and the remote host. `read` and `write` move
-file content through the tool result (max 200000 bytes). `get` and `put` allow
+file content through the tool result (max 200000 bytes per call). A longer
+file comes back from `read` with `truncated: true`, `file_size`, and
+`next_offset`. `offset` and `length` pick another part; a negative `offset`
+counts from the end (`offset: -20000` reads the tail of a log). A range never
+splits a UTF-8 character. `get` and `put` allow
 up to 50 MiB. `list` defaults `path` to the SSH login directory.
 
 ## Local data

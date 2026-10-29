@@ -10,7 +10,7 @@ from .cloud.client.keyring import load_keyring
 from .core.exceptions import NotSignedIn
 from .vault import VaultPasswordRequired, require as require_vault
 
-DEFAULT_SYNC_TTL = 60
+DEFAULT_SYNC_TTL = 300
 SYNC_TTL_ENV = 'TERMIUS_SYNC_TTL'
 
 

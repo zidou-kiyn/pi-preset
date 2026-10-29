@@ -13,7 +13,7 @@ from .. import __version__
 from ..core.ssh_control import CancelToken
 from ..runtime import Runtime
 from .protocol import ProtocolError, read_message, write_message
-from .tools import TOOLS, ToolError, call_tool
+from .tools import HANDLERS, TOOLS, ToolError, call_tool
 
 # OMP and current Cursor speak 2025-11-25. Echo the client's version when we
 # implement that revision; otherwise advertise our latest. Always returning
@@ -22,6 +22,17 @@ from .tools import TOOLS, ToolError, call_tool
 SUPPORTED_PROTOCOL_VERSIONS = ('2025-11-25', '2025-06-18')
 PROTOCOL_VERSION = '2025-11-25'
 LOGGER = logging.getLogger(__name__)
+
+# pi-preset: seconds between notifications/progress for a running tools/call
+# that carries a progressToken. Clients restart their request timeout on
+# progress (pi waits 60 s by default), so an exec with a larger timeout is
+# not cancelled by the client first.
+PROGRESS_INTERVAL = 15.0
+
+# JSON-RPC error codes.
+PARSE_ERROR = -32700
+INVALID_PARAMS = -32602
+METHOD_NOT_FOUND = -32601
 
 INSTRUCTIONS = (
     'SSH into the user\'s Termius hosts: inventory, remote exec, and SFTP '
@@ -100,6 +111,16 @@ def handle_rpc(runtime, message, cancel=None):
     if method == 'tools/call':
         name = params.get('name')
         arguments = params.get('arguments') or {}
+        # An unknown tool or malformed arguments are protocol errors
+        # (MCP tools spec), not tool results.
+        if name not in HANDLERS:
+            return _rpc_error(
+                message_id, INVALID_PARAMS, 'Unknown tool: {}'.format(name),
+            )
+        if not isinstance(arguments, dict):
+            return _rpc_error(
+                message_id, INVALID_PARAMS, 'arguments must be an object',
+            )
         try:
             data, summary = call_tool(runtime, name, arguments, cancel=cancel)
             return _rpc_result(message_id, _ok(data, summary))
@@ -113,19 +134,32 @@ def handle_rpc(runtime, message, cancel=None):
     if method == 'ping':
         return _rpc_result(message_id, {})
     if message_id is not None:
-        return {
-            'jsonrpc': '2.0',
-            'id': message_id,
-            'error': {
-                'code': -32601,
-                'message': 'Method not found: {}'.format(method),
-            },
-        }
+        return _rpc_error(
+            message_id, METHOD_NOT_FOUND, 'Method not found: {}'.format(method),
+        )
     return None
 
 
 def _rpc_result(message_id, result):
     return {'jsonrpc': '2.0', 'id': message_id, 'result': result}
+
+
+def _rpc_error(message_id, code, message):
+    return {
+        'jsonrpc': '2.0',
+        'id': message_id,
+        'error': {'code': code, 'message': message},
+    }
+
+
+def _progress_token(message):
+    """The request's ``_meta.progressToken`` (a string or integer), or None."""
+    params = message.get('params')
+    meta = params.get('_meta') if isinstance(params, dict) else None
+    token = meta.get('progressToken') if isinstance(meta, dict) else None
+    if isinstance(token, bool) or not isinstance(token, (str, int)):
+        return None
+    return token
 
 
 def watch_parent(interval=1.0, getppid=os.getppid, exit_now=os._exit, sleep=time.sleep):
@@ -168,10 +202,12 @@ class StdioServer(object):
     connection is closed and no response is sent, as the MCP spec asks.
     """
 
-    def __init__(self, runtime, stdin, stdout):
+    def __init__(self, runtime, stdin, stdout,
+                 progress_interval=PROGRESS_INTERVAL):
         self.runtime = runtime
         self.stdin = stdin
         self.stdout = stdout
+        self.progress_interval = progress_interval
         self._write_lock = threading.Lock()
         self._calls_lock = threading.Lock()
         self._calls = {}
@@ -184,6 +220,7 @@ class StdioServer(object):
                 message = read_message(self.stdin)
             except ProtocolError as exc:
                 LOGGER.warning('Bad MCP frame: %s', exc)
+                self._write(_rpc_error(None, PARSE_ERROR, str(exc)))
                 continue
             if message is None:
                 break
@@ -240,6 +277,8 @@ class StdioServer(object):
         thread.start()
 
     def _run_call(self, key, token, message):
+        done = threading.Event()
+        self._start_progress(message, done)
         try:
             response = handle_rpc(self.runtime, message, cancel=token)
         except BaseException as exc:  # pylint: disable=broad-except
@@ -248,6 +287,8 @@ class StdioServer(object):
                 message.get('id'), _error_result(str(exc), 'internal_error'),
             )
         finally:
+            # Set before the response is written: no progress follows it.
+            done.set()
             with self._calls_lock:
                 if self._calls.get(key) is token:
                     del self._calls[key]
@@ -255,8 +296,44 @@ class StdioServer(object):
             return
         self._write(response)
 
-    def _write(self, payload):
+    def _start_progress(self, message, done):
+        """Send notifications/progress every ``progress_interval`` seconds
+        until ``done`` is set, when the request asked for progress.
+
+        The message names the tool and the elapsed time only: command output
+        could hold secrets, and redaction happens on the final result.
+        """
+        token = _progress_token(message)
+        if token is None or not self.progress_interval:
+            return None
+        params = message.get('params') or {}
+        name = params.get('name') if isinstance(params, dict) else None
+        started = time.monotonic()
+
+        def run():
+            count = 0
+            while not done.wait(self.progress_interval):
+                count += 1
+                self._write({
+                    'jsonrpc': '2.0',
+                    'method': 'notifications/progress',
+                    'params': {
+                        'progressToken': token,
+                        'progress': count,
+                        'message': '{} running for {} s'.format(
+                            name or 'tool', int(time.monotonic() - started),
+                        ),
+                    },
+                }, unless=done)
+
+        thread = threading.Thread(target=run, name='mcp-progress', daemon=True)
+        thread.start()
+        return thread
+
+    def _write(self, payload, unless=None):
         with self._write_lock:
+            if unless is not None and unless.is_set():
+                return
             try:
                 write_message(self.stdout, payload)
             except (OSError, ValueError) as exc:

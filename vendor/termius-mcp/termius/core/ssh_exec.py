@@ -1,6 +1,7 @@
 """Run a command on a Termius host with paramiko."""
 from __future__ import unicode_literals
 
+import codecs
 from collections import namedtuple
 from io import StringIO
 import os
@@ -281,38 +282,76 @@ def _connect_single(target, timeout, sock, role, cancel, deadline):
     return client
 
 
+def _cut_middle(text, limit, stream):
+    """``text`` with its middle replaced by a marker when longer than
+    ``limit``: the head shows how a command started, the tail how it ended
+    (where errors usually are)."""
+    if len(text) <= limit:
+        return text, False
+    head = limit // 2
+    tail = limit - head
+    marker = '\n...[{} characters of {} cut]...\n'.format(
+        len(text) - limit, stream,
+    )
+    return text[:head] + marker + text[-tail:], True
+
+
 def _trim_output(out, err):
-    truncated = False
-    if len(out) > MAX_OUTPUT:
-        out = out[:MAX_OUTPUT] + '\n...[stdout truncated]...'
-        truncated = True
-    if len(err) > MAX_OUTPUT:
-        err = err[:MAX_OUTPUT] + '\n...[stderr truncated]...'
-        truncated = True
-    return out, err, truncated
+    out, out_cut = _cut_middle(out, MAX_OUTPUT, 'stdout')
+    err, err_cut = _cut_middle(err, MAX_OUTPUT, 'stderr')
+    return out, err, out_cut or err_cut
 
 
 class _Capture(object):
-    """Bounded byte buffer for one output stream."""
+    """Bounded byte buffer for one output stream.
 
-    def __init__(self):
-        self._chunks = []
-        self._size = 0
-        self.dropped = False
+    Keeps the first and the last ``MAX_CAPTURE_BYTES / 2`` bytes and counts
+    what fell in between.
+    """
+
+    def __init__(self, limit=None):
+        limit = MAX_CAPTURE_BYTES if limit is None else limit
+        self._head_limit = limit // 2
+        self._tail_limit = limit - self._head_limit
+        self._head = bytearray()
+        self._tail = bytearray()
+        self.dropped_bytes = 0
+
+    @property
+    def dropped(self):
+        return self.dropped_bytes > 0
 
     def add(self, data):
-        room = MAX_CAPTURE_BYTES - self._size
-        if room <= 0:
-            self.dropped = self.dropped or bool(data)
+        room = self._head_limit - len(self._head)
+        if room > 0:
+            self._head += data[:room]
+            data = data[room:]
+        if not data:
             return
-        if len(data) > room:
-            data = data[:room]
-            self.dropped = True
-        self._chunks.append(data)
-        self._size += len(data)
+        self._tail += data
+        extra = len(self._tail) - self._tail_limit
+        if extra > 0:
+            del self._tail[:extra]
+            self.dropped_bytes += extra
 
     def text(self):
-        return b''.join(self._chunks).decode('utf-8', errors='replace')
+        if not self.dropped:
+            return bytes(self._head + self._tail).decode(
+                'utf-8', errors='replace',
+            )
+        # The cut can fall inside a character: drop the partial bytes on
+        # either side of it instead of showing replacement characters.
+        head = codecs.getincrementaldecoder('utf-8')('replace').decode(
+            bytes(self._head), final=False,
+        )
+        tail = bytes(self._tail)
+        skip = 0
+        while skip < 3 and skip < len(tail) and 0x80 <= tail[skip] <= 0xBF:
+            skip += 1
+        tail = tail[skip:].decode('utf-8', errors='replace')
+        return '{}\n...[{} bytes cut]...\n{}'.format(
+            head, self.dropped_bytes, tail,
+        )
 
 
 def _drain(channel, out, err):

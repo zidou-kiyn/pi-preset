@@ -112,19 +112,50 @@ class ToolsTest(unittest.TestCase):
         self.assertEqual(data['address'], '10.0.0.1')
         self.assertIn('local cache', summary)
 
-    def test_exec_still_fails_when_the_pull_fails(self):
+    def test_exec_uses_the_cache_when_the_pull_fails(self):
         self._sign_in()
         saved = self._add_host()
+        fake = {'host': 'web', 'exit_code': 0, 'stdout': '', 'stderr': ''}
         with patch(
             'termius.mcp.tools.ensure_fresh',
             side_effect=RuntimeError('offline'),
+        ), patch(
+            'termius.mcp.tools.run_host_command', return_value=dict(fake),
         ):
-            with self.assertRaises(ToolError) as caught:
-                call_tool(
-                    self.runtime, 'exec',
-                    {'name': saved.id, 'command': 'true'},
-                )
-        self.assertEqual(caught.exception.code, 'sync_failed')
+            data, summary = call_tool(
+                self.runtime, 'exec',
+                {'name': saved.id, 'command': 'true'},
+            )
+        self.assertTrue(data['ok'])
+        self.assertTrue(data['stale'])
+        self.assertEqual(data['sync_error'], 'offline')
+        self.assertIn('local vault cache', summary)
+
+    def test_files_uses_the_cache_when_the_pull_fails(self):
+        self._sign_in()
+        saved = self._add_host()
+        fake = {'path': '/tmp', 'entries': [], 'count': 0, 'host': 'web',
+                'action': 'list'}
+        with patch(
+            'termius.mcp.tools.ensure_fresh',
+            side_effect=RuntimeError('offline'),
+        ), patch(
+            'termius.mcp.tools.run_file_action', return_value=dict(fake),
+        ):
+            data, summary = call_tool(
+                self.runtime, 'files',
+                {'name': saved.id, 'action': 'list', 'path': '/tmp'},
+            )
+        self.assertTrue(data['stale'])
+        self.assertIn('local vault cache', summary)
+
+    def test_exec_still_needs_a_sign_in_when_the_pull_is_skipped(self):
+        saved = self._add_host()
+        with self.assertRaises(ToolError) as caught:
+            call_tool(
+                self.runtime, 'exec', {'name': saved.id, 'command': 'true'},
+            )
+        self.assertEqual(caught.exception.code, 'not_signed_in')
 
     def test_other_reads_keep_the_cache_ttl(self):
         self._sign_in()
@@ -297,6 +328,26 @@ class ToolsTest(unittest.TestCase):
                 )
         self.assertEqual(caught.exception.code, 'invalid_argument')
 
+    def test_files_rejects_a_non_integer_offset(self):
+        self._sign_in()
+        with patch('termius.mcp.tools.ensure_fresh', return_value={}):
+            with self.assertRaises(ToolError) as caught:
+                call_tool(
+                    self.runtime, 'files',
+                    {'name': 'web', 'action': 'read', 'path': 'a.log',
+                     'offset': 'tail'},
+                )
+        self.assertEqual(caught.exception.code, 'invalid_argument')
+
+    def test_sync_is_idempotent_and_hosts_query_mentions_tags(self):
+        tools = {tool['name']: tool for tool in handle_rpc(self.runtime, {
+            'jsonrpc': '2.0', 'id': 1, 'method': 'tools/list',
+        })['result']['tools']}
+        self.assertTrue(tools['sync']['annotations']['idempotentHint'])
+        query = tools['hosts']['inputSchema']['properties']['query']
+        self.assertIn('tag', query['description'])
+        self.assertIn('offset', tools['files']['inputSchema']['properties'])
+
     def test_files_ssh_error(self):
         self._sign_in()
         saved = self._add_host()
@@ -364,6 +415,21 @@ class ToolsTest(unittest.TestCase):
         })
         self.assertTrue(response['result']['isError'])
         self.assertEqual(response['id'], 7)
+
+    def test_handle_rpc_unknown_tool_is_a_protocol_error(self):
+        response = handle_rpc(self.runtime, {
+            'jsonrpc': '2.0', 'id': 8, 'method': 'tools/call',
+            'params': {'name': 'push', 'arguments': {}},
+        })
+        self.assertEqual(response['error']['code'], -32602)
+        self.assertIn('push', response['error']['message'])
+
+    def test_handle_rpc_rejects_non_object_arguments(self):
+        response = handle_rpc(self.runtime, {
+            'jsonrpc': '2.0', 'id': 9, 'method': 'tools/call',
+            'params': {'name': 'status', 'arguments': ['x']},
+        })
+        self.assertEqual(response['error']['code'], -32602)
 
     def test_handle_rpc_initialize(self):
         response = handle_rpc(self.runtime, {

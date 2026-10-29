@@ -5,7 +5,8 @@ import unittest
 from unittest.mock import patch
 
 from termius.core.ssh_control import CancelToken, SshCancelled
-from termius.core.ssh_exec import SshTarget, run_host_command
+from termius.core import ssh_exec
+from termius.core.ssh_exec import SshTarget, _Capture, run_host_command
 from termius.core.ssh_files import SshFileError, run_file_action
 
 
@@ -244,3 +245,40 @@ class RunFileActionDeadlineTest(unittest.TestCase):
         finally:
             timer.cancel()
         self.assertTrue(client.closed)
+
+
+class OutputLimitTest(unittest.TestCase):
+    def test_capture_keeps_head_and_tail(self):
+        capture = _Capture(limit=10)
+        for chunk in (b'start', b'-middle-', b'end!!'):
+            capture.add(chunk)
+        text = capture.text()
+        self.assertTrue(text.startswith('start'))
+        self.assertTrue(text.endswith('end!!'))
+        self.assertIn('[8 bytes cut]', text)
+        self.assertTrue(capture.dropped)
+
+    def test_capture_under_the_limit_is_whole(self):
+        capture = _Capture(limit=100)
+        data = '中文输出\n'.encode('utf-8')
+        capture.add(data[:4])
+        capture.add(data[4:])
+        self.assertEqual(capture.text(), '中文输出\n')
+        self.assertFalse(capture.dropped)
+
+    def test_capture_cut_inside_a_character_drops_partial_bytes(self):
+        capture = _Capture(limit=8)
+        capture.add('一二三四五六'.encode('utf-8'))
+        text = capture.text()
+        self.assertNotIn('\ufffd', text)
+        self.assertTrue(text.startswith('一'))
+        self.assertTrue(text.endswith('六'))
+
+    def test_trim_output_keeps_the_end(self):
+        with patch.object(ssh_exec, 'MAX_OUTPUT', 10):
+            out, err, truncated = ssh_exec._trim_output('a' * 20 + 'ERROR', 'ok')
+        self.assertTrue(truncated)
+        self.assertTrue(out.startswith('aaaaa'))
+        self.assertTrue(out.endswith('ERROR'))
+        self.assertIn('15 characters of stdout cut', out)
+        self.assertEqual(err, 'ok')

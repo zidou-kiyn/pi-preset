@@ -155,3 +155,56 @@ class StdioServerTest(unittest.TestCase):
         })
         self._send({'jsonrpc': '2.0', 'id': 1, 'method': 'ping'})
         self.assertIsNotNone(self.sink.wait_for(lambda m: m.get('id') == 1))
+
+    def test_long_call_sends_progress_until_it_answers(self):
+        self.server.progress_interval = 0.05
+        message = _call(11, 'exec', {'tag': 'slow'})
+        message['params']['_meta'] = {'progressToken': 'p-11'}
+        with patch('termius.mcp.server.call_tool', self._fake_call_tool):
+            self.thread.start()
+            self._send(message)
+            first = self.sink.wait_for(
+                lambda m: m.get('method') == 'notifications/progress'
+            )
+            self.assertIsNotNone(first)
+            self.assertEqual(first['params']['progressToken'], 'p-11')
+            self.assertIn('exec running for', first['params']['message'])
+            self.assertIsNotNone(self.sink.wait_for(
+                lambda m: m.get('method') == 'notifications/progress'
+                and m['params']['progress'] >= 2
+            ))
+            self.release.set()
+            self.assertIsNotNone(self.sink.wait_for(lambda m: m.get('id') == 11))
+            time.sleep(0.2)
+        messages = self.sink.messages()
+        answer = [i for i, m in enumerate(messages) if m.get('id') == 11][0]
+        progress = [m['params']['progress'] for m in messages
+                    if m.get('method') == 'notifications/progress']
+        self.assertEqual(progress, sorted(set(progress)))
+        self.assertTrue(all(
+            m.get('method') != 'notifications/progress'
+            for m in messages[answer + 1:]
+        ))
+
+    def test_no_progress_without_a_token(self):
+        self.server.progress_interval = 0.02
+        with patch('termius.mcp.server.call_tool', self._fake_call_tool):
+            self.thread.start()
+            self._send(_call(12, 'exec', {'tag': 'slow'}))
+            time.sleep(0.15)
+            self.release.set()
+            self.assertIsNotNone(self.sink.wait_for(lambda m: m.get('id') == 12))
+        self.assertFalse(any(
+            m.get('method') == 'notifications/progress'
+            for m in self.sink.messages()
+        ))
+
+    def test_bad_json_gets_a_parse_error(self):
+        self.thread.start()
+        self.feed.write(b'{not json\n')
+        self.feed.flush()
+        self._send({'jsonrpc': '2.0', 'id': 1, 'method': 'ping'})
+        error = self.sink.wait_for(lambda m: 'error' in m)
+        self.assertEqual(error['error']['code'], -32700)
+        self.assertIsNone(error['id'])
+        self.assertIsNotNone(self.sink.wait_for(lambda m: m.get('id') == 1))

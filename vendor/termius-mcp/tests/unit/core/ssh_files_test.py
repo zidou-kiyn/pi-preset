@@ -191,6 +191,49 @@ class SshFilesTest(unittest.TestCase):
         self.assertEqual(data['encoding'], 'base64')
         self.assertEqual(data['content'], 'AGVsZg==')
 
+    def test_read_whole_small_file_is_not_truncated(self):
+        data = _action_read(self.sftp, '/home/u/notes.txt', {})
+        self.assertFalse(data['truncated'])
+        self.assertEqual(data['file_size'], 6)
+        self.assertNotIn('next_offset', data)
+
+    def test_read_big_file_returns_the_first_part(self):
+        self.sftp.files['/home/u/big.log'] = b'x' * 250000
+        data = _action_read(self.sftp, '/home/u/big.log', {})
+        self.assertTrue(data['truncated'])
+        self.assertEqual(data['size'], 200000)
+        self.assertEqual(data['next_offset'], 200000)
+        rest = _action_read(
+            self.sftp, '/home/u/big.log', {'offset': data['next_offset']},
+        )
+        self.assertEqual(rest['size'], 50000)
+        self.assertNotIn('next_offset', rest)
+
+    def test_read_negative_offset_reads_the_tail(self):
+        self.sftp.files['/home/u/app.log'] = b'line1\nline2\nERROR boom\n'
+        data = _action_read(self.sftp, '/home/u/app.log', {'offset': -11})
+        self.assertEqual(data['content'], 'ERROR boom\n')
+        self.assertEqual(data['offset'], 12)
+        self.assertTrue(data['truncated'])
+
+    def test_read_range_never_splits_a_character(self):
+        text = '\u4e2d\u6587\u65e5\u5fd7'  # 3 bytes each
+        self.sftp.files['/home/u/zh.txt'] = text.encode('utf-8')
+        first = _action_read(self.sftp, '/home/u/zh.txt', {'length': 4})
+        self.assertEqual(first['encoding'], 'utf-8')
+        self.assertEqual(first['content'], '\u4e2d')
+        self.assertEqual(first['next_offset'], 3)
+        middle = _action_read(
+            self.sftp, '/home/u/zh.txt', {'offset': 4, 'length': 5},
+        )
+        self.assertEqual(middle['content'], '\u65e5')
+        self.assertEqual(middle['offset'], 6)
+        self.assertEqual(middle['next_offset'], 9)
+
+    def test_read_rejects_zero_length(self):
+        with self.assertRaises(SshFileError):
+            _action_read(self.sftp, '/home/u/notes.txt', {'length': 0})
+
     def test_write_and_mkdir_recursive(self):
         _action_mkdir(self.sftp, '/home/u/a/b', {'recursive': True})
         _action_write(
