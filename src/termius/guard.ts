@@ -113,6 +113,9 @@ function mentionsServerDir(text: string): boolean {
 const SERVER_REASON =
 	"Blocked by pi-preset: this runs the Termius MCP server's code directly, which can decrypt every stored credential and skips the approval modes. Use the termius MCP tools (status, hosts, host, exec, files); tests run with `npm run test:termius`.";
 
+const LOCAL_PATH_REASON =
+	"Blocked by pi-preset: local_path points into the Termius MCP server's directory, which holds the /termius settings the approvals rest on. Pick another local path.";
+
 const DIR_REASON =
 	"Blocked by pi-preset: ~/.termius holds the Termius MCP server's encrypted vault cache and secrets. Use the termius MCP tools (status, hosts, exec, files) instead; the user signs in with /termius login.";
 
@@ -124,10 +127,16 @@ export function guardToolCall(toolName: string, input: unknown, home = homedir()
 	else collect(input, undefined, paths, commands);
 
 	// termius's own exec/files paths are on the remote host; only its
-	// local_path touches this machine.
+	// local_path touches this machine. A get into the server directory would
+	// replace config.json (the levels and routes the approvals rest on) with
+	// remote content, and a put from it would upload the proxy URL and the
+	// activity log, so both directories are off limits. The server refuses
+	// them too (termius/core/ssh_files.py), after resolving symlinks.
 	if (toolName.startsWith("mcp__termius__")) {
 		const localPath = (input as Record<string, unknown> | undefined)?.local_path;
-		if (typeof localPath === "string" && mentionsTermiusDir(localPath, home)) return { block: true, reason: DIR_REASON };
+		if (typeof localPath !== "string") return { block: false };
+		if (mentionsTermiusDir(localPath, home)) return { block: true, reason: DIR_REASON };
+		if (mentionsServerDir(localPath)) return { block: true, reason: LOCAL_PATH_REASON };
 		return { block: false };
 	}
 

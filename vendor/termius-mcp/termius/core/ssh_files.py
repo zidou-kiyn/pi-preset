@@ -191,6 +191,23 @@ def _require_local_path(extra, action):
     return os.path.abspath(os.path.expanduser(str(local_path)))
 
 
+def _refuse_protected(local_path, extra):
+    """pi-preset: refuse a local path inside the server's own data (the vault
+    cache, pinned host keys, the /termius settings), symlinks resolved.
+    A get there would replace them with remote content; a put would upload
+    them."""
+    real = os.path.realpath(local_path)
+    for directory in extra.get('protected') or ():
+        root = os.path.realpath(directory)
+        if real == root or real.startswith(root.rstrip(os.sep) + os.sep):
+            raise SshFileError(
+                'local_path {} is inside {}, which holds the Termius '
+                'server\'s own data; pick another local path.'.format(
+                    local_path, directory,
+                )
+            )
+
+
 def _check_size(size, limit, label):
     if size > limit:
         raise SshFileError(
@@ -280,6 +297,7 @@ def _action_get(sftp, path, extra):
     size = sftp.stat(path).st_size or 0
     _check_size(size, MAX_TRANSFER, 'Remote file')
     dest = _resolve_local_dest(local_path, _basename_remote(path))
+    _refuse_protected(dest, extra)
     parent = os.path.dirname(dest)
     if parent:
         os.makedirs(parent, exist_ok=True)
@@ -294,6 +312,7 @@ def _action_get(sftp, path, extra):
 
 def _action_put(sftp, path, extra):
     src = _require_local_path(extra, 'put')
+    _refuse_protected(src, extra)
     if not os.path.isfile(src):
         raise SshFileError('Local file not found: {}'.format(src))
     size = os.path.getsize(src)

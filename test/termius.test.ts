@@ -98,6 +98,9 @@ test("guard blocks local access to the vault cache, keychain, and process memory
 		["bash", { command: "cat /proc/1234/environ" }],
 		["bash", { command: "gdb -p 4321" }],
 		["mcp__termius__files", { name: "web", action: "put", local_path: "/home/u/.termius/secrets", path: "/tmp/s" }],
+		["mcp__termius__files", { name: "web", action: "get", path: "/tmp/c.json", local_path: "~/.pi/agent/termius-mcp/config.json" }],
+		["mcp__termius__files", { name: "web", action: "get", path: "/tmp/config.json", local_path: "/home/u/.pi/agent/termius-mcp" }],
+		["mcp__termius__files", { name: "web", action: "put", local_path: "$HOME/.pi/agent/termius-mcp/activity.jsonl", path: "/tmp/a" }],
 	] as const;
 	for (const [tool, input] of blocked) {
 		assert.equal(guardToolCall(tool, input, home).block, true, `${tool} ${JSON.stringify(input)}`);

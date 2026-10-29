@@ -288,6 +288,38 @@ class SshFilesTest(unittest.TestCase):
         finally:
             tmpdir.cleanup()
 
+    def test_get_and_put_refuse_protected_dirs(self):
+        tmpdir = tempfile.TemporaryDirectory()
+        try:
+            guarded = os.path.join(tmpdir.name, 'termius-mcp')
+            os.mkdir(guarded)
+            config = os.path.join(guarded, 'config.json')
+            with open(config, 'w') as handle:
+                handle.write('{}')
+            link = os.path.join(tmpdir.name, 'innocent')
+            os.symlink(guarded, link)
+            extra = {'protected': [guarded]}
+            for local in (config, guarded, os.path.join(link, 'config.json')):
+                with self.assertRaises(SshFileError):
+                    _action_get(
+                        self.sftp, '/home/u/notes.txt',
+                        dict(extra, local_path=local),
+                    )
+            with self.assertRaises(SshFileError):
+                _action_put(
+                    self.sftp, '/home/u', dict(extra, local_path=config),
+                )
+            with open(config) as handle:
+                self.assertEqual(handle.read(), '{}')
+            # A sibling whose name only starts the same is fine.
+            other = os.path.join(tmpdir.name, 'termius-mcp-other.txt')
+            _action_get(
+                self.sftp, '/home/u/notes.txt', dict(extra, local_path=other),
+            )
+            self.assertTrue(os.path.isfile(other))
+        finally:
+            tmpdir.cleanup()
+
     def test_get_rejects_directory(self):
         with self.assertRaises(SshFileError):
             _action_get(self.sftp, '/home/u', {'local_path': '/tmp/x'})

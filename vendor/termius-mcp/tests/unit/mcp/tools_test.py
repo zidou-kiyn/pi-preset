@@ -339,6 +339,18 @@ class ToolsTest(unittest.TestCase):
                 )
         self.assertEqual(caught.exception.code, 'invalid_argument')
 
+    def test_files_protects_the_server_dirs(self):
+        from termius.mcp.tools import protected_local_dirs
+        env = {
+            'TERMIUS_MCP_POLICY': '/srv/pi/termius-mcp/config.json',
+            'TERMIUS_KNOWN_HOSTS': '/srv/keys/known_hosts',
+        }
+        with patch.dict('os.environ', env):
+            dirs = protected_local_dirs(self.runtime)
+        self.assertIn(self.tmpdir.name, [d.rstrip('/') for d in dirs])
+        self.assertIn('/srv/pi/termius-mcp', dirs)
+        self.assertIn('/srv/keys', dirs)
+
     def test_sync_is_idempotent_and_hosts_query_mentions_tags(self):
         tools = {tool['name']: tool for tool in handle_rpc(self.runtime, {
             'jsonrpc': '2.0', 'id': 1, 'method': 'tools/list',

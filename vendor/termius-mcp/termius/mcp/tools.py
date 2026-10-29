@@ -3,18 +3,24 @@
 from __future__ import unicode_literals
 
 import logging
+import os
 
 from ..account.managers import AccountManager
 from ..core.exceptions import ApiError, NotSignedIn
 from ..core.models.terminal import Group, Host, Identity, Snippet, SshKey, TagHost
 from ..core.ssh_command import render_command
 from ..core.ssh_control import SshCancelled
-from ..core.ssh_exec import SshExecError, run_host_command, ssh_target
+from ..core.ssh_exec import (
+    SshExecError, known_hosts_path, run_host_command, ssh_target,
+)
 from ..core.ssh_files import ACTIONS as FILE_ACTIONS
 from ..core.ssh_files import SshFileError, run_file_action
 from ..core.proxy import ProxyError
 from ..core.ssh_merge import HostLookupError, find_host, get_jump_route, get_merged_ssh_config
-from ..policy import PolicyError, describe_route, load_policy, plan_route, policy_key
+from ..policy import (
+    POLICY_ENV, PolicyError, describe_route, load_policy, plan_route,
+    policy_key,
+)
 from ..redact import redact_payload, redact_text, vault_secrets
 from ..sync import (
     ensure_fresh, inventory_counts, last_synced_raw, pull, status_payload,
@@ -729,12 +735,24 @@ def _files_extra(arguments):
     }
 
 
-def _invoke_files(target, action, path, timeout, arguments, route=None,
+def protected_local_dirs(runtime):
+    """Local directories get and put must not touch: the vault cache, the
+    pinned host keys, and the /termius settings (TERMIUS_MCP_POLICY)."""
+    dirs = [str(runtime.directory_path)]
+    for path in (os.environ.get(POLICY_ENV), known_hosts_path()):
+        if path and path.strip():
+            dirs.append(os.path.dirname(os.path.abspath(
+                os.path.expanduser(path.strip()),
+            )))
+    return dirs
+
+
+def _invoke_files(target, action, path, timeout, extra, route=None,
                   cancel=None, proxy=None):
     try:
         result = run_file_action(
             target, action, path,
-            timeout=timeout, extra=_files_extra(arguments), route=route,
+            timeout=timeout, extra=extra, route=route,
             cancel=cancel, proxy=proxy,
         )
     except SshCancelled:
@@ -791,14 +809,15 @@ def _read_summary(result):
 
 def handle_files(runtime, arguments, cancel=None):
     action, path, timeout = _files_args(arguments)
-    # Validate before any connection is opened.
-    _files_extra(arguments)
+    # Built (and validated) before any connection is opened.
+    extra = _files_extra(arguments)
+    extra['protected'] = protected_local_dirs(runtime)
     with runtime.lock:
         target, route, proxy, sync = _ssh_target_for(
             runtime, arguments.get('name'),
         )
     result = _invoke_files(
-        target, action, path, timeout, arguments, route=route, cancel=cancel,
+        target, action, path, timeout, extra, route=route, cancel=cancel,
         proxy=proxy,
     )
     _apply_sync_state(result, sync)
