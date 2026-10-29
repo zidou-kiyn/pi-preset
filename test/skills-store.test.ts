@@ -431,6 +431,26 @@ test("extension: typed subcommands list and use", async () => {
 	});
 });
 
+test("extension: /skills completion stops after the word being typed, so Enter keeps the request", async () => {
+	await withAgentDirAsync(async (dir) => {
+		writeTree(dir, { "pi-preset/skills/alpha/SKILL.md": SKILL("alpha") });
+		const pi = fakePi();
+		pi.api.registerTool = () => {};
+		skillsStore(pi.api);
+		const complete = (pi.commands.get("skills") as any).getArgumentCompletions as (prefix: string) => { value: string }[] | null;
+		const values = (prefix: string) => complete(prefix)?.map((item) => item.value) ?? null;
+		assert.deepEqual(values("u"), ["use"]);
+		assert.deepEqual(values("use al"), ["use alpha"]);
+		assert.deepEqual(values("use alpha"), ["use alpha"]);
+		// Past the name, or after a subcommand that takes free text, nothing to apply over the request.
+		assert.equal(values("use alpha "), null);
+		assert.equal(values("use alpha 我的计划"), null);
+		assert.equal(values("enable alpha project"), null);
+		assert.equal(values("find 某某"), null);
+		assert.equal(values("search docx"), null);
+	});
+});
+
 test("menu filter matches label, hint, and value; empty query keeps all", async () => {
 	const { filterItems } = await import("../src/preset-menu.ts");
 	const items = [

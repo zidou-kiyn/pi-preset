@@ -769,8 +769,12 @@ export default function skillsStore(pi: ExtensionAPI): void {
 	pi.registerCommand("skills", {
 		description: "Skill store: enable on demand (session / project / always), use now, install, search, find <what you need> (the agent searches and recommends)",
 		getArgumentCompletions: (prefix) => {
-			const [first, second] = prefix.trimStart().split(/\s+/u);
-			if (second !== undefined && (first === "use" || first === "enable" || first === "off")) {
+			// Complete only the word being typed: past it, Enter would apply the completion and
+			// replace what follows (the request after `use <name>`, the query after `find`).
+			const [first, second, ...rest] = prefix.trimStart().split(/\s+/u);
+			if (rest.length > 0) return null;
+			if (second !== undefined) {
+				if (first !== "use" && first !== "enable" && first !== "off") return null;
 				const names = skills()
 					.map((skill) => skill.name)
 					.filter((name) => name.startsWith(second));
