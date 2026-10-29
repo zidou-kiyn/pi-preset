@@ -321,10 +321,12 @@ export default function skillsStore(pi: ExtensionAPI): void {
 				description: m.groupHelp,
 			});
 			for (const skill of ordered(group.skills, cwd)) {
+				const on = level(skill.name, cwd);
 				items.push({
 					value: `skill:${skill.name}`,
 					label: skill.name,
-					hint: m.levelName(level(skill.name, cwd)),
+					hint: m.levelName(on),
+					...(on ? { hintTone: "success" as const } : {}),
 					description: skill.description,
 				});
 			}

@@ -13,7 +13,10 @@
  *     or value contains the text (number keys then type too); Backspace
  *     edits it and Esc clears it before it closes the menu;
  *   - Esc leaves this level only: callers loop, so an action returns to the
- *     menu and Esc in a sub-menu returns to its parent.
+ *     menu and Esc in a sub-menu returns to its parent;
+ *   - a list taller than the screen scrolls with the highlight, with
+ *     "↑ n more" / "↓ n more" rows marking what is cut off, so the
+ *     description and key hints under it always stay visible.
  *
  * pi's ctx.ui.select clamps at both ends and has no status area, which is why
  * the commands do not use it in the TUI. RPC hosts have no custom components
@@ -32,11 +35,15 @@ export interface MenuItem {
 	description?: string;
 	/** Current value, right of the label (e.g. the active mode). */
 	hint?: string;
+	/** Theme color for the hint; dim by default. "success" marks something that is on. */
+	hintTone?: HintTone;
 	/** A group row: drawn as a heading over the items that follow it. Selectable like any item. */
 	heading?: boolean;
 }
 
 export type NoticeType = "info" | "success" | "warning" | "error";
+
+export type HintTone = "dim" | "muted" | "accent" | "success" | "warning" | "error";
 
 export interface Notice {
 	text: string;
@@ -75,6 +82,19 @@ const NOTICE_COLOR: Record<NoticeType, string> = {
 	error: "error",
 };
 
+/** List rows a menu keeps however short the screen is. */
+const MIN_LIST_ROWS = 5;
+
+/**
+ * Rows a menu may take. pi does not tell a component how much room is left
+ * between the widgets above it (a todo list can take a dozen rows) and the
+ * footer, and it cuts what does not fit off the bottom, key hints first; so
+ * keep to half the screen, like pi's own selectors keep to a fixed count.
+ */
+export function menuHeight(rows: number): number {
+	return Math.max(MIN_LIST_ROWS + 10, Math.floor(rows * 0.5));
+}
+
 function fit(text: string, width: number): string {
 	return width <= 0 ? "" : truncateToWidth(text, width, "");
 }
@@ -106,10 +126,44 @@ function headToWidth(text: string, width: number): string {
 	return head;
 }
 
+/** Wide (CJK) characters: text that may break between any two of them. */
+const WIDE = /[\u2e80-\u9fff\uac00-\ud7af\uf900-\ufaff\uff00-\uffef]/u;
+
+/** Punctuation that must not start a line (kinsoku): it stays with the character before it. */
+const NO_LINE_START = /^[\u3001\u3002\uff0c\uff0e\uff1a\uff1b\uff01\uff1f\uff09\u300d\u300f\u300b\u3009\u3011\u201d\u2019,.;:!?)\]]/u;
+
+/**
+ * The longest start of `text` within `width` that ends where a line may
+ * break: next to a wide character (never inside a Latin run such as
+ * PI_PRESET_LANG) and not before closing punctuation. Empty when there is none.
+ */
+function cjkHead(text: string, width: number): string {
+	const chars = [...text];
+	let used = 0;
+	let best = 0;
+	let length = 0;
+	for (let i = 0; i < chars.length; i++) {
+		used += visibleWidth(chars[i]!);
+		if (used > width) break;
+		length += chars[i]!.length;
+		const next = chars[i + 1];
+		if (next === undefined) break;
+		const breakable = WIDE.test(chars[i]!) || WIDE.test(next);
+		if (breakable && !NO_LINE_START.test(next)) best = length;
+	}
+	return text.slice(0, best);
+}
+
+/** Where to hard-split a word wider than a line: at a CJK break if there is one, else by width. */
+function breakHead(text: string, width: number): string {
+	return cjkHead(text, width) || headToWidth(text, width);
+}
+
 /**
  * Word wrap that keeps long words (paths, URLs) by hard-splitting them.
- * Chinese text has no spaces, so a sentence is one long "word" and is split
- * the same way, by display width.
+ * Chinese text has no spaces, so a sentence is one long "word": it fills the
+ * rest of the current line and breaks between characters, never before
+ * closing punctuation.
  */
 export function wrapPlain(text: string, width: number): string[] {
 	if (width <= 0) return [];
@@ -119,12 +173,22 @@ export function wrapPlain(text: string, width: number): string[] {
 		for (const word of paragraph.split(/\s+/)) {
 			if (!word) continue;
 			let rest = word;
+			// CJK text continues on the current line instead of starting a new one.
+			if (current && WIDE.test(rest) && visibleWidth(`${current} ${rest}`) > width) {
+				const room = width - visibleWidth(current) - 1;
+				const head = room >= 2 ? cjkHead(rest, room) : "";
+				if (head) {
+					lines.push(`${current} ${head}`);
+					current = "";
+					rest = rest.slice(head.length);
+				}
+			}
 			while (visibleWidth(rest) > width) {
 				if (current) {
 					lines.push(current);
 					current = "";
 				}
-				const head = headToWidth(rest, width);
+				const head = breakHead(rest, width);
 				lines.push(head);
 				rest = rest.slice(head.length);
 			}
@@ -152,6 +216,11 @@ export class MenuComponent implements Component {
 	private query = "";
 	/** Digits typed so far toward a number pick (lists past 9 items). */
 	private digits = "";
+	/** Screen rows the menu may use; the list scrolls inside what is left. */
+	private readonly maxHeight: () => number;
+	/** First list row shown while the list scrolls, and the highlighted item's index at the last render. */
+	private scrollTop = 0;
+	private lastIndex = 0;
 
 	constructor(
 		build: () => MenuSpec,
@@ -159,12 +228,14 @@ export class MenuComponent implements Component {
 		keybindings: KeybindingsManager,
 		requestRender: () => void,
 		done: (value: string | undefined) => void,
+		maxHeight: () => number = () => Number.POSITIVE_INFINITY,
 	) {
 		this.build = build;
 		this.theme = theme;
 		this.keybindings = keybindings;
 		this.requestRender = requestRender;
 		this.done = done;
+		this.maxHeight = maxHeight;
 		this.cursorValue = build().selected;
 	}
 
@@ -233,54 +304,118 @@ export class MenuComponent implements Component {
 	render(width: number): string[] {
 		const spec = this.build();
 		const { theme } = this;
+		const m = messages();
 		const inner = Math.max(1, width - 2);
 		const border = theme.fg("accent", "─".repeat(Math.max(0, width)));
-		const lines: string[] = [border, fit(` ${theme.fg("accent", theme.bold(spec.title))}`, width)];
+
+		const head: string[] = [border, fit(` ${theme.fg("accent", theme.bold(spec.title))}`, width)];
 		for (const line of spec.status ?? []) {
-			for (const row of wrapPlain(line, inner)) lines.push(fit(` ${theme.fg("muted", row)}`, width));
+			for (const row of wrapPlain(line, inner)) head.push(fit(` ${theme.fg("muted", row)}`, width));
 		}
 		if (spec.notice) {
 			for (const row of wrapPlain(spec.notice.text, inner)) {
-				lines.push(fit(` ${theme.fg(NOTICE_COLOR[spec.notice.type], row)}`, width));
+				head.push(fit(` ${theme.fg(NOTICE_COLOR[spec.notice.type], row)}`, width));
 			}
 		}
-		const m = messages();
 		if (spec.filterable) {
 			const query = this.query ? theme.fg("accent", this.query) : theme.fg("dim", m.filterHint);
-			lines.push(fit(` ${theme.fg("dim", "/")} ${query}`, width));
+			head.push(fit(` ${theme.fg("dim", "/")} ${query}`, width));
 		}
-		lines.push("");
+		head.push("");
+
 		const items = spec.filterable ? filterItems(spec.items, this.query) : spec.items;
 		const index = this.cursor(items);
+
+		const tail: string[] = [];
+		const description = items[index]?.description;
+		if (description) {
+			tail.push("");
+			for (const row of wrapPlain(description, Math.max(1, width - 3))) tail.push(fit(`   ${theme.fg("dim", row)}`, width));
+		}
+		tail.push("");
+		const keys = spec.filterable ? m.menuKeysFilter(spec.cancelLabel ?? m.close) : m.menuKeys(spec.cancelLabel ?? m.close);
+		tail.push(fit(` ${theme.fg("dim", keys)}`, width));
+		tail.push(border);
+
+		this.lastIndex = index;
+		const body = this.renderItems(items, index, spec.filterable === true, width);
+		const budget = Math.max(MIN_LIST_ROWS, this.maxHeight() - head.length - tail.length);
+		return [...head, ...this.window(body, budget, width), ...tail];
+	}
+
+	/** One entry per item: its rows (a heading brings the blank line above it). */
+	private renderItems(items: readonly MenuItem[], index: number, filterable: boolean, width: number): string[][] {
+		const { theme } = this;
+		if (items.length === 0) return [[fit(`  ${theme.fg("dim", messages().noMatches)}`, width)]];
 		const labelWidth = Math.max(0, ...items.filter((item) => !item.heading).map((item) => visibleWidth(item.label)));
-		if (items.length === 0) lines.push(fit(`   ${theme.fg("dim", m.noMatches)}`, width));
+		// Numbers only where number keys work; otherwise no number column at all.
+		const numbered = !filterable && items.length > 1;
 		const numberWidth = `${items.length}.`.length;
 		// Under headings, the other rows step in so the groups read as groups.
 		const indent = items.some((item) => item.heading) ? "  " : "";
-		items.forEach((item, i) => {
+		return items.map((item, i) => {
 			const active = i === index;
-			const number = !spec.filterable && items.length > 1 ? `${i + 1}.`.padStart(numberWidth) : " ".repeat(numberWidth);
+			const lead = `${active ? theme.fg("accent", "→") : " "} ${numbered ? `${theme.fg("dim", `${i + 1}.`.padStart(numberWidth))} ` : ""}`;
+			const hint = item.hint ? `  ${theme.fg(item.hintTone ?? "dim", item.hint)}` : "";
 			if (item.heading) {
-				if (i > 0) lines.push("");
 				const title = active ? theme.fg("accent", theme.bold(item.label)) : theme.bold(item.label);
-				const row = `${active ? "→" : " "} ${theme.fg("dim", number)} ${title}`;
-				lines.push(fit(item.hint ? `${row}  ${theme.fg("dim", item.hint)}` : row, width));
-				return;
+				const row = fit(`${lead}${title}${hint}`, width);
+				return i > 0 ? ["", row] : [row];
 			}
 			const label = item.hint ? item.label + " ".repeat(labelWidth - visibleWidth(item.label)) : item.label;
-			const row = `${active ? "→" : " "} ${theme.fg("dim", number)} ${indent}${active ? theme.fg("accent", label) : label}`;
-			lines.push(fit(item.hint ? `${row}  ${theme.fg("dim", item.hint)}` : row, width));
+			return [fit(`${lead}${indent}${active ? theme.fg("accent", label) : label}${hint}`, width)];
 		});
-		const description = items[index]?.description;
-		if (description) {
-			lines.push("");
-			for (const row of wrapPlain(description, Math.max(1, width - 3))) lines.push(fit(`   ${theme.fg("dim", row)}`, width));
+	}
+
+	/**
+	 * The rows of `body` that fit in `budget`, scrolled so the highlighted item
+	 * stays visible. Cut-off items are counted in a dim row at either end.
+	 */
+	private window(body: string[][], budget: number, width: number): string[] {
+		const total = body.reduce((sum, rows) => sum + rows.length, 0);
+		if (total <= budget) {
+			this.scrollTop = 0;
+			return body.flat();
 		}
-		lines.push("");
-		const keys = spec.filterable ? m.menuKeysFilter(spec.cancelLabel ?? m.close) : m.menuKeys(spec.cancelLabel ?? m.close);
-		lines.push(fit(` ${theme.fg("dim", keys)}`, width));
-		lines.push(border);
-		return lines;
+		const { theme } = this;
+		const m = messages();
+		const starts: number[] = [];
+		let row = 0;
+		for (const rows of body) {
+			starts.push(row);
+			row += rows.length;
+		}
+		const flat = body.flat();
+		const itemAt = (r: number) => {
+			let i = 0;
+			while (i + 1 < starts.length && starts[i + 1]! <= r) i++;
+			return i;
+		};
+		const cursorItem = Math.min(this.lastIndex, body.length - 1);
+		// The highlighted item's own row (its heading's blank line may scroll away).
+		const cursorRow = starts[cursorItem]! + body[cursorItem]!.length - 1;
+		// Two rows are kept for the markers, so the window never jumps when one appears.
+		const visible = Math.max(1, budget - 2);
+		if (cursorRow < this.scrollTop) this.scrollTop = cursorRow;
+		if (cursorRow >= this.scrollTop + visible) this.scrollTop = cursorRow - visible + 1;
+		this.scrollTop = Math.max(0, Math.min(this.scrollTop, total - visible));
+		// At either end there is nothing to mark: that marker's row goes to the list.
+		const atTop = this.scrollTop === 0;
+		let start = this.scrollTop;
+		const end = Math.min(total, start + visible + (atTop ? 1 : 0));
+		const atBottom = end === total;
+		if (atBottom && !atTop) start--;
+		const firstShown = itemAt(start);
+		const lastShown = itemAt(end - 1);
+		// An item whose last row is cut (a heading under its blank line) counts as hidden.
+		const lastCut = end - 1 < starts[lastShown]! + body[lastShown]!.length - 1;
+		const hiddenAbove = firstShown;
+		const hiddenBelow = body.length - 1 - lastShown + (lastCut ? 1 : 0);
+		return [
+			...(atTop ? [] : [fit(`  ${theme.fg("dim", m.moreAbove(hiddenAbove))}`, width)]),
+			...flat.slice(start, end),
+			...(atBottom ? [] : [fit(`  ${theme.fg("dim", m.moreBelow(hiddenBelow))}`, width)]),
+		];
 	}
 
 	invalidate(): void {}
@@ -311,7 +446,10 @@ export async function showMenu(
 	let unsubscribe: (() => void) | undefined;
 	try {
 		return await ctx.ui.custom<string | undefined>((tui: TUI, theme, keybindings, done) => {
-			const menu = new MenuComponent(build, theme, keybindings, () => tui.requestRender(), done);
+			const menu = new MenuComponent(build, theme, keybindings, () => tui.requestRender(), done, () => {
+				const rows = (tui as Partial<TUI>).terminal?.rows;
+				return rows ? menuHeight(rows) : Number.POSITIVE_INFINITY;
+			});
 			unsubscribe = subscribe?.(() => tui.requestRender());
 			return menu;
 		});

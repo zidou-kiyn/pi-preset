@@ -12,6 +12,8 @@ const en = {
 	menuKeysFilter: (cancel: string) => `type to filter · ↑↓ move · Enter select · Esc clear / ${cancel}`,
 	filterHint: "type to filter",
 	noMatches: "no matches",
+	moreAbove: (n: number) => `↑ ${n} more`,
+	moreBelow: (n: number) => `↓ ${n} more`,
 	close: "close",
 	back: "back",
 
@@ -45,6 +47,8 @@ const zh: Messages = {
 	menuKeysFilter: (cancel) => `输入即过滤 · ↑↓ 移动 · Enter 选择 · Esc 清空 / ${cancel}`,
 	filterHint: "输入以过滤",
 	noMatches: "没有匹配",
+	moreAbove: (n) => `↑ 上面还有 ${n} 项`,
+	moreBelow: (n) => `↓ 下面还有 ${n} 项`,
 	close: "关闭",
 	back: "返回",
 
