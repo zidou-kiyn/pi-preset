@@ -46,6 +46,7 @@ import {
 import { messages } from "../src/skills-store/messages.ts";
 import { searchCurated, searchRegistry, searchStore } from "../src/skills-store/search.ts";
 import {
+	applyDefaults,
 	enabledIn,
 	type Level,
 	LEVELS,
@@ -78,6 +79,7 @@ const Params = Type.Object({
 export default function skillsStore(pi: ExtensionAPI): void {
 	const store = defaultStore();
 	let state = readState();
+	if (applyDefaults(state)) writeState(state);
 	let session = readSession();
 	/** Enabled through the tool since the last reload: in the state, not yet in pi's list. */
 	let pending = new Set<string>();
@@ -103,6 +105,7 @@ export default function skillsStore(pi: ExtensionAPI): void {
 
 	pi.on("resources_discover", (event) => {
 		state = readState();
+		if (applyDefaults(state)) writeState(state);
 		session = readSession();
 		pending = new Set();
 		publish();

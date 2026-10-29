@@ -10,8 +10,11 @@
  * reported skills must survive that. The file is keyed by pid, removed on
  * shutdown, and files of dead processes are swept at startup.
  *
- * A fresh state file enables `DEFAULT_ALWAYS` (the small skill-authoring and
- * git-conventions guides); turning one off is remembered like any other choice.
+ * `DEFAULT_ALWAYS` (the small skill-authoring and git-conventions guides) is
+ * enabled once per name: `defaultsApplied` in the state file records which
+ * defaults have been applied, so a default added by a later preset version
+ * is picked up by an existing state file, and turning one off afterwards is
+ * remembered like any other choice.
  */
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -26,6 +29,8 @@ export const DEFAULT_ALWAYS: readonly string[] = ["skill-authoring", "git-conven
 export interface PersistentState {
 	always: string[];
 	projects: Record<string, string[]>;
+	/** Names from DEFAULT_ALWAYS that have been enabled once already. */
+	defaultsApplied: string[];
 	/** The one-time offer to move pi's own skill directories into the store was made. */
 	importOffered?: boolean;
 }
@@ -46,8 +51,24 @@ function uniqueNames(value: unknown): string[] {
 	return Array.isArray(value) ? [...new Set(value.filter((item): item is string => typeof item === "string"))] : [];
 }
 
+/**
+ * Enable the defaults not applied yet. Returns true when the state changed
+ * (the caller writes it). A state file from before `defaultsApplied` existed
+ * counts skill-authoring, the only default then, as applied.
+ */
+export function applyDefaults(state: PersistentState): boolean {
+	let changed = false;
+	for (const name of DEFAULT_ALWAYS) {
+		if (state.defaultsApplied.includes(name)) continue;
+		state.defaultsApplied.push(name);
+		if (!state.always.includes(name)) state.always.push(name);
+		changed = true;
+	}
+	return changed;
+}
+
 export function readState(path: string = statePath()): PersistentState {
-	if (!existsSync(path)) return { always: [...DEFAULT_ALWAYS], projects: {} };
+	if (!existsSync(path)) return { always: [...DEFAULT_ALWAYS], projects: {}, defaultsApplied: [...DEFAULT_ALWAYS] };
 	try {
 		const data = JSON.parse(readFileSync(path, "utf8")) as Partial<PersistentState>;
 		const projects: Record<string, string[]> = {};
@@ -55,15 +76,16 @@ export function readState(path: string = statePath()): PersistentState {
 			const list = uniqueNames(names);
 			if (list.length > 0) projects[cwd] = list;
 		}
-		return { always: uniqueNames(data.always), projects, importOffered: data.importOffered === true };
+		const defaultsApplied = Array.isArray(data.defaultsApplied) ? uniqueNames(data.defaultsApplied) : ["skill-authoring"];
+		return { always: uniqueNames(data.always), projects, defaultsApplied, importOffered: data.importOffered === true };
 	} catch {
-		return { always: [], projects: {} };
+		return { always: [], projects: {}, defaultsApplied: [...DEFAULT_ALWAYS] };
 	}
 }
 
 export function writeState(state: PersistentState, path: string = statePath()): void {
 	mkdirSync(dirname(path), { recursive: true });
-	const data: PersistentState = { always: state.always, projects: state.projects };
+	const data: PersistentState = { always: state.always, projects: state.projects, defaultsApplied: state.defaultsApplied };
 	if (state.importOffered) data.importOffered = true;
 	writeFileSync(path, `${JSON.stringify(data, null, 2)}\n`);
 }

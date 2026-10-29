@@ -2,8 +2,8 @@
 // from a local path, update records, search parsing, and the extension's
 // resources_discover / tool behavior against a throwaway agent dir.
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
 import skillsStore from "../extensions/skills-store.ts";
 import {
@@ -28,6 +28,7 @@ import {
 } from "../src/skills-store/install.ts";
 import { matchScore, parseCliOutput, parseRegistryResponse, queryWords, searchStore } from "../src/skills-store/search.ts";
 import {
+	applyDefaults,
 	DEFAULT_ALWAYS,
 	enabledIn,
 	levelOf,
@@ -175,7 +176,28 @@ test("state: defaults, levels, one level at a time, persistence", () => {
 		assert.equal(enabled.get("x"), "session");
 		assert.equal(enabled.get("a"), "always");
 		writeFileSync(statePath(), "{garbage");
-		assert.deepEqual(readState(), { always: [], projects: {} }, "a corrupt file enables nothing");
+		assert.deepEqual(readState().always, [], "a corrupt file enables nothing");
+	});
+});
+
+test("defaults added later are applied once to an existing state file", () => {
+	withAgentDir(() => {
+		// A file from the first version: skill-authoring only, no defaultsApplied.
+		mkdirSync(dirname(statePath()), { recursive: true });
+		writeFileSync(statePath(), JSON.stringify({ always: ["skill-authoring"], projects: {} }));
+		const state = readState();
+		assert.deepEqual(state.defaultsApplied, ["skill-authoring"]);
+		assert.equal(applyDefaults(state), true);
+		assert.deepEqual(state.always.sort(), [...DEFAULT_ALWAYS].sort());
+		writeState(state);
+		// Turned off by the user: stays off.
+		const again = readState();
+		again.always = again.always.filter((name) => name !== "git-conventions");
+		assert.equal(applyDefaults(again), false);
+		assert.ok(!again.always.includes("git-conventions"));
+		// A fresh file has everything applied already.
+		rmSync(statePath());
+		assert.equal(applyDefaults(readState()), false);
 	});
 });
 
@@ -317,7 +339,7 @@ test("extension: resources_discover reports enabled skills; the tool enables, us
 	await withAgentDirAsync(async (dir) => {
 		const local = join(dir, "pi-preset", "skills");
 		writeTree(dir, { "pi-preset/skills/alpha/SKILL.md": SKILL("alpha"), "pi-preset/skills/beta/SKILL.md": SKILL("beta") });
-		writeState({ always: ["alpha"], projects: {} });
+		writeState({ always: ["alpha"], projects: {}, defaultsApplied: [...DEFAULT_ALWAYS] });
 		const pi = fakePi();
 		const tools: any[] = [];
 		pi.api.registerTool = (tool: any) => tools.push(tool);
