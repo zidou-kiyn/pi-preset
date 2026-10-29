@@ -121,11 +121,6 @@ export const CURATED: readonly CuratedSkill[] = [
 		what: "Reproduce, locate, then fix: a debugging discipline instead of guessing (from superpowers)",
 	},
 	{
-		name: "brainstorming",
-		source: "obra/superpowers@brainstorming",
-		what: "Clarify the requirement and the design before writing code (from superpowers; expects its sibling writing-plans skill, grill-me is the standalone equivalent here)",
-	},
-	{
 		name: "vercel-react-best-practices",
 		source: "vercel-labs/agent-skills@vercel-react-best-practices",
 		what: "Vercel's React and Next.js best practices",

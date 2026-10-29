@@ -126,7 +126,6 @@ const CURATED_ZH: Record<string, string> = {
 	pptx: "创建和编辑 PowerPoint 演示文稿（Anthropic；专有许可）",
 	pdf: "读取、填写、合并、创建 PDF（Anthropic；专有许可）",
 	"systematic-debugging": "superpowers 的系统化排错：先复现、再定位、再改，不乱猜",
-	brainstorming: "superpowers 的头脑风暴：动手前先把需求和方案问清楚（依赖它的 writing-plans；本仓库里 grill-me 是独立的同类）",
 	"vercel-react-best-practices": "Vercel 的 React / Next.js 最佳实践",
 };
 
