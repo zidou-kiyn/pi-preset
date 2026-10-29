@@ -49,6 +49,10 @@
  *                        global route (e.g. `direct`) and `+n` hosts with a
  *                        session allow or temporary level; the host label
  *                        while a call runs (extensions/termius.ts)
+ *   skills               the skill store, only while skills are enabled for
+ *                        this session: their count, `*` when one was enabled
+ *                        through the tool and waits for a /reload
+ *                        (extensions/skills-store.ts)
  *
  * Runtime: pi-preset/extensions/vibrant-footer.ts
  * Toggle:  /vibrant-footer
@@ -59,6 +63,7 @@ import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { formatClock, formatRemaining, type KeepwarmSnapshot, readSnapshot } from "../src/idle-keepwarm.ts";
+import { readSkillsFooter, skillsFooterText } from "../src/skills-store/footer-state.ts";
 import { footerIsEmpty, footerText, readFooter as readTermiusFooter, TERMIUS_STATUS_KEY } from "../src/termius/footer-state.ts";
 import { messages as termiusMessages } from "../src/termius/messages.ts";
 import { messages } from "../src/footer-messages.ts";
@@ -84,6 +89,7 @@ type IconSet = {
     cacheTtl: string;
     cacheWarm: string;
     ssh: string;
+    skills: string;
     cost: string;
     context: string;
     time: string;
@@ -114,6 +120,7 @@ const NERD_ICONS: IconSet = {
     cacheTtl: "\u{f0150}", // nf-md-clock_outline
     cacheWarm: "\u{f0238}", // nf-md-fire
     ssh: "\u{f048d}", // nf-md-server_network
+    skills: "\u{f0a66}", // nf-md-puzzle_outline
     cost: "\u{f01c8}", // nf-md-diamond_stone
     context: "\u{f029a}", // nf-md-gauge
     time: "\u{f051f}", // nf-md-timer_sand
@@ -138,6 +145,7 @@ const UNICODE_ICONS: IconSet = {
     cacheTtl: "⧗",
     cacheWarm: "♨",
     ssh: "⇄",
+    skills: "⬢",
     cost: "◈",
     context: "▣",
     time: "◷",
@@ -638,6 +646,10 @@ function renderStatsLines(
 
         const termius = termiusSegment(t, icons, width < 72);
         if (termius) segments.push(termius);
+
+        // Skill store: session-enabled skills only (footer-state.ts).
+        const skillsText = skillsFooterText(readSkillsFooter());
+        if (skillsText) segments.push(seg(t, icons.skills, "accent", skillsText, "dim"));
 
         // Cost — or, when the provider reports no price (proxies and most OAuth
         // subscriptions send cost.total = 0), the cumulative token volume, so the

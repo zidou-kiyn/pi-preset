@@ -7,6 +7,9 @@
  *   - a notice line for the result of the last action;
  *   - items that wrap around with ↑↓, a number key picks an item directly,
  *     and the highlighted item's description is shown below the list;
+ *   - with `filterable`, typing narrows the list to items whose label, hint,
+ *     or value contains the text (number keys then type too); Backspace
+ *     edits it and Esc clears it before it closes the menu;
  *   - Esc leaves this level only: callers loop, so an action returns to the
  *     menu and Esc in a sub-menu returns to its parent.
  *
@@ -54,6 +57,8 @@ export interface MenuSpec {
 	selected?: string;
 	/** What Esc does here, for the footer ("close" or "back", in the UI language). */
 	cancelLabel?: string;
+	/** Typing filters the items; for long lists. */
+	filterable?: boolean;
 }
 
 /** Re-render when `notify` is called; returns an unsubscribe function. */
@@ -68,6 +73,20 @@ const NOTICE_COLOR: Record<NoticeType, string> = {
 
 function fit(text: string, width: number): string {
 	return width <= 0 ? "" : truncateToWidth(text, width, "");
+}
+
+/** Typed text, as opposed to a key sequence: no control characters, no escape sequence. */
+function isTypedText(data: string): boolean {
+	return data.length > 0 && !data.startsWith("\x1b") && !/[\x00-\x1f\x7f]/u.test(data);
+}
+
+const BACKSPACE = /^[\x7f\x08]$/u;
+
+/** The items whose label, hint, or value contains `query` (case-insensitive); all of them for an empty query. */
+export function filterItems(items: readonly MenuItem[], query: string): MenuItem[] {
+	const q = query.trim().toLowerCase();
+	if (!q) return [...items];
+	return items.filter((item) => `${item.label} ${item.hint ?? ""} ${item.value}`.toLowerCase().includes(q));
 }
 
 /** The longest start of `text` that fits in `width` columns (CJK characters take two). */
@@ -126,6 +145,7 @@ export class MenuComponent implements Component {
 	private readonly done: (value: string | undefined) => void;
 	private cursorValue: string | undefined;
 	private settled = false;
+	private query = "";
 
 	constructor(
 		build: () => MenuSpec,
@@ -150,23 +170,39 @@ export class MenuComponent implements Component {
 
 	handleInput(data: string): void {
 		if (this.settled) return;
-		const { items } = this.build();
+		const spec = this.build();
 		if (this.keybindings.matches(data, "tui.select.cancel")) {
+			if (spec.filterable && this.query) {
+				this.query = "";
+				this.requestRender();
+				return;
+			}
 			this.finish(undefined);
 			return;
 		}
-		if (items.length === 0) return;
+		if (spec.filterable && BACKSPACE.test(data)) {
+			this.query = [...this.query].slice(0, -1).join("");
+			this.requestRender();
+			return;
+		}
+		const items = spec.filterable ? filterItems(spec.items, this.query) : spec.items;
 		const index = this.cursor(items);
 		if (this.keybindings.matches(data, "tui.select.up")) {
+			if (items.length === 0) return;
 			this.cursorValue = items[index === 0 ? items.length - 1 : index - 1]!.value;
 		} else if (this.keybindings.matches(data, "tui.select.down")) {
+			if (items.length === 0) return;
 			this.cursorValue = items[index === items.length - 1 ? 0 : index + 1]!.value;
 		} else if (this.keybindings.matches(data, "tui.select.confirm")) {
+			if (items.length === 0) return;
 			this.finish(items[index]!.value);
 			return;
-		} else if (/^[1-9]$/.test(data) && Number(data) <= items.length) {
+		} else if (!spec.filterable && /^[1-9]$/.test(data) && Number(data) <= items.length) {
 			this.finish(items[Number(data) - 1]!.value);
 			return;
+		} else if (spec.filterable && isTypedText(data)) {
+			this.query += data;
+			this.cursorValue = filterItems(spec.items, this.query)[0]?.value;
 		} else {
 			return;
 		}
@@ -187,24 +223,31 @@ export class MenuComponent implements Component {
 				lines.push(fit(` ${theme.fg(NOTICE_COLOR[spec.notice.type], row)}`, width));
 			}
 		}
+		const m = messages();
+		if (spec.filterable) {
+			const query = this.query ? theme.fg("accent", this.query) : theme.fg("dim", m.filterHint);
+			lines.push(fit(` ${theme.fg("dim", "/")} ${query}`, width));
+		}
 		lines.push("");
-		const index = this.cursor(spec.items);
-		const labelWidth = Math.max(0, ...spec.items.map((item) => visibleWidth(item.label)));
-		spec.items.forEach((item, i) => {
+		const items = spec.filterable ? filterItems(spec.items, this.query) : spec.items;
+		const index = this.cursor(items);
+		const labelWidth = Math.max(0, ...items.map((item) => visibleWidth(item.label)));
+		if (items.length === 0) lines.push(fit(`   ${theme.fg("dim", m.noMatches)}`, width));
+		items.forEach((item, i) => {
 			const active = i === index;
-			const number = spec.items.length > 1 && i < 9 ? `${i + 1}.` : "  ";
+			const number = !spec.filterable && items.length > 1 && i < 9 ? `${i + 1}.` : "  ";
 			const label = item.hint ? item.label + " ".repeat(labelWidth - visibleWidth(item.label)) : item.label;
 			const row = `${active ? "→" : " "} ${theme.fg("dim", number)} ${active ? theme.fg("accent", label) : label}`;
 			lines.push(fit(item.hint ? `${row}  ${theme.fg("dim", item.hint)}` : row, width));
 		});
-		const description = spec.items[index]?.description;
+		const description = items[index]?.description;
 		if (description) {
 			lines.push("");
 			for (const row of wrapPlain(description, Math.max(1, width - 3))) lines.push(fit(`   ${theme.fg("dim", row)}`, width));
 		}
 		lines.push("");
-		const m = messages();
-		lines.push(fit(` ${theme.fg("dim", m.menuKeys(spec.cancelLabel ?? m.close))}`, width));
+		const keys = spec.filterable ? m.menuKeysFilter(spec.cancelLabel ?? m.close) : m.menuKeys(spec.cancelLabel ?? m.close);
+		lines.push(fit(` ${theme.fg("dim", keys)}`, width));
 		lines.push(border);
 		return lines;
 	}
