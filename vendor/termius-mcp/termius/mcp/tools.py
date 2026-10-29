@@ -2,6 +2,8 @@
 """MCP tool definitions and handlers."""
 from __future__ import unicode_literals
 
+import base64
+import binascii
 import logging
 import os
 
@@ -21,7 +23,10 @@ from ..policy import (
     POLICY_ENV, PolicyError, describe_route, load_policy, plan_route,
     policy_key,
 )
-from ..redact import redact_payload, redact_text, vault_secrets
+from ..redact import (
+    contains_marker, redact_around_cuts, redact_base64, redact_edges,
+    redact_payload, redact_text, vault_secrets,
+)
 from ..sync import (
     ensure_fresh, inventory_counts, last_synced_raw, pull, status_payload,
 )
@@ -187,7 +192,9 @@ TOOLS = [
             'vault first (TERMIUS_SYNC_TTL); if that pull fails it uses the '
             'local cache and sets stale true. Returns stdout, stderr, '
             'exit_code, and the route taken; output longer than 200000 '
-            'characters keeps its start and end (truncated true). Never echo '
+            'characters keeps its start and end (truncated true). Vault '
+            'secrets in the output appear as [redacted:...] markers; a '
+            'command containing one is refused. Never echo '
             'secrets from the output unless the user asked for that command.'
         ),
         _input_schema({
@@ -233,7 +240,10 @@ TOOLS = [
             'tree); rename moves a remote path (needs dest). timeout caps '
             'connect plus transfer (default 60); raise it for big get or '
             'put. Prefer this '
-            'over exec for copy and edit. Never echo secrets from file '
+            'over exec for copy and edit. Vault secrets in file content '
+            'appear as [redacted:...] markers; write content or a put file '
+            'containing one is refused (copy such a file with get and put, '
+            'or change only the other lines). Never echo secrets from file '
             'content unless the user asked.'
         ),
         _input_schema({
@@ -639,6 +649,7 @@ def handle_exec(runtime, arguments, cancel=None):
     command = arguments.get('command')
     if not command or not str(command).strip():
         raise ToolError('command is required', code='invalid_argument')
+    _refuse_marker(command, 'command')
     timeout = _int_timeout(arguments.get('timeout'))
     with runtime.lock:
         target, route, proxy, sync = _ssh_target_for(
@@ -790,6 +801,54 @@ def _files_summary(result):
     return '{} {} on {}.'.format(action, path, host)
 
 
+def _refuse_marker(value, what):
+    """pi-preset: refuse to send a redaction marker to a host. The agent saw
+    a secret as ``[redacted:...]``; writing that text back would replace the
+    real value with it."""
+    if contains_marker(value):
+        raise ToolError(
+            'The {} contains a redaction marker such as [redacted:...]. It '
+            'stands for a secret you were not shown, and sending it would '
+            'replace the real value with the marker text. Change only the '
+            'parts you need without touching the redacted values (for '
+            'example sed on other lines, or cp on the remote host), copy the '
+            'file unchanged with get and put, or ask the user.'.format(what),
+            code='redacted_content',
+        )
+
+
+def _marker_scan_local(local_path):
+    """Refuse a put whose local file holds a marker (the agent may have
+    saved redacted output locally and edited it)."""
+    if not local_path or not str(local_path).strip():
+        return
+    path = os.path.abspath(os.path.expanduser(str(local_path)))
+    if not os.path.isfile(path):
+        return
+    tail = b''
+    with open(path, 'rb') as handle:
+        while True:
+            chunk = handle.read(1024 * 1024)
+            if not chunk:
+                return
+            # Overlap the chunks so a marker across a boundary is found.
+            _refuse_marker(tail + chunk, 'local file {}'.format(path))
+            tail = chunk[-256:]
+
+
+def _refuse_markers_in_files(action, extra):
+    if action == 'write':
+        content = extra.get('content')
+        if extra.get('encoding') == 'base64' and isinstance(content, str):
+            try:
+                content = base64.b64decode(content)
+            except (binascii.Error, ValueError):
+                return  # ssh_files reports the bad payload
+        _refuse_marker(content, 'content')
+    elif action == 'put':
+        _marker_scan_local(extra.get('local_path'))
+
+
 def _read_summary(result):
     summary = 'read {} ({} bytes) on {}.'.format(
         result.get('path'), result.get('size'), result.get('host'),
@@ -811,6 +870,7 @@ def handle_files(runtime, arguments, cancel=None):
     action, path, timeout = _files_args(arguments)
     # Built (and validated) before any connection is opened.
     extra = _files_extra(arguments)
+    _refuse_markers_in_files(action, extra)
     extra['protected'] = protected_local_dirs(runtime)
     with runtime.lock:
         target, route, proxy, sync = _ssh_target_for(
@@ -922,4 +982,33 @@ def call_tool(runtime, name, arguments, cancel=None):
         raise ToolError(redact_text(str(exc), secrets), code=exc.code)
     with runtime.lock:
         secrets = vault_secrets(runtime)
-    return redact_payload(data, secrets), redact_text(summary, secrets)
+    return _scrub(name, data, secrets), redact_text(summary, secrets)
+
+
+def _scrub(name, data, secrets):
+    """Redact one result. Beyond every string (redact_payload): pieces of a
+    secret next to a cut in exec output or at the edges of a partial read,
+    and secrets inside base64 file content."""
+    if not isinstance(data, dict):
+        return redact_payload(data, secrets)
+    data = dict(data)
+    base64_content = None
+    if name == 'exec' and data.get('truncated'):
+        for key in ('stdout', 'stderr'):
+            data[key] = redact_around_cuts(data.get(key), secrets)
+    elif name == 'files' and data.get('action') == 'read':
+        start = (data.get('offset') or 0) > 0
+        end = data.get('next_offset') is not None
+        if data.get('encoding') == 'base64':
+            # Kept out of redact_payload: a marker would break the base64.
+            base64_content = redact_base64(
+                data.pop('content', None), secrets, start, end,
+            )
+        elif start or end:
+            data['content'] = redact_edges(
+                data.get('content'), secrets, start, end,
+            )
+    data = redact_payload(data, secrets)
+    if base64_content is not None:
+        data['content'] = base64_content
+    return data

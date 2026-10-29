@@ -36,8 +36,9 @@ METHOD_NOT_FOUND = -32601
 
 INSTRUCTIONS = (
     'SSH into the user\'s Termius hosts: inventory, remote exec, and SFTP '
-    'files. Credentials stay inside this server; results have vault secrets '
-    'redacted. Call status first. If not signed in, ask the user to run '
+    'files. Credentials stay inside this server; vault secrets in results '
+    'appear as [redacted:...] markers, which a command or file write must '
+    'not contain (it is refused). Call status first. If not signed in, ask the user to run '
     '/termius login in pi; there is no login tool and the password must '
     'never be asked for in chat. hosts, host, exec, files, and inventory '
     'auto-pull the vault.'

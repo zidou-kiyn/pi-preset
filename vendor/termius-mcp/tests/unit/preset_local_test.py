@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """pi-preset local changes: redaction, pinned host keys, JSON login, snippets."""
+import base64
 import io
 import json
 import os
@@ -13,7 +14,10 @@ from termius.core.models.terminal import Host, Identity, Snippet, SshConfig, Ssh
 from termius.core.ssh_exec import TrustOnFirstUsePolicy, known_hosts_path
 from termius.json_login import handle, main as login_json_main
 from termius.mcp.tools import call_tool
-from termius.redact import REDACTED, redact_payload, redact_text
+from termius.redact import (
+    REDACTED, contains_marker, redact_around_cuts, redact_base64, redact_edges,
+    redact_payload, redact_text,
+)
 from termius.runtime import Runtime
 
 PEM = (
@@ -29,7 +33,46 @@ class RedactTest(unittest.TestCase):
         out = redact_text(text, ['Sup3rSecret!'])
         self.assertNotIn('Sup3rSecret!', out)
         self.assertNotIn('BEGIN OPENSSH', out)
-        self.assertEqual(out.count(REDACTED), 2)
+        self.assertEqual(out.count(REDACTED), 1)
+        self.assertIn('[redacted:private key]', out)
+
+    def test_labelled_markers(self):
+        out = redact_text('a=hunter22', [('hunter22', '[redacted:password of identity "db"]')])
+        self.assertEqual(out, 'a=[redacted:password of identity "db"]')
+
+    def test_edges_of_a_slice(self):
+        secrets = [('Sup3rSecret!', '[redacted:x]')]
+        self.assertEqual(redact_edges('pw=Sup3r', secrets, start=False), 'pw=[redacted:x]')
+        self.assertEqual(redact_edges('Secret!\nnext', secrets, end=False), '[redacted:x]\nnext')
+        # Too short a piece, or not a piece at all, stays.
+        self.assertEqual(redact_edges('pw=Sup', secrets), 'pw=Sup')
+        self.assertEqual(redact_edges('pw=Sup3x', secrets), 'pw=Sup3x')
+
+    def test_around_cuts(self):
+        secrets = [('Sup3rSecret!', '[redacted:x]')]
+        text = 'head Sup3r\n...[42 bytes cut]...\nret! tail'
+        out = redact_around_cuts(text, secrets)
+        self.assertNotIn('Sup3r', out)
+        self.assertNotIn('ret!', out)
+        self.assertTrue(out.startswith('head [redacted:x]'))
+
+    def test_base64_content_in_other_encodings(self):
+        secrets = [('Sup3rSecret!', '[redacted:x]'), ('\u5bc6\u7801abc', '[redacted:y]')]
+        for raw in (
+            b'\x00bin Sup3rSecret! end',
+            'pw=\u5bc6\u7801abc'.encode('gbk'),
+            'pw=Sup3rSecret!'.encode('utf-16-le'),
+        ):
+            out = base64.b64decode(redact_base64(base64.b64encode(raw).decode(), secrets))
+            self.assertNotIn(b'Sup3r', out)
+            self.assertNotIn('\u5bc6\u7801abc'.encode('gbk'), out)
+            self.assertIn(b'[redacted:', out)
+
+    def test_markers_are_recognised(self):
+        for text in ('[redacted]', 'x [redacted:password of identity "web"] y', '[REDACTED:github-pat-1]'):
+            self.assertTrue(contains_marker(text), text)
+            self.assertTrue(contains_marker(text.encode()), text)
+        self.assertFalse(contains_marker('nothing redacted here [x]'))
 
     def test_payload_is_walked_recursively(self):
         data = {'stdout': 'x hunter22 y', 'nested': [{'v': 'hunter22'}], 'n': 3}
@@ -81,6 +124,70 @@ class ToolHardeningTest(unittest.TestCase):
         self.assertNotIn('Sup3rSecret!', json.dumps(data))
         self.assertNotIn('keypass99', data['stdout'])
         self.assertNotIn('PRIVATE KEY', data['stdout'])
+        self.assertIn('[redacted:password of identity "web"]', data['stdout'])
+        self.assertIn('[redacted:passphrase of key "deploy"]', data['stdout'])
+
+    def _files(self, arguments, fake):
+        with patch('termius.mcp.tools.ensure_fresh', return_value={}), \
+                patch('termius.core.ssh_exec._load_pkey', return_value=None), \
+                patch('termius.mcp.tools.run_file_action', return_value=dict(fake)) as run:
+            data, _ = call_tool(self.runtime, 'files', dict(arguments, name='web'))
+        return data, run
+
+    def test_base64_read_is_redacted(self):
+        raw = 'pw=Sup3rSecret!\n'.encode('utf-16-le')
+        data, _ = self._files({'action': 'read', 'path': 'a.conf'}, {
+            'action': 'read', 'path': '/a.conf', 'encoding': 'base64',
+            'content': base64.b64encode(raw).decode(), 'size': len(raw),
+            'offset': 0, 'file_size': len(raw), 'truncated': False,
+        })
+        decoded = base64.b64decode(data['content'])
+        self.assertNotIn('Sup3rSecret!'.encode('utf-16-le'), decoded)
+        self.assertIn(b'[redacted:password of identity "web"]', decoded)
+
+    def test_partial_read_edges_are_redacted(self):
+        data, _ = self._files({'action': 'read', 'path': 'a.conf', 'length': 10}, {
+            'action': 'read', 'path': '/a.conf', 'encoding': 'utf-8',
+            'content': 'pw=Sup3rSe', 'size': 10, 'offset': 0,
+            'file_size': 40, 'truncated': True, 'next_offset': 10,
+        })
+        self.assertEqual(data['content'], 'pw=[redacted:password of identity "web"]')
+
+    def test_exec_cut_edges_are_redacted(self):
+        fake = {
+            'host': 'web', 'command': 'cat log', 'exit_code': 0, 'stderr': '',
+            'truncated': True,
+            'stdout': 'a Sup3rS\n...[9 characters of stdout cut]...\necret! b',
+        }
+        with patch('termius.mcp.tools.ensure_fresh', return_value={}), \
+                patch('termius.core.ssh_exec._load_pkey', return_value=None), \
+                patch('termius.mcp.tools.run_host_command', return_value=dict(fake)):
+            data, _ = call_tool(self.runtime, 'exec', {'name': 'web', 'command': 'cat log'})
+        self.assertNotIn('Sup3rS', data['stdout'])
+        self.assertNotIn('ecret!', data['stdout'])
+
+    def test_markers_are_never_sent_to_a_host(self):
+        from termius.mcp.tools import ToolError
+        tmp = tempfile.NamedTemporaryFile('wb', delete=False)
+        tmp.write(b'x' * (1024 * 1024 - 5) + b'pw=[redacted:password of identity "web"]\n')
+        tmp.close()
+        self.addCleanup(os.unlink, tmp.name)
+        calls = [
+            ('exec', {'command': "sed -i 's/x/[redacted]/' a.conf"}),
+            ('files', {'action': 'write', 'path': 'a.conf', 'content': 'pw=[redacted:password of identity "web"]'}),
+            ('files', {'action': 'write', 'path': 'a.conf', 'encoding': 'base64',
+                       'content': base64.b64encode(b'pw=[REDACTED:github-pat-1]').decode()}),
+            ('files', {'action': 'put', 'path': 'a.conf', 'local_path': tmp.name}),
+        ]
+        with patch('termius.mcp.tools.ensure_fresh', return_value={}), \
+                patch('termius.mcp.tools.run_host_command') as run_exec, \
+                patch('termius.mcp.tools.run_file_action') as run_files:
+            for tool, arguments in calls:
+                with self.assertRaises(ToolError) as caught:
+                    call_tool(self.runtime, tool, dict(arguments, name='web'))
+                self.assertEqual(caught.exception.code, 'redacted_content', arguments)
+        run_exec.assert_not_called()
+        run_files.assert_not_called()
 
     def test_snippets_list_labels_only(self):
         with patch('termius.mcp.tools.ensure_fresh', return_value={}):
