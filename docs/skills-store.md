@@ -19,10 +19,12 @@ The bundled groups:
 
 | Group | Skill | For |
 |---|---|---|
-| `pi-preset` | `skill-authoring` | How to write a pi skill and where to put it (skill vs prompt template, frontmatter, no environment details, `skills create`) |
+| `pi-preset` | `skill-authoring` | How to write a pi skill, prompt template, or AGENTS.md and where to put it (skill vs prompt template, frontmatter, no environment details, `skills create`); its reference `writing-for-agents` is adapted from Matt Pocock's skill of that name, and it points to `skill-creator` for skills that need evaluation |
 | | `git-conventions` | House rules for git and GitHub: commit message format, one change per commit, branches and force-push rules, PR and issue templates, releases, the `gh` commands |
 | | `grill-me` | A relentless interview about a plan, round by round through `ask_user_question` (`/skills use grill-me <plan>`); upstream's grill-me and grilling as one skill |
 | | `handoff` | A handoff document for a fresh session (`/skills use handoff [focus]`) |
+| | `codebase-design` | Deep modules: small interfaces with a lot of behaviour behind them, seams, the deletion test, testing through the interface; for designing and refactoring (Matt Pocock's, adapted) |
+| | `diagnosing-bugs` | A debugging discipline: a fast pass/fail loop that reproduces the bug before any hypothesis, then minimise, hypothesise, instrument, fix with a regression test (Matt Pocock's, adapted) |
 | `humanizer` | `humanizer-zh`, `humanizer` | Remove AI-writing tells from Chinese / English text (op7418/Humanizer-zh, blader/humanizer; MIT) |
 | `anthropics` | `frontend-design`, `mcp-builder`, `skill-creator`, `webapp-testing` | From anthropics/skills (Apache-2.0): distinctive web UI, building MCP servers, designing larger skills, Playwright testing of a local web app |
 

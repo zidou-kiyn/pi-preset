@@ -1,9 +1,15 @@
 # Skills
 
-`grill-me` and `handoff` are adapted from Matt Pocock's [skills](https://github.com/mattpocock/skills)
-(`skills/productivity/grill-me`, `skills/productivity/grilling`, and `skills/productivity/handoff`, commit
-`59db609eb1e18aaf59b63284d0e52255aff0c63c`, 2026-10-27). They are maintained here and are not
-synced from upstream automatically; compare against upstream by hand when it changes.
+These are adapted from Matt Pocock's [skills](https://github.com/mattpocock/skills). They are maintained here
+and are not synced from upstream automatically; compare against upstream by hand when it changes.
+
+| Here | Upstream path(s) | Commit |
+|---|---|---|
+| `grill-me` | `skills/productivity/grill-me`, `skills/productivity/grilling` | `59db609eb1e18aaf59b63284d0e52255aff0c63c` (2026-10-27) |
+| `handoff` | `skills/productivity/handoff` | `59db609eb1e18aaf59b63284d0e52255aff0c63c` (2026-10-27) |
+| `codebase-design` | `skills/engineering/codebase-design` | `a496f5513d4a4cf889bc48e189e579f4b0bdf6aa` (2026-10-29) |
+| `diagnosing-bugs` | `skills/engineering/diagnosing-bugs` | `a496f5513d4a4cf889bc48e189e579f4b0bdf6aa` (2026-10-29) |
+| `skill-authoring/references/writing-for-agents.md` | `skills/productivity/writing-for-agents` | `a496f5513d4a4cf889bc48e189e579f4b0bdf6aa` (2026-10-29) |
 
 Changes from upstream in `grill-me` (upstream's `grill-me` + `grilling`):
 
@@ -22,6 +28,28 @@ Changes from upstream in `handoff`:
 - Claims the session did not verify are marked as assumptions (upstream gives this advice in its docs).
 - The reply ends with the path and how to continue in pi: `/new` plus a read instruction, a durable copy for
   another place, or `agent_bg` for a side task.
+
+Changes from upstream in `codebase-design`:
+
+- The description lists the situations that should trigger it (new structure, refactoring, seams, testability,
+  shallow pass-through layers) instead of naming other skills, since pi has no `Skill` tool for skills to call each other.
+- `GLOSSARY.md` becomes the project's own domain terms wherever it documents them.
+- `DESIGN-IT-TWICE.md`: the parallel sub-agents are `agent_bg` runs, each answering in its final reply. `DEEPENING.md`
+  is unchanged. The `agents/openai.yaml` file is dropped.
+
+Changes from upstream in `diagnosing-bugs`:
+
+- The description says what the skill does as well as when to use it.
+- The human-in-the-loop step uses `ask_user_question` rounds instead of `scripts/hitl-loop.template.sh`: pi's `bash`
+  has no terminal the user can type into, so the script would hang. The script and `agents/openai.yaml` are dropped.
+- The ranked hypotheses go into the reply and the work carries on; upstream waits unless the user is away, which the
+  agent cannot tell.
+- Long reproduction loops run in the background; the confirmed hypothesis goes into the final reply when nothing is committed.
+
+Changes from upstream in `writing-for-agents` (a reference of `skill-authoring`, not a skill of its own):
+
+- The frontmatter is dropped, and upstream's `SKILL-MECHANICS.md` is replaced by a closing section on how a skill reaches
+  the agent in pi: listed, off in the store but named by a pointer, or user-invoked. Router skills are left out.
 
 Upstream license:
 

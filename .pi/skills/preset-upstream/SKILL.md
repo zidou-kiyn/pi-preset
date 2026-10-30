@@ -13,7 +13,7 @@ Scope: the arguments after the command (package names, `mcp`, `skills`, `trellis
 |---|---|
 | Vendored packages and termius-mcp (`vendor/UPSTREAM.json`) | `references/vendored.md` |
 | chrome-devtools-mcp version pin | `references/chrome-devtools-mcp.md` |
-| Store skills (`grill-me` / `handoff` by hand; `skill-*` vendored) | `references/skills.md` |
+| Store skills (Pocock ports by hand, listed in `skills-store/pi-preset/NOTICE.md`; `skill-*` vendored) | `references/skills.md` |
 | trellis-lite (AGPL upstream, clean room) | `references/trellis-lite.md` |
 
 ## Procedure
