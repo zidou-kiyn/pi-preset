@@ -49,6 +49,16 @@ The todo guideline says to keep one task in_progress and complete it as soon as 
 
 A codemode script counts as one call, and a todo call inside it counts as an update. Nothing is added to the system prompt or the tools, so a session that keeps its list tidy pays nothing. `PI_PRESET_TODO_NUDGE=off` disables it; a number changes the 8.
 
+## Working style: `extensions/working-style.ts`
+
+pi's own system prompt says nothing about scope or code shape beyond "Be concise". working-style adds a `<working-style>` section of three bullets (text in `src/working-style.ts`, about 200 tokens):
+
+- deliver what was asked at the intended scope, make routine calls without asking, say so in a sentence when the request looks mistaken and carry on, stop short of work nobody asked for: Anthropic's Task-scope paragraph for Claude Opus 5, word for word;
+- keep solutions minimal (an abstraction only once something uses it twice, no unrequested configurability, error handling only for cases that can happen, no compatibility shims): condensed from Anthropic's "Avoid over-engineering" sample prompt;
+- follow the surrounding code, leave untouched code alone, remove what your own change made unused.
+
+It says nothing about double-checking work: Anthropic's Opus 5 guide reports that current models verify on their own and over-verify when told to. The wording is model-neutral, so GPT and DeepSeek models get the same section. It is a prompt section rather than a file in `~/.pi/agent/AGENTS.md` so it updates with the preset and your own AGENTS.md stays yours. `PI_PRESET_WORKING_STYLE=off` disables it.
+
 ## Secrets in tool results: `extensions/secret-redact.ts`
 
 Whatever a tool returns goes to the model provider and into the session file, and most leaks come from the agent's own tools: a `read` of `.env`, a `bash` that prints a config or `env`, an MCP tool echoing a token. secret-redact scans every tool result (nested codemode calls included, and `structuredContent` and `details` too) before the model sees it and replaces each secret with a placeholder such as `[REDACTED:github-pat-1]`. The files themselves are untouched. A secret is:
