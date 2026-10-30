@@ -137,7 +137,7 @@ export default function skillsStore(pi: ExtensionAPI): void {
 			"When the user asks for a skill, says they do not know how to approach a domain task, or a listed-skill-free task smells like one someone has written a skill for (document formats, infrastructure tuning, writing style), call `skills` with action search before improvising; prefer store and recommended hits, then registry hits with many installs.",
 			"A vague request is still searchable: derive 2-4 queries yourself from the task (domain, file types, tool names, in English), run them, and present at most 5 candidates with install counts and one recommendation; never ask the user to phrase the query.",
 			"A skill from `skills use` or `skills enable` is in effect for the rest of the task: follow it, and resolve its relative paths against the directory the result names.",
-			"Create a skill with `skills create` (not a prompt template, not a file under .pi/) when the user asks to save a reusable procedure; load the skill-authoring skill first if it is listed.",
+			"Before writing or revising a skill, a prompt template, an AGENTS.md, or any other prompt meant for a model, call `skills use skill-authoring` and follow it. When the user asks to save a reusable procedure, create a skill with `skills create` (not a prompt template, not a file under .pi/).",
 		],
 		parameters: Params,
 		async execute(_id, params, signal, _onUpdate, ctx) {
@@ -655,7 +655,7 @@ export default function skillsStore(pi: ExtensionAPI): void {
 				"",
 				"1. Work out what the task really is (domain, file types, tools, language) and derive 2-4 search queries in English.",
 				"2. Run the `skills` tool with action search for each query, and action list once, so store and recommended skills are considered first.",
-				"3. Present at most 5 candidates: name or source, install count, one line on how well it fits; mark one as your recommendation and say why. Be honest when nothing fits well, and then offer to write one (load skill-authoring).",
+				"3. Present at most 5 candidates: name or source, install count, one line on how well it fits; mark one as your recommendation and say why. Be honest when nothing fits well, and then offer to write one (`skills use skill-authoring` first).",
 				"4. Ask me which to install or enable. Do not install anything before I answer.",
 			].join("\n"),
 		);

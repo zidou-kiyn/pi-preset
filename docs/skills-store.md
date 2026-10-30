@@ -30,7 +30,9 @@ The bundled groups:
 
 The vendored groups are recorded in `vendor/UPSTREAM.json` with their upstream commit and followed with `npm run upstream -- status | diff | pull` like the extensions. Anthropic's docx/xlsx/pptx/pdf skills are under a proprietary license and cannot be redistributed here; they are on the recommended list instead.
 
-`skill-authoring` and `git-conventions` are **enabled always** by default: they are short, and their value is that every session follows the same rules. Turn either off from `/skills`; the choice sticks (a default added by a later version is enabled once, then left to you).
+`git-conventions` is **enabled always** by default: it is short, and its value is that every session follows the same rules. Turn it off from `/skills`; the choice sticks (a default added by a later version is enabled once, then left to you).
+
+`skill-authoring` is off by default (it was always on before): it matters only while writing a skill or prompt, and the `skills` tool's guideline tells the model to load it with `skills use skill-authoring` at that point, so it costs nothing in other sessions. An existing state file has it turned off once; turning it back on afterwards is left alone. The Pocock ports (`grill-me`, `handoff`, `codebase-design`, `diagnosing-bugs`) are off too: use them with `/skills use`, or enable one at a level when the model should reach it on its own.
 
 Skills about your own machines do not belong in a public preset even without addresses in them: the procedures alone describe the setup. Keep those in a private repository and install them into the local store (`/skills install git@github.com:you/ops-skills.git`); that is what the store is for.
 

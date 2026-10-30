@@ -37,6 +37,7 @@ import {
 	levelOf,
 	readSession,
 	readState,
+	RETIRED_DEFAULTS,
 	sessionPath,
 	setLevel,
 	statePath,
@@ -149,7 +150,7 @@ test("loadStore merges bundled and local by name, local shadows; groups follow t
 test("the bundled store validates", () => {
 	const skills = scanBundledDir(join(import.meta.dirname, "..", "skills-store"));
 	const names = skills.map((s) => s.name);
-	for (const expected of DEFAULT_ALWAYS) {
+	for (const expected of [...DEFAULT_ALWAYS, ...RETIRED_DEFAULTS]) {
 		assert.equal(skills.find((s) => s.name === expected)?.group, PRESET_GROUP, `${expected} is bundled in ${PRESET_GROUP}`);
 	}
 	assert.ok(skills.some((s) => s.group === "humanizer"), "vendored groups are scanned");
@@ -205,7 +206,7 @@ test("defaults added later are applied once to an existing state file", () => {
 		const state = readState();
 		assert.deepEqual(state.defaultsApplied, ["skill-authoring"]);
 		assert.equal(applyDefaults(state), true);
-		assert.deepEqual(state.always.sort(), [...DEFAULT_ALWAYS].sort());
+		assert.deepEqual(state.always.sort(), [...DEFAULT_ALWAYS].sort(), "skill-authoring retired, git-conventions added");
 		writeState(state);
 		// Turned off by the user: stays off.
 		const again = readState();
@@ -215,6 +216,33 @@ test("defaults added later are applied once to an existing state file", () => {
 		// A fresh file has everything applied already.
 		rmSync(statePath());
 		assert.equal(applyDefaults(readState()), false);
+	});
+});
+
+test("a retired default is turned off once, and only where the defaults put it", () => {
+	withAgentDir(() => {
+		mkdirSync(dirname(statePath()), { recursive: true });
+		const before = {
+			always: ["skill-authoring", "git-conventions"],
+			projects: {},
+			defaultsApplied: ["skill-authoring", "git-conventions"],
+		};
+		writeFileSync(statePath(), JSON.stringify(before));
+		const state = readState();
+		assert.equal(applyDefaults(state), true);
+		assert.deepEqual(state.always, ["git-conventions"]);
+		assert.deepEqual(state.defaultsRetired, [...RETIRED_DEFAULTS]);
+		writeState(state);
+		// Turned back on by the user: stays on.
+		const again = readState();
+		again.always.push("skill-authoring");
+		assert.equal(applyDefaults(again), false);
+		assert.ok(again.always.includes("skill-authoring"));
+		// Enabled by the user, never by the defaults: left alone.
+		writeFileSync(statePath(), JSON.stringify({ always: ["skill-authoring"], projects: {}, defaultsApplied: ["git-conventions"] }));
+		const own = readState();
+		applyDefaults(own);
+		assert.ok(own.always.includes("skill-authoring"));
 	});
 });
 
@@ -356,7 +384,7 @@ test("extension: resources_discover reports enabled skills; the tool enables, us
 	await withAgentDirAsync(async (dir) => {
 		const local = join(dir, "pi-preset", "skills");
 		writeTree(dir, { "pi-preset/skills/alpha/SKILL.md": SKILL("alpha"), "pi-preset/skills/beta/SKILL.md": SKILL("beta") });
-		writeState({ always: ["alpha"], projects: {}, defaultsApplied: [...DEFAULT_ALWAYS] });
+		writeState({ always: ["alpha"], projects: {}, defaultsApplied: [...DEFAULT_ALWAYS], defaultsRetired: [...RETIRED_DEFAULTS] });
 		const pi = fakePi();
 		const tools: any[] = [];
 		pi.api.registerTool = (tool: any) => tools.push(tool);
