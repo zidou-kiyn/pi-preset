@@ -127,7 +127,7 @@ const CURATED_ZH: Record<string, string> = {
 	xlsx: "创建和分析电子表格，含公式与格式（Anthropic；专有许可）",
 	pptx: "创建和编辑 PowerPoint 演示文稿（Anthropic；专有许可）",
 	pdf: "读取、填写、合并、创建 PDF（Anthropic；专有许可）",
-	"systematic-debugging": "superpowers 的系统化排错：先复现、再定位、再改，不乱猜",
+	"code-review-and-quality": "Addy Osmani 的代码审查：合并前从正确性、可读性、架构、安全、性能五方面检查改动",
 	"vercel-react-best-practices": "Vercel 的 React / Next.js 最佳实践",
 };
 

@@ -116,9 +116,9 @@ export const CURATED: readonly CuratedSkill[] = [
 		what: "Read, fill, merge, and create PDF files (Anthropic; proprietary license)",
 	},
 	{
-		name: "systematic-debugging",
-		source: "obra/superpowers@systematic-debugging",
-		what: "Reproduce, locate, then fix: a debugging discipline instead of guessing (from superpowers)",
+		name: "code-review-and-quality",
+		source: "addyosmani/agent-skills@code-review-and-quality",
+		what: "Review a change for correctness, readability, architecture, security, and performance before it is merged (Addy Osmani)",
 	},
 	{
 		name: "vercel-react-best-practices",
