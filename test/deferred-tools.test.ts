@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-	DEFERRED_TOOLS,
 	announceDeferred,
 	deferredToolsEnabled,
 	deferredToolsGuideline,
+	undeclaredDeferred,
 	withExposure,
 } from "../src/deferred-tools.ts";
 
@@ -46,31 +46,38 @@ test("withExposure defers only the named tools and passes other members through"
 	assert.deepEqual(wrapped.getActiveTools(), []);
 });
 
-test("announceDeferred activates codemode once and adds one rules line for deferred tools", () => {
+test("announceDeferred activates codemode and adds one rules line naming undeclared deferred tools", () => {
 	const pi = fakePi(
 		[
 			{ name: "codemode", exposure: "codemode" },
 			{ name: "monitor", exposure: "deferred" },
 			{ name: "agent_bg", exposure: "deferred" },
-			{ name: "web_search", exposure: "direct" },
+			{ name: "web_search", exposure: "deferred" },
+			{ name: "jobs", exposure: "direct" },
 		],
-		["read", "bash"],
+		["read", "bash", "monitor"], // monitor: declared by a session from before the upgrade
 	);
-	announceDeferred(pi as never, DEFERRED_TOOLS["bg-tasks"]);
-	announceDeferred(pi as never, DEFERRED_TOOLS["web-search"]);
-	assert.equal(pi.handlers.session_start?.length, 1, "one session_start hook for both wrappers");
+	announceDeferred(pi as never);
 
 	pi.fire("session_start", {});
-	assert.deepEqual(pi.active, ["read", "bash", "codemode"]);
+	assert.deepEqual(pi.active, ["read", "bash", "monitor", "codemode"]);
 
-	const event = { systemPromptOptions: { selectedTools: ["read", "bash", "codemode"], toolGuidelines: {} as Record<string, string[]> } };
+	const event = { systemPromptOptions: { selectedTools: ["read", "bash", "monitor", "codemode"], toolGuidelines: {} as Record<string, string[]> } };
 	pi.fire("before_agent_start", event);
-	// web_search is still direct in this fake, so it is not announced.
-	assert.deepEqual(event.systemPromptOptions.toolGuidelines.codemode, [deferredToolsGuideline(["monitor", "agent_bg"])]);
+	// One line, every deferred tool that is not declared, and not the declared monitor.
+	assert.deepEqual(event.systemPromptOptions.toolGuidelines.codemode, [deferredToolsGuideline(["agent_bg", "web_search"])]);
 
 	const noCodemode = { systemPromptOptions: { selectedTools: ["read"], toolGuidelines: {} as Record<string, string[]> } };
 	pi.fire("before_agent_start", noCodemode);
 	assert.equal(noCodemode.systemPromptOptions.toolGuidelines.codemode, undefined);
+});
+
+test("session_start leaves the active set alone when nothing is deferred", () => {
+	const pi = fakePi([{ name: "codemode", exposure: "codemode" }, { name: "jobs", exposure: "direct" }], ["read"]);
+	announceDeferred(pi as never);
+	pi.fire("session_start", {});
+	assert.deepEqual(pi.active, ["read"]);
+	assert.deepEqual(undeclaredDeferred([{ name: "a", exposure: "deferred" }], ["a"]), []);
 });
 
 test("PI_PRESET_DEFERRED_TOOLS=off keeps tools direct; the guideline names the search call", () => {

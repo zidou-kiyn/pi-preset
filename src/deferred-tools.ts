@@ -11,7 +11,13 @@
  *
  * The vendored extensions register their tools themselves, so the wrapper
  * hands them a pi whose registerTool() adds the exposure for the named tools
- * and passes everything else through unchanged.
+ * and passes everything else through unchanged. extensions/deferred-tools.ts
+ * makes them reachable: it keeps codemode active and adds one rules line
+ * naming the deferred tools that are not declared. It lists them from
+ * pi.getAllTools() on every run rather than from module state: jiti gives
+ * each extension file its own module instance, so state in this file is not
+ * shared between the wrappers, and a session resumed or reloaded from before
+ * the upgrade can still have a deferred tool in its declared set.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -32,21 +38,25 @@ export function deferredToolsGuideline(names: readonly string[]): string {
 	return `Not declared but reachable from codemode scripts, \`await searchTools("<need>")\` then \`await tools.<name>(args)\`: ${names.join(", ")}.`;
 }
 
-const deferred: string[] = [];
-let hooked = false;
+type ToolLike = { name: string; exposure: string };
+
+/** Names of the deferred tools that are not in the declared set, in registration order. */
+export function undeclaredDeferred(all: readonly ToolLike[], declared: readonly string[]): string[] {
+	return all.filter((tool) => tool.exposure === "deferred" && !declared.includes(tool.name)).map((tool) => tool.name);
+}
 
 /**
- * Records `names` as deferred and, once per process, makes sure the model can
- * reach them: codemode is activated at session start when it is registered
- * but inactive, and the codemode rules get one line naming the tools.
+ * Makes deferred tools reachable: codemode is activated at session start when
+ * it is registered but inactive, and the codemode rules get one line naming
+ * the deferred tools that are not declared. Installed once, by
+ * extensions/deferred-tools.ts.
  */
-export function announceDeferred(pi: ExtensionAPI, names: readonly string[]): void {
-	for (const name of names) if (!deferred.includes(name)) deferred.push(name);
-	if (hooked || deferred.length === 0) return;
-	hooked = true;
+export function announceDeferred(pi: ExtensionAPI): void {
 	pi.on("session_start", () => {
+		const all = pi.getAllTools();
 		const active = pi.getActiveTools();
-		const codemode = pi.getAllTools().find((tool) => tool.name === "codemode");
+		if (undeclaredDeferred(all, active).length === 0) return;
+		const codemode = all.find((tool) => tool.name === "codemode");
 		if (codemode && codemode.exposure !== "hidden" && !active.includes("codemode")) {
 			pi.setActiveTools([...active, "codemode"]);
 		}
@@ -54,9 +64,9 @@ export function announceDeferred(pi: ExtensionAPI, names: readonly string[]): vo
 	pi.on("before_agent_start", (event) => {
 		const options = event.systemPromptOptions;
 		if (!options.selectedTools.includes("codemode")) return;
-		const present = deferred.filter((name) => pi.getAllTools().some((tool) => tool.name === name && tool.exposure === "deferred"));
-		if (present.length === 0) return;
-		options.toolGuidelines.codemode = [...(options.toolGuidelines.codemode ?? []), deferredToolsGuideline(present)];
+		const names = undeclaredDeferred(pi.getAllTools(), options.selectedTools);
+		if (names.length === 0) return;
+		options.toolGuidelines.codemode = [...(options.toolGuidelines.codemode ?? []), deferredToolsGuideline(names)];
 	});
 }
 
