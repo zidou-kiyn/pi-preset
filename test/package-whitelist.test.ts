@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { test } from "node:test";
@@ -103,8 +103,13 @@ test("package manifest: every extension and skill path exists, every vendored pa
 			assert.ok(existsSync(join(REPO_ROOT, entry.dest, "SKILL.md")), `${name}: no SKILL.md`);
 			continue;
 		}
+		// A vendored extension is loaded from package.json directly or through a
+		// wrapper in extensions/ that imports its entry (bg-tasks, web-search).
+		const wrapped = readdirSync(join(REPO_ROOT, "extensions")).some((file) =>
+			readFileSync(join(REPO_ROOT, "extensions", file), "utf8").includes(`"../${entry.dest}/`),
+		);
 		assert.ok(
-			pkg.pi.extensions.some((path: string) => path.startsWith(`./${entry.dest}/`)),
+			wrapped || pkg.pi.extensions.some((path: string) => path.startsWith(`./${entry.dest}/`)),
 			`${name} is vendored but not loaded`,
 		);
 	}

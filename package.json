@@ -10,14 +10,12 @@
   "pi": {
     "extensions": [
       "./extensions",
-      "./vendor/pi-patty-bg-tasks/index.ts",
       "./vendor/pi-workspace-history/.pi/extensions/workspace-history.ts",
       "./vendor/pi-workspace-history/wtf/index.ts",
       "./vendor/pi-better-compaction/index.ts",
       "./vendor/pi-fff/src/index.ts",
       "./vendor/rpiv-todo/index.ts",
       "./vendor/rpiv-ask-user-question/index.ts",
-      "./vendor/pi-web-search/src/index.ts",
       "./vendor/pi-apply-patch/src/index.ts",
       "./vendor/pi-context-view/src/index.ts"
     ],
