@@ -25,7 +25,19 @@ function lineFingerprint(source, index) {
 	const line = source.slice(start, end === -1 ? source.length : end);
 	return createHash("sha256").update(line.replace(/^[+\- ]/, "").trim()).digest("hex");
 }
-const scannerFiles = new Set(["scripts/scan-secrets.sh", "scripts/scan-secrets.mjs"]);
+/**
+ * Files that necessarily contain the patterns being looked for: the scanner
+ * itself, the vendored betterleaks rule file (its rules carry allowlists of
+ * known public/example keys; .github/secret_scanning.yml ignores it too), and
+ * the secret-redact tests, whose fixtures are fake keys in every format the
+ * redactor must catch. scan-secrets.sh excludes the same paths from history.
+ */
+const scannerFiles = new Set([
+	"scripts/scan-secrets.sh",
+	"scripts/scan-secrets.mjs",
+	"vendor/betterleaks-rules/config/betterleaks.toml",
+	"test/secret-redact.test.ts",
+]);
 
 const highConfidencePatterns = [
 	{ label: "OpenAI-style key", pattern: /sk-[A-Za-z0-9_-]{20,}/giu },

@@ -17,13 +17,23 @@ cd "$repo_root" || exit 2
 
 self_rel="scripts/scan-secrets.sh"
 scanner_rel="scripts/scan-secrets.mjs"
+# Files that necessarily contain the patterns (same list as scannerFiles in
+# scan-secrets.mjs): the scanner, the vendored betterleaks rule file, and the
+# secret-redact test fixtures.
+pattern_files=(
+	"$self_rel"
+	"$scanner_rel"
+	"vendor/betterleaks-rules/config/betterleaks.toml"
+	"test/secret-redact.test.ts"
+)
 status=0
 
 echo "== working tree =="
 files=()
 while IFS= read -r -d '' f; do
-	[ "$f" = "$self_rel" ] && continue
-	[ "$f" = "$scanner_rel" ] && continue
+	skip=0
+	for p in "${pattern_files[@]}"; do [ "$f" = "$p" ] && skip=1; done
+	[ "$skip" -eq 1 ] && continue
 	[ -f "$f" ] || continue
 	files+=("$f")
 done < <(git ls-files --cached --others --exclude-standard -z)
@@ -44,7 +54,9 @@ echo "== history =="
 if ! git rev-parse --verify -q HEAD >/dev/null; then
 	echo "no commits yet, skipping"
 else
-	if git log -p --all -- . ":(exclude)$self_rel" ":(exclude)$scanner_rel" | node "$scanner_rel" --stream git-history; then
+	excludes=()
+	for p in "${pattern_files[@]}"; do excludes+=(":(exclude)$p"); done
+	if git log -p --all -- . "${excludes[@]}" | node "$scanner_rel" --stream git-history; then
 		echo "clean"
 	else
 		echo "FAIL: secret pattern found in git history"
