@@ -98,19 +98,15 @@ export interface TaskMutationParams {
 // copy. Field order and wording are pinned by registration tests.
 // ---------------------------------------------------------------------------
 
-// pi-preset: item fields mean what the top-level create fields mean, so only
-// the one batch-specific limit is described. owner and metadata are not in
-// the schema (top level or items): a single agent never sets them. Tasks that
-// already carry them still replay and render (Task keeps both fields).
+// pi-preset: item fields mean what the top-level create fields mean. owner,
+// metadata, blockedBy / addBlockedBy / removeBlockedBy, and includeDeleted are
+// not in the schema (top level or items): a single agent never set them in
+// the preset's benchmark, and together they were a third of the declaration.
+// The reducer and replay still accept them, so older sessions replay unchanged.
 const CreateTaskInputSchema = Type.Object({
 	subject: Type.String(),
 	description: Type.Optional(Type.String()),
 	activeForm: Type.Optional(Type.String()),
-	blockedBy: Type.Optional(
-		Type.Array(Type.Number(), {
-			description: "Existing task ids only, not items of this batch",
-		}),
-	),
 });
 
 export const TodoParamsSchema = Type.Object({
@@ -131,29 +127,9 @@ export const TodoParamsSchema = Type.Object({
 			description: "New status (update) or filter (list)",
 		}),
 	),
-	blockedBy: Type.Optional(
-		Type.Array(Type.Number(), {
-			description: "Initial blockedBy ids (create only)",
-		}),
-	),
-	addBlockedBy: Type.Optional(
-		Type.Array(Type.Number(), {
-			description: "update only; merged into blockedBy",
-		}),
-	),
-	removeBlockedBy: Type.Optional(
-		Type.Array(Type.Number(), {
-			description: "update only",
-		}),
-	),
 	id: Type.Optional(
 		Type.Number({
 			description: "Task id (required for update, get, delete)",
-		}),
-	),
-	includeDeleted: Type.Optional(
-		Type.Boolean({
-			description: "list: include deleted tasks",
 		}),
 	),
 	tasks: Type.Optional(

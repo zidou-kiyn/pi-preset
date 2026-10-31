@@ -68,7 +68,7 @@ export function registerTodoTool(pi: ExtensionAPI): void {
 		name: TOOL_NAME,
 		label: TOOL_LABEL,
 		description:
-			'Task list for multi-step work. Actions: create (one task, or several independent ones via tasks[], instead of subject), update (status/fields/dependencies), list (deleted hidden unless includeDeleted), get, delete, clear. Status: pending → in_progress → completed, or deleted. Change status with update, e.g. {"action":"update","id":3,"status":"completed"}.',
+			'Task list for multi-step work. Actions: create (one task, or several via tasks[] instead of subject), update (status or fields), list, get, delete, clear. Status: pending → in_progress → completed, or deleted. Change status with update, e.g. {"action":"update","id":3,"status":"completed"}.',
 		promptSnippet: guidance.promptSnippet ?? DEFAULT_PROMPT_SNIPPET,
 		promptGuidelines: guidance.promptGuidelines ?? DEFAULT_PROMPT_GUIDELINES,
 		parameters: TodoParamsSchema,

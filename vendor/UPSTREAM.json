@@ -147,7 +147,8 @@
 			],
 			"localChanges": [
 				"todo.ts, tool/types.ts: guidelines condensed from 9 rules to 2 and the description/field texts shortened; batch create (tasks[], v2.15) is a clause in the tool description plus one item-field description instead of a ninth guideline and long field texts; behavior unchanged.",
-				"tool/types.ts, state/state-reducer.ts: owner and metadata removed from the tool schema (top level and tasks[] items) and from the update error text; Task, replay, and the reducer still accept them, so older sessions that set them replay unchanged."
+				"tool/types.ts, state/state-reducer.ts: owner and metadata removed from the tool schema (top level and tasks[] items) and from the update error text; Task, replay, and the reducer still accept them, so older sessions that set them replay unchanged.",
+				"tool/types.ts, todo.ts: blockedBy / addBlockedBy / removeBlockedBy and includeDeleted removed from the tool schema and the description; the reducer and replay still accept them. The declaration drops from about 1.8k to 1.2k characters; in the preset's benchmark no run set any of them."
 			]
 		},
 		"rpiv-ask-user-question": {
