@@ -13,6 +13,8 @@ Read the repository's own `CONTRIBUTING.md` / `docs/development.md` first; it wi
 - Never commit secrets, `.env`, credentials, local config, or generated/large artifacts. When unsure, ask.
 - Run the project's tests/lint when they exist; a commit that breaks them needs a reason in the message.
 - Leave the user's unrelated uncommitted changes alone; do not stash or reset them.
+- Committing is the task; changing what is tracked or what others see is a separate decision. Untracking a file (`git rm --cached`), amending, rebasing, resetting, or rewriting history: do it only when asked, otherwise report the problem with the command to run and its effect on collaborators (an untracked `.env` disappears from their working tree on pull). A tracked secret stays a report, never a silent fix.
+- A failed hook means the commit did not happen: fix the cause, re-stage, commit again. No `--no-verify`, no `--amend` to recover, no `-i` commands (they wait for input you cannot give).
 
 ## Commit messages
 
@@ -26,7 +28,7 @@ and rejected. Facts and measurements over adjectives. Wrap at 72.
 - `type`: `feat` `fix` `docs` `refactor` `perf` `test` `chore` `build` `ci` `style` `revert`. `scope` = the area (a package, command, or feature name); several as `a,b`. Omit the scope only when the change is repository-wide.
 - Subject ≤ 72 characters, describes the effect, not the activity ("compact tool rows", not "update compact-tools.ts"). No "WIP", no emoji, no trailing period.
 - Body for anything non-trivial. Explain *why* and what the user sees; the diff already shows *how*. Reference issues as `#123` or `Closes #123`; cite upstream issues/PRs with their URL or `(#5777)`.
-- One logical change per commit. Formatting-only changes go in their own commit. Do not bundle "and also fixed a typo".
+- One logical change per commit, and no finer: split by intent (feature, docs, config), not by file or hunk, and keep a file's changes for one reason in one commit. The test for too big: the subject needs "and". The test for too small: nobody would revert, cherry-pick, or bisect to it alone. Formatting-only changes go in their own commit.
 - `chore(upstream): <package> <version> (<one-line summary>)` for vendored updates.
 - Breaking change: `!` after the scope (`feat(api)!: …`) and a `BREAKING CHANGE:` paragraph in the body.
 
@@ -72,4 +74,4 @@ Commands or steps a reviewer can run. Note what was not tested.
 
 ## Reporting back
 
-After git or GitHub work, give the user: the commit hashes and subjects (or the PR/issue URL), the branch, and whether anything was pushed. Nothing else.
+After git or GitHub work, give the user: the commit hashes and subjects (or the PR/issue URL), the branch, whether anything was pushed, and anything you found but did not do (a tracked secret, a stale branch) with the command to do it. Nothing else.
