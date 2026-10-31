@@ -1,6 +1,6 @@
 {
   "name": "pi-preset",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Personal pi environment preset: ramp status bar footer, a vendored extension set, a skill store, and a models.json template",
   "keywords": [
     "pi-package"
