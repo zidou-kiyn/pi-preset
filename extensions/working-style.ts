@@ -1,7 +1,8 @@
 /**
  * working-style — adds a short <working-style> section to the system prompt:
- * deliver what was asked at the intended scope, keep solutions minimal, follow
- * the surrounding code. Text and sources in src/working-style.ts.
+ * deliver what was asked at the intended scope, keep solutions minimal, ask
+ * before risky actions, lead reports with the outcome and what was not run.
+ * Text and sources in src/working-style.ts.
  *
  * Shipped as a prompt section rather than a line in ~/.pi/agent/AGENTS.md so
  * it updates with the preset and leaves the user's own AGENTS.md alone.

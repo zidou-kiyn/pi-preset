@@ -36,6 +36,6 @@ test("PI_PRESET_WORKING_STYLE=off disables it", () => {
 });
 
 test("the section stays short and says nothing about re-verifying", () => {
-	assert.ok(WORKING_STYLE.length < 1200, `${WORKING_STYLE.length} chars`);
-	assert.doesNotMatch(WORKING_STYLE, /double-check|re-verify|verify your/i);
+	assert.ok(WORKING_STYLE.length < 1700, `${WORKING_STYLE.length} chars`);
+	assert.doesNotMatch(WORKING_STYLE, /double-check|re-verify|verify your|think (carefully|harder|step)/i);
 });
