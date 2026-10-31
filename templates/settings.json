@@ -2,6 +2,14 @@
   "defaultProvider": "anthropic-proxy",
   "defaultModel": "claude-opus-5-5",
   "modelThinkingLevels": {
-    "anthropic-proxy/claude-fable-5-1": "high"
+    "anthropic-proxy/claude-opus-5-5": "high",
+    "anthropic-proxy/claude-sonnet-5-5": "xhigh",
+    "anthropic-proxy/claude-haiku-5-5": "max",
+    "anthropic-proxy/claude-fable-5-1": "high",
+    "deepseek-proxy/deepseek-flash": "max",
+    "openai-proxy/gpt-6.1-sol": "high",
+    "openai-proxy/gpt-6.1-terra": "high",
+    "openai-proxy/gpt-6-luna": "max",
+    "openai-proxy/gpt-6-astra": "high"
   }
 }

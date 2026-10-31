@@ -22,6 +22,18 @@ process.env.PI_PRESET_LANG = "en";
 
 const theme: PresetTheme = { fg: (_color, text) => text, bold: (text) => text };
 
+const TEMPLATE_LEVELS = {
+	"anthropic-proxy/claude-opus-5-5": "high",
+	"anthropic-proxy/claude-sonnet-5-5": "xhigh",
+	"anthropic-proxy/claude-haiku-5-5": "max",
+	"anthropic-proxy/claude-fable-5-1": "high",
+	"deepseek-proxy/deepseek-flash": "max",
+	"openai-proxy/gpt-6.1-sol": "high",
+	"openai-proxy/gpt-6.1-terra": "high",
+	"openai-proxy/gpt-6-luna": "max",
+	"openai-proxy/gpt-6-astra": "high",
+};
+
 function makeDir(): string {
 	return mkdtempSync(join(tmpdir(), "pi-preset-models-template-test-"));
 }
@@ -105,7 +117,7 @@ test("the shipped template has only placeholder endpoints and env-var keys, and 
 	}
 	assert.equal(template.defaultProvider, "anthropic-proxy");
 	assert.equal(template.defaultModel, "claude-opus-5-5");
-	assert.deepEqual(template.modelThinkingLevels, { "anthropic-proxy/claude-fable-5-1": "high" });
+	assert.deepEqual(template.modelThinkingLevels, TEMPLATE_LEVELS);
 });
 
 test("the shipped template carries the subscription catalog", () => {
@@ -172,7 +184,7 @@ test("filling every provider replaces models.json, sets defaults, and never show
 			packages: ["npm:x"],
 			defaultProvider: "openai-proxy",
 			defaultModel: "gpt-6.1-sol",
-			modelThinkingLevels: { "anthropic-proxy/claude-fable-5-1": "high" },
+			modelThinkingLevels: TEMPLATE_LEVELS,
 		});
 
 		// The template's default is offered first, for provider and model alike.
@@ -282,14 +294,16 @@ test("template thinking levels fill only models without one and never replace th
 		const mine = { "anthropic-proxy/claude-fable-5-1": "xhigh", "openai-proxy/gpt-6-astra": "low" };
 		writeFileSync(join(dir, "settings.json"), JSON.stringify({ modelThinkingLevels: mine }));
 		const first = await run(dir, { selects: ["keep", "anthropic-proxy", "claude-opus-5-5"] });
-		assert.deepEqual(readJson(join(dir, "settings.json")).modelThinkingLevels, mine);
-		assert.ok(!first.recorded.confirmLines.flat().some((line) => line.includes("modelThinkingLevels")));
+		assert.deepEqual(readJson(join(dir, "settings.json")).modelThinkingLevels, { ...TEMPLATE_LEVELS, ...mine });
+		const firstLines = first.recorded.confirmLines.flat();
+		assert.ok(!firstLines.some((line) => line.includes("modelThinkingLevels.anthropic-proxy/claude-fable-5-1")));
+		assert.ok(!firstLines.some((line) => line.includes("modelThinkingLevels.openai-proxy/gpt-6-astra")));
 
 		writeFileSync(join(dir, "settings.json"), JSON.stringify({ modelThinkingLevels: { "openai-proxy/gpt-6-astra": "low" } }));
 		const second = await run(dir, { selects: ["keep", "anthropic-proxy", "claude-opus-5-5"] });
 		assert.deepEqual(readJson(join(dir, "settings.json")).modelThinkingLevels, {
+			...TEMPLATE_LEVELS,
 			"openai-proxy/gpt-6-astra": "low",
-			"anthropic-proxy/claude-fable-5-1": "high",
 		});
 		assert.ok(
 			second.recorded.confirmLines.flat().some((line) => line.includes('modelThinkingLevels.anthropic-proxy/claude-fable-5-1: unset -> "high"')),

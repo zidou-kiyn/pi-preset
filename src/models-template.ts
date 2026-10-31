@@ -54,7 +54,7 @@ export interface ModelsTemplate {
 	providers: TemplateProvider[];
 	defaultProvider: string;
 	defaultModel: string;
-	/** Startup thinking levels keyed by `provider/modelId` (official defaults that differ from pi's). */
+	/** Startup thinking levels keyed by `provider/modelId` (each model's sweet-spot level). */
 	modelThinkingLevels: Record<string, string>;
 }
 
