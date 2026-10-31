@@ -24,6 +24,10 @@ All of them are MIT-licensed except termius-mcp (BSD 3-clause, from the Termius 
 
 ## Condensed tool prompts
 
+## Deferred tools: `extensions/bg-tasks.ts`, `extensions/web-search.ts`, `src/deferred-tools.ts`
+
+Two vendored extensions are loaded through a wrapper that registers their rarely used tools with pi's `deferred` exposure: `monitor` and `agent_bg` from pi-patty-bg-tasks, `web_search` and `url_context` from pi-web-search. A deferred tool is not declared to the model, so its description and rules leave the system prompt (about 1k tokens of 9.2k with claude-opus-5-5), but it stays callable: a codemode script finds it with `searchTools("<need>")` or `describeTool(name)`, both of which return its guidelines, and `tool_search` can declare it. The wrapper activates `codemode` at session start when nothing else did and adds one line to the codemode rules naming the deferred tools. `bash` and `jobs` stay declared: the model uses them on every long command. The choice comes from the preset's benchmark (`pi-bench`): in 24 runs over six tasks the model never called `monitor`, `agent_bg`, or `web_search`, while asked to look for an event-stream tool it found `monitor` through `searchTools()` on the first try. `PI_PRESET_DEFERRED_TOOLS=off` restores the upstream direct declarations.
+
 Four vendored packages have their model-facing text condensed: `ask_user_question`, `todo` (also without the `owner` / `metadata` fields, which a single agent never sets), the patty background tools (also without the duplicate `bash_bg`), and `ffgrep` / `fffind`. Upstream repeats the same advice across tools (how to wait without `sleep`, one notification vs. an event stream) and spells out limits the schema and validator already enforce. The condensed text keeps every rule that changes behavior; the tools' code is untouched. Measured with the same request, the fixed per-request context drops from about 9.9k to 8.1k tokens (system-prompt rules from 7.7k to 2.9k characters), and A/B runs of questionnaires, task lists, background builds, and monitors produced the same tool calls as before.
 
 ## Background commands: `pi-patty-bg-tasks`
@@ -51,13 +55,14 @@ A codemode script counts as one call, and a todo call inside it counts as an upd
 
 ## Working style: `extensions/working-style.ts`
 
-pi's own system prompt says nothing about scope or code shape beyond "Be concise". working-style adds a `<working-style>` section of three bullets (text in `src/working-style.ts`, about 200 tokens):
+pi's own system prompt says nothing about scope, code shape, risk, or reporting beyond "Be concise". working-style adds a `<working-style>` section of four bullets (text in `src/working-style.ts`, about 330 tokens):
 
 - deliver what was asked at the intended scope, make routine calls without asking, say so in a sentence when the request looks mistaken and carry on, stop short of work nobody asked for: Anthropic's Task-scope paragraph for Claude Opus 5, word for word;
-- keep solutions minimal (an abstraction only once something uses it twice, no unrequested configurability, error handling only for cases that can happen, no compatibility shims): condensed from Anthropic's "Avoid over-engineering" sample prompt;
-- follow the surrounding code, leave untouched code alone, remove what your own change made unused.
+- keep solutions minimal (nothing beyond the request, no comments or annotations on untouched code, an abstraction only once something uses it twice, error handling only for cases that can happen, no compatibility shims, remove what the change made unused): condensed from Anthropic's "Avoid over-engineering" sample prompt;
+- editing and running tests are free; deleting, force-pushing, rewriting history, pushing, posting, and changes on remote hosts need the user's word (when the request includes them, do the clear cases and ask about the doubtful ones), and never clear an obstacle with a destructive action: condensed from Anthropic's "Balancing autonomy and safety" sample. The benchmark's cleanup task tuned the wording: a first version asked before deleting even a one-line editor backup the user had asked to clean up;
+- answer in the user's language; lead the report with the outcome, then detail, then what was not run or verified; size written documents to the task: from the Opus 5 guide's progress-update and deliverable-length sections, plus the preset's own benchmark, where the minimal-code line alone made the model stop mentioning what it had not run, and where one answer in ten to a Chinese question about code came back in English under every configuration, pi's own prompt saying nothing about language.
 
-It says nothing about double-checking work: Anthropic's Opus 5 guide reports that current models verify on their own and over-verify when told to. The wording is model-neutral, so GPT and DeepSeek models get the same section. It is a prompt section rather than a file in `~/.pi/agent/AGENTS.md` so it updates with the preset and your own AGENTS.md stays yours. `PI_PRESET_WORKING_STYLE=off` disables it.
+It says nothing about double-checking work or thinking harder: Anthropic's Opus 5 and 5.5 guides report that current models verify on their own, over-verify when told to, and start replies later when told to think carefully. The wording is model-neutral, so GPT and DeepSeek models get the same section. It is a prompt section rather than a file in `~/.pi/agent/AGENTS.md` so it updates with the preset and your own AGENTS.md stays yours. `PI_PRESET_WORKING_STYLE=off` disables it.
 
 ## Secrets in tool results: `extensions/secret-redact.ts`
 

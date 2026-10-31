@@ -27,12 +27,12 @@ Details: [docs/setup.md](docs/setup.md) covers what the sync writes, the package
 
 | Area | What | Use | Docs |
 |---|---|---|---|
-| Shell | Long commands move to the background; you get one notification when they finish | `bash run_in_background`, `jobs`, `monitor`, `agent_bg`, ctrl+shift+b | [extensions](docs/extensions.md#background-commands-pi-patty-bg-tasks) |
+| Shell | Long commands move to the background; you get one notification when they finish | `bash run_in_background`, `jobs`, ctrl+shift+b; `monitor` and `agent_bg` from codemode | [extensions](docs/extensions.md#background-commands-pi-patty-bg-tasks) |
 | Search | Frecency-ranked, git-aware grep and file find | `ffgrep`, `fffind` | [extensions](docs/extensions.md) |
 | Undo | File snapshots per turn; rewind the last prompt | `/undo`, `/redo`, `/diff`, `/checkpoint`, `/fuck` | [extensions](docs/extensions.md) |
 | Planning | Task list (with a reminder when a task is left in_progress); structured questions | `todo`, `ask_user_question` | [extensions](docs/extensions.md#todo-nudges-extensionstodo-nudgets) |
-| Working style | Three lines in the system prompt from Anthropic's prompting guides: deliver what was asked at the intended scope, keep code minimal, follow the code around it | automatic | [extensions](docs/extensions.md#working-style-extensionsworking-stylets) |
-| Web | Search through the current provider, no extra key | `web_search` | [extensions](docs/extensions.md) |
+| Working style | Four lines in the system prompt from Anthropic's prompting guides: deliver what was asked at the intended scope, keep code minimal, ask before risky actions, lead reports with the outcome and what was not run | automatic | [extensions](docs/extensions.md#working-style-extensionsworking-stylets) |
+| Web | Search through the current provider, no extra key | `web_search` from codemode | [extensions](docs/extensions.md) |
 | Secrets | API keys, tokens, private keys, and pi's own credentials in tool results become placeholders before the model sees them; file edits put the real value back | automatic, `/secret-redact` | [extensions](docs/extensions.md#secrets-in-tool-results-extensionssecret-redactts) |
 | Context | Native provider compaction; context breakdown; compact `edit` rows | `/compact`, `/context` | [extensions](docs/extensions.md#native-compaction) |
 | Cache | 1h prompt cache, kept warm while idle | automatic | [extensions](docs/extensions.md#prompt-cache-kept-warm-while-idle) |
@@ -73,6 +73,7 @@ The preset's own menus, dialogs, and messages (`/pi-preset`, `/termius`, `/trell
 | `PI_PRESET_FOOTER_LABELS` | off | `1` shows word labels in the status bar |
 | `PI_PRESET_LANG` | system locale | `en` or `zh` for the preset's own UI, over the `/pi-preset` choice |
 | `PI_PRESET_TRELLIS` / `_SPECS` | on | `off` disables trellis-lite, or only its path-scoped specs |
+| `PI_PRESET_DEFERRED_TOOLS` | on | `off` declares `monitor`, `agent_bg`, `web_search` to the model directly instead of leaving them to codemode's `searchTools()` |
 
 Any bundled extension can also be unticked in `pi config`.
 
