@@ -28,9 +28,13 @@
  *   PI_PRESET_KEEPWARM=off               disable the extension
  *   PI_PRESET_KEEPWARM_MAX_IDLE=3h       stop after this long without a real
  *                                        request (default: no limit)
+ *   PI_PRESET_KEEPWARM_MAX_WARMS=5       stop after this many refreshes without
+ *                                        a real request (default: 7, off = no
+ *                                        limit)
  *
  * Runtime: pi-preset/extensions/idle-keepwarm.ts
- * Command: none (status bar segment "keepwarm" only)
+ * Command: /keepwarm toggles the refresh limit off for the current session
+ *          ("∞" in the status bar segment "keepwarm")
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -81,6 +85,9 @@ export default function idleKeepwarm(pi: ExtensionAPI): void {
 	let inflight: AbortController | undefined;
 	let note: string | undefined;
 	let warms = 0;
+	/** /keepwarm lifted the refresh limit for this session. */
+	let unlimited = false;
+	const maxWarms = (): number => (unlimited ? Number.POSITIVE_INFINITY : config.maxWarms);
 
 	const setStatus = (text: string | undefined): void => {
 		try {
@@ -99,6 +106,8 @@ export default function idleKeepwarm(pi: ExtensionAPI): void {
 			...(timer ? { nextWarmAt: lastTouch + refreshDelayMs(captured.ttlMs, config.everyMs) } : {}),
 			warms,
 			...(inflight ? { warming: true } : {}),
+			...(warms >= maxWarms() ? { limited: true } : {}),
+			...(unlimited ? { unlimited: true } : {}),
 		};
 	};
 
@@ -115,7 +124,8 @@ export default function idleKeepwarm(pi: ExtensionAPI): void {
 		if (state.warming) parts.push(m.warming);
 		else if (state.nextWarmAt !== undefined) {
 			parts.push(m.nextWarm(formatClock(state.nextWarmAt), state.warms));
-		}
+		} else if (state.limited) parts.push(m.warmLimit(state.warms));
+		if (state.unlimited) parts.push("∞");
 		return parts.join(" · ") || undefined;
 	};
 
@@ -159,7 +169,8 @@ export default function idleKeepwarm(pi: ExtensionAPI): void {
 
 	const schedule = (): void => {
 		clearTimer();
-		if (!captured || running || !ctxRef?.hasUI) return render();
+		// At the refresh limit the entry is left to run out; the next real request resets the count.
+		if (!captured || running || !ctxRef?.hasUI || warms >= maxWarms()) return render();
 		const at = lastTouch + refreshDelayMs(captured.ttlMs, config.everyMs);
 		timer = setTimeout(() => void refresh(), Math.max(0, at - Date.now()));
 		timer.unref?.();
@@ -231,6 +242,7 @@ export default function idleKeepwarm(pi: ExtensionAPI): void {
 		note = undefined;
 		running = false;
 		warms = 0;
+		unlimited = false;
 		render();
 	});
 
@@ -287,6 +299,21 @@ export default function idleKeepwarm(pi: ExtensionAPI): void {
 	pi.on("model_select", async () => pause(messages().modelChanged));
 	pi.on("session_compact", async () => pause(messages().compacted));
 	pi.on("session_tree", async () => pause(messages().treeNavigation));
+
+	pi.registerCommand("keepwarm", {
+		description: "keepwarm: toggle the idle refresh limit off/on for this session",
+		handler: async (_args, ctx) => {
+			ctxRef = ctx;
+			if (config.maxWarms === Number.POSITIVE_INFINITY) {
+				ctx.ui.notify(messages().noLimitConfigured, "info");
+				return;
+			}
+			unlimited = !unlimited;
+			// Re-arms a session that stopped at the limit, or stops one already past it.
+			if (!inflight) schedule();
+			ctx.ui.notify(unlimited ? messages().unlimitedOn : messages().unlimitedOff(config.maxWarms), "info");
+		},
+	});
 
 	// While idle this extension owns refreshes; during runs pi's streaming warmer does.
 	pi.on("cache_warming_decision", async () => (!running && captured ? { action: "stop" as const } : undefined));

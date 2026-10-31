@@ -7,6 +7,7 @@ import {
 	isCacheMiss,
 	isWarmReplay,
 	parseDuration,
+	parseMaxWarms,
 	publishSnapshot,
 	readConfig,
 	readSnapshot,
@@ -18,8 +19,9 @@ import {
 // UI text is asserted in English whatever the system locale.
 process.env.PI_PRESET_LANG = "en";
 
-test("config: on by default, no idle limit; off and limits come from env", () => {
-	assert.deepEqual(readConfig({}), { enabled: true, maxIdleMs: Number.POSITIVE_INFINITY });
+test("config: on by default, no idle limit, 7 refreshes; off and limits come from env", () => {
+	assert.deepEqual(readConfig({}), { enabled: true, maxIdleMs: Number.POSITIVE_INFINITY, maxWarms: 7 });
+	assert.equal(readConfig({ PI_PRESET_KEEPWARM_MAX_WARMS: "5" }).maxWarms, 5);
 	assert.equal(readConfig({ PI_PRESET_KEEPWARM: "off" }).enabled, false);
 	assert.equal(readConfig({ PI_PRESET_KEEPWARM_MAX_IDLE: "3h" }).maxIdleMs, 3 * 60 * 60_000);
 	assert.equal(readConfig({ PI_PRESET_KEEPWARM_EVERY_SEC: "20" }).everyMs, 20_000);
@@ -32,6 +34,16 @@ test("durations parse minutes and hours; off/invalid means no limit", () => {
 	assert.equal(parseDuration("off"), undefined);
 	assert.equal(parseDuration("forever"), undefined);
 	assert.equal(parseDuration(undefined), undefined);
+});
+
+test("refresh limit: a positive integer, off/0 means none, invalid keeps the default", () => {
+	assert.equal(parseMaxWarms("8"), 8);
+	assert.equal(parseMaxWarms("off"), Number.POSITIVE_INFINITY);
+	assert.equal(parseMaxWarms("0"), Number.POSITIVE_INFINITY);
+	assert.equal(parseMaxWarms("1.5"), 7);
+	assert.equal(parseMaxWarms("-2"), 7);
+	assert.equal(parseMaxWarms(""), 7);
+	assert.equal(parseMaxWarms(undefined), 7);
 });
 
 test("1-token caps are warm replays, real requests are not", () => {

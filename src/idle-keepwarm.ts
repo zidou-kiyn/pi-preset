@@ -21,6 +21,9 @@ export const LATE_MARGIN_MS = 5_000;
 
 export const KEEPWARM_ENV = "PI_PRESET_KEEPWARM";
 export const MAX_IDLE_ENV = "PI_PRESET_KEEPWARM_MAX_IDLE";
+export const MAX_WARMS_ENV = "PI_PRESET_KEEPWARM_MAX_WARMS";
+/** Refreshes per idle stretch unless PI_PRESET_KEEPWARM_MAX_WARMS says otherwise. */
+export const DEFAULT_MAX_WARMS = 7;
 /** Testing only: refresh this many seconds after each cache touch instead of at 90% of the TTL. */
 export const EVERY_ENV = "PI_PRESET_KEEPWARM_EVERY_SEC";
 
@@ -28,6 +31,8 @@ export interface KeepwarmConfig {
 	enabled: boolean;
 	/** Stop refreshing after this long without a real request. Infinity = no limit. */
 	maxIdleMs: number;
+	/** Stop after this many refreshes without a real request. Infinity = no limit. */
+	maxWarms: number;
 	/** Testing override for the refresh delay; undefined = 90% of the TTL. */
 	everyMs?: number;
 }
@@ -42,12 +47,21 @@ export function parseDuration(value: string | undefined): number | undefined {
 	return minutes > 0 ? minutes * 60_000 : undefined;
 }
 
+/** "5" → 5; "off" or "0" → no limit; empty or invalid → the default. */
+export function parseMaxWarms(value: string | undefined): number {
+	const text = value?.trim().toLowerCase();
+	if (text === "off" || text === "0") return Number.POSITIVE_INFINITY;
+	const count = Number(text);
+	return text && Number.isInteger(count) && count > 0 ? count : DEFAULT_MAX_WARMS;
+}
+
 export function readConfig(env: NodeJS.ProcessEnv = process.env): KeepwarmConfig {
 	const enabled = env[KEEPWARM_ENV]?.trim().toLowerCase() !== "off";
 	const every = Number(env[EVERY_ENV]);
 	return {
 		enabled,
 		maxIdleMs: parseDuration(env[MAX_IDLE_ENV]) ?? Number.POSITIVE_INFINITY,
+		maxWarms: parseMaxWarms(env[MAX_WARMS_ENV]),
 		...(every > 0 ? { everyMs: every * 1000 } : {}),
 	};
 }
@@ -110,6 +124,10 @@ export interface KeepwarmSnapshot {
 	warms: number;
 	/** A refresh request is in flight. */
 	warming?: boolean;
+	/** The refresh limit is reached; the entry runs out unless a real request comes. */
+	limited?: boolean;
+	/** /keepwarm lifted the refresh limit for this session. */
+	unlimited?: boolean;
 	/** Why warming is paused, when it is. */
 	note?: string;
 }

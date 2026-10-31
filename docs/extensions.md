@@ -108,7 +108,7 @@ Segments show icons only (`⬡` counts the package extensions that register tool
 - **Context**: the meter plus `used/window percent` of the current context. Its color turns warning above 70% and error above 90%.
 - **in / out**: tokens sent and generated over the whole session, not the current context. `in` counts cached prompt tokens too, so it is what the turns actually read.
 - **cache**: how much of the latest turn's prompt came from the cache; warning below 50%, error below 25%.
-- **ttl / warm**: time left before the prompt-cache entry expires (warning-toned in the last 5 minutes), and when `idle-keepwarm` refreshes it next, with the number of refreshes since your last message. A dim note replaces both while warming is paused.
+- **ttl / warm**: time left before the prompt-cache entry expires (warning-toned in the last 5 minutes), and when `idle-keepwarm` refreshes it next, with the number of refreshes since your last message. Once the refresh limit is reached, no next time is shown: the warm icon dims and keeps only the count (`♨ ×7`) while the TTL runs out. A dim note replaces both while warming is paused.
 - **◈**: session cost, `$0.410` below a dollar and `$18.03` above (`sub` when the model runs on an OAuth subscription). Absent when the provider reports no price.
 - **mcp**: MCP servers connected through pi's built-in MCP support. Servers that failed or need a sign-in are not counted; pi reports them after startup and in `/mcp`. A dim `0` means MCP support is loaded but no server is connected. `cm` / `ts` mark the built-in `codemode` / `tool_search` tools while they are active. The segment is hidden only when the built-in MCP extension is disabled.
 - **☑ / ▸**: todo progress and the current task, while any task is open. A finished list leaves the bar.
@@ -121,7 +121,7 @@ pi's own cache warmer (`cacheWarming`, default `"streaming"`) only refreshes dur
 - Every real Anthropic request is captured. While the agent is idle, at 90% of the TTL the same payload is re-sent with `max_tokens: 1`. Nothing enters the conversation; each refresh is a `pi-preset-keepwarm` custom entry in the session file, and the status bar shows the remaining TTL and the next refresh time (see [Reading the status bar](#reading-the-status-bar)).
 - The TTL comes from the model's `promptCache` (the Anthropic templates declare `{ "short": 300, "long": 3600 }`) and the request's `cache_control` TTL.
 - A refresh that would fire within 5s of expiry (after sleep) is skipped, and one that misses the cache stops warming with a warning: on a Claude subscription the cache write is the billed part. Model switch, compaction, and `/tree` navigation pause warming; the next message re-arms it.
-- `PI_PRESET_KEEPWARM=off` disables it; `PI_PRESET_KEEPWARM_MAX_IDLE=3h` stops after that long without a real request (default: no limit). Only interactive sessions are warmed.
+- `PI_PRESET_KEEPWARM=off` disables it; `PI_PRESET_KEEPWARM_MAX_IDLE=3h` stops after that long without a real request (default: no limit), and `PI_PRESET_KEEPWARM_MAX_WARMS` caps the refreshes between two real requests (default `7`, about 7h20m idle at the 1h TTL; `off` for no limit). The next message resets both. `/keepwarm` lifts the refresh limit for the current session and runs again to restore it; while lifted the warm segment ends in `∞`. Only interactive sessions are warmed.
 
 Behind a gateway that load-balances several accounts, enable session stickiness, or every refresh lands on an account without the entry and the miss guard stops warming.
 

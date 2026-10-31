@@ -609,8 +609,12 @@ function keepwarmSegment(t: ThemeLike, state: KeepwarmSnapshot | undefined, icon
     if (state.warming) {
         parts.push(lseg(t, icons.cacheWarm, "syntaxType", "warm", messages().now, labels));
     } else if (state.nextWarmAt !== undefined) {
-        const count = state.warms > 0 ? t.fg("dim", ` ×${state.warms}`) : "";
+        // "∞" marks a session whose refresh limit /keepwarm lifted.
+        const count = t.fg("dim", `${state.warms > 0 ? ` ×${state.warms}` : ""}${state.unlimited ? " ∞" : ""}`);
         parts.push(lseg(t, icons.cacheWarm, "syntaxType", "warm", formatClock(state.nextWarmAt), labels) + count);
+    } else if (state.limited) {
+        // Refresh limit reached: a dimmed fire with the count, no next time.
+        parts.push(lseg(t, icons.cacheWarm, "dim", "warm", `×${state.warms}`, labels));
     }
     return parts.length > 0 ? parts.join(" ") : null;
 }

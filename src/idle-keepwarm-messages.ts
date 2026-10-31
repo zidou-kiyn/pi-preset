@@ -15,6 +15,10 @@ const en = {
 	nextWarm: (clock: string, warms: number) => `warm ${clock}${warms > 0 ? ` (${warms}x)` : ""}`,
 
 	idleLimit: "idle limit reached",
+	warmLimit: (warms: number) => `warm stopped (${warms}x)`,
+	unlimitedOn: "keepwarm: no refresh limit for this session",
+	unlimitedOff: (max: number) => `keepwarm: refresh limit back to ${max}`,
+	noLimitConfigured: "keepwarm: no refresh limit set (PI_PRESET_KEEPWARM_MAX_WARMS=off)",
 	modelChanged: "model changed",
 	expiredResumes: "cache expired, resumes on next message",
 	refreshFailed: (reason: string) => `refresh failed (${reason}), resumes on next message`,
@@ -35,6 +39,10 @@ const zh: Messages = {
 	nextWarm: (clock, warms) => `预热 ${clock}${warms > 0 ? `（${warms} 次）` : ""}`,
 
 	idleLimit: "已达空闲上限",
+	warmLimit: (warms) => `预热已停（${warms} 次）`,
+	unlimitedOn: "keepwarm：本会话不限预热轮次",
+	unlimitedOff: (max) => `keepwarm：预热轮次恢复上限 ${max} 次`,
+	noLimitConfigured: "keepwarm：未设轮次上限（PI_PRESET_KEEPWARM_MAX_WARMS=off）",
 	modelChanged: "模型已切换",
 	expiredResumes: "缓存已过期，下条消息后恢复",
 	refreshFailed: (reason) => `刷新失败（${reason}），下条消息后恢复`,
