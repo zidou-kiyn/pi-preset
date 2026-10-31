@@ -5,3 +5,7 @@ package-lock.json
 __pycache__/
 *.egg-info/
 build/
+bench/agents/
+bench/.cache/
+bench/work/
+bench/results/

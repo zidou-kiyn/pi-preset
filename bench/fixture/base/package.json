@@ -1,0 +1,14 @@
+{
+  "name": "ledger",
+  "version": "0.4.1",
+  "description": "A small personal expense ledger CLI",
+  "type": "module",
+  "bin": { "ledger": "src/cli.js" },
+  "scripts": {
+    "test": "node --test 'test/unit/*.test.js'",
+    "test:integration": "node --test 'test/integration/*.test.js'",
+    "test:all": "node --test 'test/unit/*.test.js' 'test/integration/*.test.js'",
+    "report:big": "node scripts/gen-data.mjs data/big.json 200000 && LEDGER_FILE=data/big.json node src/cli.js report"
+  },
+  "license": "MIT"
+}

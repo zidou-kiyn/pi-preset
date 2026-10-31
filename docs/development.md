@@ -27,6 +27,10 @@ git push --follow-tags
 
 The tag message lists the commits since the previous tag.
 
+## Benchmark
+
+`bench/` runs the same tasks under plain pi, the installed preset, and the checkout, with objective checks and a blinded pairwise judge; `bench/interactive.mjs` drives real RPC sessions with a scripted user. It is how prompt wording and tool exposure are decided; see [bench/README.md](../bench/README.md) and the reports in `bench/reports/`. Change a prompt, then `node bench/run.mjs --configs new,old --tasks <the tasks it touches>` and `node bench/judge.mjs --pairs old:new`.
+
 ## Following upstream
 
 ```bash
