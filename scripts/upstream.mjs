@@ -96,12 +96,21 @@ function revParse(dir, rev) {
 	return git(dir, ["rev-parse", `${rev}^{commit}`]).trim();
 }
 
-/** The upstream revision this package follows: newest matching tag, or a branch head. */
+/** A hyphen right after the version number (`v2.0.0-rc.7`, `v0.1.0-ee574a7`) marks a prerelease. */
+const PRERELEASE = /^\D*\d+(?:\.\d+)+-/u;
+
+/** The first release in `tags` (sorted newest first), skipping prereleases. */
+export function newestRelease(tags) {
+	return tags.find((tag) => !PRERELEASE.test(tag));
+}
+
+/** The upstream revision this package follows: newest matching release tag, or a branch head. */
 function trackedHead(dir, entry) {
 	if (entry.track?.tags) {
 		const tags = git(dir, ["tag", "--list", entry.track.tags, "--sort=-version:refname"]).split("\n").filter(Boolean);
-		if (tags.length === 0) throw new Error(`no tags match ${entry.track.tags}`);
-		return { rev: tags[0], commit: revParse(dir, tags[0]) };
+		const tag = newestRelease(tags);
+		if (!tag) throw new Error(`no release tags match ${entry.track.tags}`);
+		return { rev: tag, commit: revParse(dir, tag) };
 	}
 	const branch = entry.track?.branch ?? "main";
 	return { rev: branch, commit: revParse(dir, branch) };

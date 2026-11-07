@@ -415,7 +415,7 @@
 			],
 			"localChanges": [
 				"None: the rule file is read as is by src/secret-redact/rules.ts, which converts the Go RE2 patterns to JavaScript at load time. Validation (live HTTP checks) and the token-ratio filter are not used.",
-				"Not taken from upstream v2.0.0-rc.7 (8f376ff): the v2 rule file, a prerelease (the v* tag track lists it above v1.10.0 on the v1.x branch). v2 renames secretGroup to valueGroup (azure-app-configuration-connection-string, generic-credential-uri, sonar-api-token); rules.ts reads only secretGroup, so with v2 as is those rules would redact the endpoint or keyword group and leave the secret visible. Teach rules.ts valueGroup before taking v2."
+				"Not taken from upstream v2.0.0-rc.7 (8f376ff): the v2 rule file, a prerelease. v2 renames secretGroup to valueGroup (azure-app-configuration-connection-string, generic-credential-uri, sonar-api-token); rules.ts reads only secretGroup, so with v2 as is the Azure and Sonar rules would redact the endpoint or keyword group and leave the secret visible, and generic-credential-uri would redact the whole URI. Teach rules.ts valueGroup before taking v2."
 			]
 		}
 	}
