@@ -7,7 +7,7 @@ Two groups:
 
 ## Check (ported skills)
 
-- Clone, or fetch, a blobless bare clone at `~/.cache/pi-preset-upstream/github.com_mattpocock_skills`.
+- Clone or update a blobless bare clone at `~/.cache/pi-preset-upstream/github.com_mattpocock_skills`: `git clone --bare --filter=blob:none https://github.com/mattpocock/skills <dir>`, or `git -C <dir> fetch --force origin '+refs/heads/*:refs/heads/*'`. A bare clone has no fetch refspec, so a plain `git fetch` leaves `main` behind and every diff below comes back empty. Each NOTICE commit must then be an ancestor of `HEAD` (`git -C <dir> merge-base --is-ancestor <commit> HEAD`).
 - Per row of the NOTICE table: `git diff <its commit>..HEAD -- <its upstream paths>`
 
 ## Carry over (ported skills)
