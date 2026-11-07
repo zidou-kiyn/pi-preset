@@ -5,11 +5,11 @@ and are not synced from upstream automatically; compare against upstream by hand
 
 | Here | Upstream path(s) | Commit |
 |---|---|---|
-| `grill-me` | `skills/productivity/grill-me`, `skills/productivity/grilling` | `59db609eb1e18aaf59b63284d0e52255aff0c63c` (2026-10-27) |
-| `handoff` | `skills/productivity/handoff` | `59db609eb1e18aaf59b63284d0e52255aff0c63c` (2026-10-27) |
-| `codebase-design` | `skills/engineering/codebase-design` | `a496f5513d4a4cf889bc48e189e579f4b0bdf6aa` (2026-10-29) |
-| `diagnosing-bugs` | `skills/engineering/diagnosing-bugs` | `a496f5513d4a4cf889bc48e189e579f4b0bdf6aa` (2026-10-29) |
-| `skill-authoring/references/writing-for-agents.md` | `skills/productivity/writing-for-agents` | `a496f5513d4a4cf889bc48e189e579f4b0bdf6aa` (2026-10-29) |
+| `grill-me` | `skills/productivity/grill-me`, `skills/productivity/grilling` | `4ae2317ddb22b046e26455e4f9c9b3aaaf62212d` (2026-10-31) |
+| `handoff` | `skills/productivity/handoff` | `4ae2317ddb22b046e26455e4f9c9b3aaaf62212d` (2026-10-31) |
+| `codebase-design` | `skills/engineering/codebase-design` | `4ae2317ddb22b046e26455e4f9c9b3aaaf62212d` (2026-10-31) |
+| `diagnosing-bugs` | `skills/engineering/diagnosing-bugs` | `4ae2317ddb22b046e26455e4f9c9b3aaaf62212d` (2026-10-31) |
+| `skill-authoring/references/writing-for-agents.md` | `skills/productivity/writing-for-agents` | `4ae2317ddb22b046e26455e4f9c9b3aaaf62212d` (2026-10-31) |
 
 Changes from upstream in `grill-me` (upstream's `grill-me` + `grilling`):
 
@@ -19,6 +19,9 @@ Changes from upstream in `grill-me` (upstream's `grill-me` + `grilling`):
   recommended answer as the first option) and keeps the numbered text format only as a fallback.
 - Fact finding uses the agent's own tools or `agent_bg` instead of a sub-agent tool.
 - The session ends with a summary of the settled decisions before asking for confirmation.
+- Not taken from upstream `7739eae`: the fact-finding sub-agent is told to start with a fresh context window, because some
+  Codex models fork the parent conversation. `agent_bg` always starts a new `pi -p` process that gets only its prompt,
+  so there is no forked context to avoid.
 
 Changes from upstream in `handoff`:
 
