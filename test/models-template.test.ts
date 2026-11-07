@@ -132,7 +132,8 @@ test("the shipped template carries the subscription catalog", () => {
 	// Codex serves the GPT-6.1 models with a 500k default window, the others with 272k.
 	assert.equal(model("openai-proxy", "gpt-6.1-sol").contextWindow, 500000);
 	assert.equal(model("openai-proxy", "gpt-6.1-terra").contextWindow, 500000);
-	assert.equal(model("openai-proxy", "gpt-6-astra").contextWindow, 272000);
+	assert.equal(model("openai-proxy", "gpt-6-astra").contextWindow, 500000);
+	assert.equal(model("openai-proxy", "gpt-6-luna").contextWindow, 500000);
 	// Terra, unlike Sol, can turn reasoning off.
 	assert.equal(model("openai-proxy", "gpt-6.1-terra").thinkingLevelMap?.off, "none");
 	assert.equal(model("openai-proxy", "gpt-6.1-sol").thinkingLevelMap?.off, null);
