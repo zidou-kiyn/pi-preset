@@ -15,8 +15,7 @@ Everything except the preset's own `extensions/` is vendored under [`vendor/`](.
 | `pi-apply-patch` 0.1.4 | [code-yeongyu/pi-apply-patch](https://github.com/code-yeongyu/pi-apply-patch) | Codex `apply_patch` for OpenAI models | `typebox` as a peer dependency |
 | `pi-context-view` 0.8.3 | [dimk90/pi-context-view](https://github.com/dimk90/pi-context-view) | `/context`: what fills the context, including tool definitions and injections | — |
 | `termius-mcp` 3.2.0 | [MiaM1ku/termius-mcp](https://github.com/MiaM1ku/termius-mcp) | Python MCP server: SSH into Termius hosts (see [SSH](mcp.md#ssh-the-termius-mcp-server)) | no secret-bearing tools, output redaction, pinned host keys, stdin login, per-host disabled hosts and routes (`policy.py`), `login-json` host list and connection test |
-
-| `betterleaks-rules` 1.9.0 | [betterleaks/betterleaks](https://github.com/betterleaks/betterleaks) `config/betterleaks.toml` | the secret rule set `secret-redact` reads (see [Secrets in tool results](#secrets-in-tool-results-extensionssecret-redactts)) | — (read as is, converted at load) |
+| `betterleaks-rules` 1.10.0 | [betterleaks/betterleaks](https://github.com/betterleaks/betterleaks) `config/betterleaks.toml` | the secret rule set `secret-redact` reads (see [Secrets in tool results](#secrets-in-tool-results-extensionssecret-redactts)) | — (read as is, converted at load) |
 
 All of them are MIT-licensed except termius-mcp (BSD 3-clause, from the Termius CLI); each directory keeps its upstream LICENSE (or the repository's, for monorepo packages).
 
