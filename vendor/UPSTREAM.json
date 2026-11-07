@@ -247,8 +247,8 @@
 			"track": {
 				"tags": "v*"
 			},
-			"commit": "35fadaf350cd6dfb2cb1c019c250649f31062060",
-			"version": "0.8.1",
+			"commit": "60bfde29e199220bb864ce13360cf6b5dcd80695",
+			"version": "0.8.3",
 			"license": "MIT",
 			"dest": "vendor/pi-context-view",
 			"include": [

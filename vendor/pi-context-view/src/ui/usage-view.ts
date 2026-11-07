@@ -5,7 +5,14 @@
  * block streams with opt-in full content for multi-entry categories.
  */
 import type { ExtensionCommandContext, Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
-import { Key, matchesKey, visibleWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import {
+	Key,
+	matchesKey,
+	type TuiMouseEvent,
+	type TuiMouseEventResult,
+	visibleWidth,
+	wrapTextWithAnsi,
+} from "@earendil-works/pi-tui";
 
 import {
 	AUTO_COMPACT_BUFFER_CATEGORY_ID,
@@ -19,6 +26,13 @@ import type { ContextUsageSnapshot, UsageCategory, UsagePreviewEntry } from "../
 import { normalizeInlineText, normalizePreviewText } from "../text.ts";
 import { collectPreviewEntries } from "../usage.ts";
 import { colorize } from "./color.ts";
+import {
+	type CopyActions,
+	COPY_HINT,
+	copyableJoin,
+	copyableText,
+	CopyNotices,
+} from "./copy.ts";
 import { ListNavigator, PreviewScroller } from "./injections-model.ts";
 import { expandJsonSpan } from "./json-preview.ts";
 import {
@@ -31,7 +45,6 @@ import {
 	fitLine,
 	fitToTerminalHeight,
 	type Hint,
-	hintRow,
 	isPageBackKey,
 	isPageForwardKey,
 	isStepBackKey,
@@ -43,6 +56,7 @@ import {
 } from "./layout.ts";
 import { forcedMarker } from "./markers.ts";
 import { descriptionNoteLines, emptyPreviewNote, probingDisabledNote, thinkingNote, usageNote } from "./notes.ts";
+import { showOverlayView } from "./overlay.ts";
 import {
 	isSearchNavigationKey,
 	matchStepDirection,
@@ -55,7 +69,6 @@ import { previewBodyLines, previewLegendLines } from "./section-preview.ts";
 import { splitSkillPreview } from "./skill-preview.ts";
 import { buildUsageMap, calculateFitMapScale, type UsageMap, type UsageMapCell } from "./usage-map.ts";
 import { BlockNavigator, layoutPreviewBlocks, type PreviewLayout } from "./usage-preview.ts";
-import { DEFAULT_WHEEL_SCROLL_LINES, parseWheelDirection, readWheelScrollLines } from "./wheel.ts";
 
 /** Dashboard rows below the content, excluding the collapsible description: blank, hints, blank, border. */
 const USAGE_TAIL_FIXED_LINE_COUNT = 4;
@@ -114,6 +127,8 @@ export interface UsageViewInput {
 
 /** View-local denominator selected for the context map. */
 type UsageMapScale = "window" | "fit";
+/** View-local denominator selected for legend and preview-header percentages. */
+type PercentageScale = "window" | "used";
 
 interface CategoryLegendRow {
 	readonly type: "category";
@@ -137,6 +152,7 @@ type LegendRow = CategoryLegendRow | BufferLegendRow | FreeLegendRow;
 interface LegendColumns {
 	readonly value: number;
 	readonly tokenWidth: number;
+	readonly percentWidth: number;
 }
 
 /** One navigable preview block: an entry header plus its capped content lines. */
@@ -194,25 +210,13 @@ interface ContentSearchLines {
 	readonly lines: readonly string[];
 }
 
-/** Open the Usage view as a fullscreen overlay. */
-export async function showUsageView(context: ExtensionCommandContext, input: UsageViewInput): Promise<void> {
-	await context.ui.custom<void>(
-		(tui, theme, _keybindings, done) => {
-			const view = new UsageView(theme, input, done, () => tui.terminal.rows, readWheelScrollLines(tui));
-			return {
-				render: (width: number) => view.render(width),
-				invalidate: () => view.invalidate(),
-				handleInput: (data: string) => {
-					view.handleInput(data);
-					tui.requestRender();
-				},
-			};
-		},
-		{
-			overlay: true,
-			overlayOptions: { width: "100%", maxHeight: "100%", margin: 0 },
-		},
-	);
+/**
+ * Open the Usage view as a fullscreen overlay. Resolves `false` when the host
+ * never called the factory: Pi's RPC mode returns from `custom()` without a view.
+ */
+export function showUsageView(context: ExtensionCommandContext, input: UsageViewInput): Promise<boolean> {
+	return showOverlayView(context, (theme, done, getTerminalRows, actions) =>
+		new UsageView(theme, input, done, getTerminalRows, actions));
 }
 
 /** Exported for direct render/input tests; use showUsageView from pi code. */
@@ -221,7 +225,7 @@ export class UsageView {
 	private readonly input: UsageViewInput;
 	private readonly done: (result: undefined) => void;
 	private readonly getTerminalRows: () => number;
-	private readonly wheelScrollLines: number;
+	private readonly copy: CopyNotices;
 	private readonly usage: ContextUsageSnapshot;
 	private readonly categoryColors: CategoryColors;
 	private readonly legendRows: readonly LegendRow[];
@@ -234,6 +238,7 @@ export class UsageView {
 	private readonly blockNavigator = new BlockNavigator();
 	private readonly fitMapScale: number | undefined;
 	private mapScale: UsageMapScale = "window";
+	private percentageScale: PercentageScale = "window";
 	private currentWidth: number | undefined;
 	private previewRow: CategoryLegendRow | undefined;
 	private cachedPreviewEntries: readonly UsagePreviewEntry[] | undefined;
@@ -251,13 +256,19 @@ export class UsageView {
 		input: UsageViewInput,
 		done: (result: undefined) => void,
 		getTerminalRows: () => number = () => process.stdout.rows ?? DEFAULT_TERMINAL_ROWS,
-		wheelScrollLines: number = DEFAULT_WHEEL_SCROLL_LINES,
+		actions: CopyActions = {},
 	) {
 		this.theme = theme;
 		this.input = input;
 		this.done = done;
 		this.getTerminalRows = getTerminalRows;
-		this.wheelScrollLines = wheelScrollLines;
+		this.copy = new CopyNotices({
+			...actions,
+			refresh: () => {
+				this.clearCache();
+				actions.refresh?.();
+			},
+		});
 		this.usage = input.usage;
 		this.categoryColors = input.categoryColors;
 		this.fitMapScale = calculateFitMapScale(this.usage);
@@ -265,6 +276,30 @@ export class UsageView {
 		// The trailing buffer/free block has no preview: it scrolls with the list but is never selectable
 		const selectableCount = this.legendRows.filter((row) => row.type === "category").length;
 		this.navigator = new ListNavigator(this.legendRows.length, 1, selectableCount);
+	}
+
+	/**
+	 * Handle fullscreen wheel notches on the visible level: one notch moves the
+	 * category selection one row, steps one block in a block stream, or scrolls
+	 * open content by pi's `wheelDelta`, which already applies the user's step and
+	 * acceleration. Every other mouse event falls through to pi.
+	 */
+	public handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+		if (event.type !== "wheel" || !event.wheelDelta) return undefined;
+		const moved = this.scrollByWheel(event.wheelDelta);
+		if (moved) this.clearCache();
+		return { handled: true, render: moved };
+	}
+
+	/** Apply one wheel notch of `wheelDelta` lines to the visible level and report whether it moved. */
+	private scrollByWheel(wheelDelta: number): boolean {
+		const direction = Math.sign(wheelDelta);
+		if (this.previewRow === undefined) return this.navigator.moveBy(direction);
+		// Blocks are selected rather than scrolled, so one notch steps one block
+		if (this.getFullContentEntry(this.previewRow) === undefined) {
+			return direction < 0 ? this.blockNavigator.stepBack() : this.blockNavigator.stepForward();
+		}
+		return this.previewScroller.scrollBy(wheelDelta);
 	}
 
 	/** Handle category navigation, preview opening, and close keys. */
@@ -281,17 +316,18 @@ export class UsageView {
 			return;
 		}
 		if (matchesKey(data, Key.escape) || data === "q") {
+			this.dispose();
 			this.done(undefined);
 			return;
 		}
-		// One notch moves the selection one row, like a single step key
-		const wheel = parseWheelDirection(data);
-		if (wheel !== undefined) {
-			if (this.navigator.moveBy(wheel)) this.clearCache();
+		if (matchesKey(data, "c")) {
+			this.copyDashboardSelection();
 			return;
 		}
 		if (matchesKey(data, "z")) {
 			this.toggleMapScale();
+		} else if (matchesKey(data, "p")) {
+			this.togglePercentageScale();
 		} else if (matchesKey(data, Key.enter)) {
 			this.openPreview();
 		} else if (isStepBackKey(data)) {
@@ -334,6 +370,11 @@ export class UsageView {
 		this.clearCache();
 	}
 
+	/** Stop pending copies from redrawing once the overlay closes, however it closes. */
+	public dispose(): void {
+		this.copy.dispose();
+	}
+
 	/** Render the dashboard, a multi-entry block stream, or one entry's full content. */
 	private renderActiveMode(width: number, terminalRows: number): string[] {
 		const row = this.previewRow;
@@ -350,7 +391,7 @@ export class UsageView {
 		const theme = this.theme;
 		const border = theme.fg("border", "─".repeat(Math.max(1, width)));
 		const notices = this.noticeLines(width);
-		const prefix = [border, "", ...this.headerLines(width), "", ...notices, ...(notices.length > 0 ? [""] : [])];
+		const prefix = [this.copy.topBorder(theme, width), "", ...this.headerLines(width), "", ...notices, ...(notices.length > 0 ? [""] : [])];
 		const availableRows = Math.max(1, terminalRows - prefix.length - USAGE_TAIL_FIXED_LINE_COUNT);
 		const map = this.dashboardMap(width, availableRows);
 		const descriptionLines = this.dashboardDescriptionLines(width, availableRows, map);
@@ -360,10 +401,7 @@ export class UsageView {
 		const tail = [
 			...(descriptionLines.length === 0 ? [] : ["", ...descriptionLines]),
 			"",
-			this.fit(
-				hintRow(theme, this.dashboardHints(width)),
-				width,
-			),
+			fitHintRow(theme, this.dashboardHints(width), width),
 			"",
 			border,
 		];
@@ -421,6 +459,22 @@ export class UsageView {
 		this.clearCache();
 	}
 
+	/** Toggle the view-local percentage denominator between the window and the used total. */
+	private togglePercentageScale(): void {
+		if (!this.canTogglePercentageScale()) return;
+		this.percentageScale = this.percentageScale === "window" ? "used" : "window";
+		this.clearCache();
+	}
+
+	/**
+	 * Whether either percentage scale has a denominator. Without one, both modes
+	 * show an empty column, so the hint and binding go away together.
+	 */
+	private canTogglePercentageScale(): boolean {
+		const contextWindow = this.usage.reported?.contextWindow;
+		return this.usage.estimatedTokens > 0 || (contextWindow !== undefined && contextWindow > 0);
+	}
+
 	/** Whether zoom can help and its binding is visible at this width. */
 	private canToggleMapScale(width: number | undefined): boolean {
 		const contextWindow = this.usage.reported?.contextWindow;
@@ -447,12 +501,15 @@ export class UsageView {
 	}
 
 	/** Dashboard hints with Zoom immediately before Close when the binding is active. */
-	private dashboardHints(width: number): Array<readonly [string, string]> {
-		const hints: Array<readonly [string, string]> = [
+	private dashboardHints(width: number): Hint[] {
+		const hints: Hint[] = [
 			[STEP_KEY_HINT, "Navigate"],
 			["Enter", "Preview"],
 		];
+		if (this.legendRows[this.navigator.selected]?.type === "category") hints.push(COPY_HINT);
 		if (this.canToggleMapScale(width)) hints.push(["Z", "Zoom"]);
+		// Optional, so it drops out first on narrow rows; the binding stays active and the header names the scale
+		if (this.canTogglePercentageScale()) hints.push(["P", "%", true]);
 		hints.push(["Esc", "Close"]);
 		return hints;
 	}
@@ -530,9 +587,9 @@ export class UsageView {
 		const viewport = calculateViewport(this.legendRows.length, rows, reservedLineCount);
 		this.navigator.setVisibleCount(viewport.visibleCount);
 
-		const heading = theme.fg("mdHeading", theme.bold("Category:"));
 		const rowWidth = Math.max(1, width - CURSOR_COLUMN_WIDTH);
 		const columns = this.legendColumns(rowWidth);
+		const headingRow = this.legendHeadingRow(columns, width);
 		const visibleRows: string[] = [];
 		const start = this.navigator.offset;
 		for (let index = start; index < start + this.navigator.windowSize; index++) {
@@ -550,7 +607,7 @@ export class UsageView {
 			)]
 			: [];
 		return [
-			heading,
+			headingRow,
 			...visibleRows,
 			...counterLines,
 			...(keyLines.length === 0 ? [] : ["", ...keyLines]),
@@ -671,12 +728,13 @@ export class UsageView {
 		const rows = this.legendRows;
 		const labelWidth = Math.max(1, ...rows.map((row) => this.plainLegendLabel(row).length));
 		const tokenWidth = Math.max(1, ...rows.map((row) => formatTokens(legendTokens(row)).length));
-		const percentWidth = Math.max(0, ...rows.map((row) => this.plainLegendPercent(legendTokens(row)).length));
+		const percentWidth = Math.max(0, ...rows.map((row) => this.plainLegendPercent(row, legendTokens(row)).length));
 		const rightWidth = tokenWidth + (percentWidth > 0 ? LEGEND_VALUE_GAP + percentWidth : 0);
 		const idealValue = Math.min(MAX_LEGEND_VALUE_COLUMN, labelWidth + LEGEND_LEADER_GAP);
 		return {
 			value: Math.max(1, Math.min(idealValue, width - rightWidth)),
 			tokenWidth,
+			percentWidth,
 		};
 	}
 
@@ -688,10 +746,10 @@ export class UsageView {
 		const tokens = formatTokens(legendTokens(row));
 		const valueColor = selected ? "accent" : row.type === "category" && row.depth > 1 ? "dim" : "muted";
 		const tokenPadding = " ".repeat(Math.max(0, columns.tokenWidth - tokens.length));
-		const percent = this.plainLegendPercent(legendTokens(row));
+		const percent = this.plainLegendPercent(row, legendTokens(row));
 		const percentPart = percent === ""
 			? ""
-			: `${" ".repeat(LEGEND_VALUE_GAP)}${this.theme.fg(selected ? "accent" : "dim", percent)}`;
+			: `${" ".repeat(LEGEND_VALUE_GAP)}${this.theme.fg(selected ? "accent" : "muted", percent)}`;
 		return fitLine(
 			`${left}${leader}${this.theme.fg(valueColor, tokens)}${tokenPadding}${percentPart}`,
 			width,
@@ -730,10 +788,40 @@ export class UsageView {
 	}
 
 	/** Percentage text used by the independently aligned rightmost column. */
-	private plainLegendPercent(tokens: number): string {
+	private plainLegendPercent(row: LegendRow, tokens: number): string {
+		if (this.percentageScale === "used") {
+			// Used mode norms category shares to the estimated used total, so the
+			// categories add up to about 100%. Capacity shares stay window-relative
+			// and would read as a second scale inside one column, so they are
+			// hidden here and reappear with the next Window toggle.
+			if (row.type !== "category" || this.usage.estimatedTokens <= 0) return "";
+			return formatPercent(tokens / this.usage.estimatedTokens);
+		}
 		const contextWindow = this.usage.reported?.contextWindow;
 		if (contextWindow === undefined || contextWindow <= 0) return "";
 		return formatPercent(tokens / contextWindow);
+	}
+
+	/** Category heading with the active percentage scale named above the percentage column. */
+	private legendHeadingRow(columns: LegendColumns, width: number): string {
+		const heading = this.theme.fg("mdHeading", this.theme.bold("Category:"));
+		const scaleLabel = this.percentageColumnLabel();
+		if (scaleLabel === undefined) return heading;
+
+		// Legend rows start after the cursor column; center the label over the percentage column
+		const percentStart = CURSOR_COLUMN_WIDTH + columns.value + columns.tokenWidth + LEGEND_VALUE_GAP;
+		const labelStart = percentStart + Math.floor((columns.percentWidth - visibleWidth(scaleLabel)) / 2);
+		const labelEnd = labelStart + visibleWidth(scaleLabel);
+		return spreadLine(heading, this.theme.fg("dim", scaleLabel), Math.min(width, labelEnd));
+	}
+
+	/** Label naming the active percentage scale, undefined without a denominator. */
+	private percentageColumnLabel(): string | undefined {
+		if (this.percentageScale === "used") {
+			return this.usage.estimatedTokens > 0 ? "Used %" : undefined;
+		}
+		const contextWindow = this.usage.reported?.contextWindow;
+		return contextWindow !== undefined && contextWindow > 0 ? "Window %" : undefined;
 	}
 
 	/** Colored occupied/partial/buffer/free glyph for one map cell. */
@@ -797,18 +885,15 @@ export class UsageView {
 			this.closePreview();
 			return;
 		}
+		if (matchesKey(data, "c")) {
+			this.copyBlockSelection();
+			return;
+		}
 		// Decide from the entries, not render caches: keys can arrive before the stream first renders
 		const row = this.previewRow;
 		if (row !== undefined && this.previewEntries(row).length > 0) {
 			const anchor = this.cachedStreamSearch?.starts[this.blockNavigator.selected] ?? 0;
 			if (this.handleSearchKey(data, anchor)) return;
-		}
-		// Blocks are selected rather than scrolled, so one notch steps one block
-		const wheel = parseWheelDirection(data);
-		if (wheel !== undefined) {
-			const moved = wheel < 0 ? this.blockNavigator.stepBack() : this.blockNavigator.stepForward();
-			if (moved) this.clearCache();
-			return;
 		}
 		if (matchesKey(data, Key.enter)) {
 			this.openBlock();
@@ -834,12 +919,11 @@ export class UsageView {
 			else this.closeBlock();
 			return;
 		}
-		if (this.handleSearchKey(data, this.previewScroller.offset)) return;
-		const wheel = parseWheelDirection(data);
-		if (wheel !== undefined) {
-			if (this.previewScroller.scrollBy(wheel * this.wheelScrollLines)) this.clearCache();
+		if (matchesKey(data, "c")) {
+			this.copyOpenContent();
 			return;
 		}
+		if (this.handleSearchKey(data, this.previewScroller.offset)) return;
 		if (isStepBackKey(data)) {
 			if (this.previewScroller.scrollBy(-1)) this.clearCache();
 		} else if (isStepForwardKey(data)) {
@@ -853,6 +937,29 @@ export class UsageView {
 		} else if (matchesKey(data, Key.end)) {
 			if (this.previewScroller.scrollTo(this.previewScroller.maxOffset)) this.clearCache();
 		}
+	}
+
+	/** Copy every entry of the highlighted dashboard category. */
+	private copyDashboardSelection(): void {
+		const row = this.legendRows[this.navigator.selected];
+		if (row?.type !== "category") return;
+		this.copy.copy(copyableJoin(collectPreviewEntries(row.category).map((entry) => entry.text)));
+	}
+
+	/** Copy the highlighted block of the open category stream. */
+	private copyBlockSelection(): void {
+		const row = this.previewRow;
+		if (row === undefined) return;
+		const entry = this.previewEntries(row)[this.blockNavigator.selected];
+		if (entry !== undefined) this.copy.copy(copyableText(entry.text));
+	}
+
+	/** Copy the open entry when the category or block already shows its full content. */
+	private copyOpenContent(): void {
+		const row = this.previewRow;
+		if (row === undefined) return;
+		const entry = this.getFullContentEntry(row);
+		if (entry !== undefined) this.copy.copy(copyableText(entry.text));
 	}
 
 	/** Open the selected category, bypassing blocks when it has exactly one entry. */
@@ -943,7 +1050,9 @@ export class UsageView {
 		const revealRow = this.search.sync(searchLines.lines);
 		if (revealRow !== undefined) this.blockNavigator.select(blockAtRow(searchLines.starts, revealRow));
 
-		const lines: string[] = [border, "", this.categoryHeaderLine(row, width), "", ...this.search.promptLines(theme, width)];
+		const lines: string[] = [
+			this.copy.topBorder(theme, width), "", this.categoryHeaderLine(row, width), "", ...this.search.promptLines(theme, width),
+		];
 		lines.push(...this.previewStreamLines(stream, viewport.visibleCount, width));
 		if (viewport.showScroll) {
 			lines.push(
@@ -987,7 +1096,7 @@ export class UsageView {
 	/** Block stream hints; an empty stream moves nowhere and has nothing to search. */
 	private streamHints(blockCount: number): Hint[] {
 		if (blockCount === 0) return [["Esc", "Back"]];
-		return searchHints(this.search.prompt, "Navigate");
+		return searchHints(this.search.prompt, "Navigate", COPY_HINT);
 	}
 
 	/** Full content with an identity header unless the System Prompt category already identifies it. */
@@ -1023,7 +1132,7 @@ export class UsageView {
 		}
 
 		const lines: string[] = [
-			border,
+			this.copy.topBorder(theme, width),
 			"",
 			this.categoryHeaderLine(row, width),
 			"",
@@ -1043,7 +1152,7 @@ export class UsageView {
 		}
 		if (descriptionLines.length > 0) lines.push("", ...descriptionLines);
 		lines.push("");
-		lines.push(fitHintRow(theme, searchHints(this.search.prompt, "Scroll"), width));
+		lines.push(fitHintRow(theme, searchHints(this.search.prompt, "Scroll", COPY_HINT), width));
 		lines.push("", border);
 		return fitToTerminalHeight(lines, terminalRows, border);
 	}
@@ -1056,7 +1165,7 @@ export class UsageView {
 	private categoryHeaderLine(row: CategoryLegendRow, width: number): string {
 		const theme = this.theme;
 		const title = theme.fg("accent", theme.bold(normalizeInlineText(row.category.label)));
-		const percent = this.plainLegendPercent(row.category.tokens);
+		const percent = this.plainLegendPercent(row, row.category.tokens);
 		const meta = theme.fg("muted", `${formatTokens(row.category.tokens)}${percent === "" ? "" : ` · ${percent}`}`);
 		const forced = this.previewEntries(row).some((entry) => entry.change === "forced");
 		const marker = forced ? forcedMarker(theme) : "";
