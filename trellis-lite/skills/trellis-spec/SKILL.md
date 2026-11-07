@@ -19,6 +19,8 @@ If one fails, say so and stop.
 
 Something that was tried and given up is not a rule. Put it in the journal, or in the research note it came from, marked as rejected with the reason, so nobody tries it again; it never goes into spec.
 
+A summary of the project itself (its purpose, what works today, its main parts) is not a rule either: update it where the README or documentation already carries it, so there is only one copy to keep true.
+
 ## Where it goes
 
 - Specs live in `.trellis/spec/<layer>/` (monorepos: `.trellis/spec/<package>/<layer>/`); cross-cutting thinking guides in `.trellis/spec/guides/`.
@@ -64,5 +66,7 @@ Then record the rule from step 3 as above. The analysis itself goes in your repl
 ## Finish
 
 Open the changed spec file again and hold the rule against what was actually settled: its scope, its exceptions, and every "not" and "never". Fix any drift before you call it done; a rule you only meant to write, or one that sits only in the journal, is not saved.
+
+If the work renamed or moved files or symbols, search `.trellis/spec/` for the old names, `paths:` globs included, and update just those references: a glob that matches nothing stops attaching its spec without any warning.
 
 Show the user the diff of the spec and index changes. Do not commit unless the user asks.

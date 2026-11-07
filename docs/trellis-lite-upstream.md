@@ -10,7 +10,7 @@ The machine-readable copy is [`trellis-lite/upstream.json`](../trellis-lite/upst
 |---|---|---|---|---|
 | [mindfold-ai/Trellis](https://github.com/mindfold-ai/Trellis) | `feat/v0.7-beta` | `v0.7.0-beta.4` `be9e19b` | `beta` 0.7.0-beta.4 | 2026-09-11 |
 | Trellis | `main` | `v0.6.17` `833a584` | `latest` 0.6.17 | 2026-09-11 |
-| [Tiger-zzZ/mini-trellis](https://github.com/Tiger-zzZ/mini-trellis) | `main` | `v0.3.1` `0316bd6` | `latest` 0.3.1 | 2026-10-23 |
+| [Tiger-zzZ/mini-trellis](https://github.com/Tiger-zzZ/mini-trellis) | `main` | `v0.3.6` `1ad8ead` | `latest` 0.3.6 | 2026-11-06 |
 
 ## Watched paths
 
@@ -63,3 +63,9 @@ When adopting: write the behavior in our own words (in the design doc or the com
 | mini-trellis v0.3: `add_session.py --topic` links the verified topic file from the journal entry | Adopted in spirit | `trellis-journal` asks for the paths of the spec and research files the work changed; no new flag or journal format | |
 | mini-trellis v0.3: no session-start notification; the startup text is rebuilt every turn and skipped when already present | Not applicable | The `project-memory` section is computed once per extension instance and byte-stable | |
 | mini-trellis v0.3: unconfirmed scope marked as inference; new notes in the discussion language, existing ones keep theirs | Already covered | `trellis-spec` writes only what is true and matches the language of existing specs; `trellis-journal` matches existing entries | |
+| mini-trellis v0.3.2–v0.3.4: the project's own summary (purpose, what works, main parts) lives in one place, the README or documentation that already has it, and the journal may point at those files | Adopted | `trellis-spec`: a project summary is not a rule and is updated where the README or documentation carries it. `trellis-journal`: "where the knowledge went" includes documentation files. Keeps a second, drifting copy out of spec | |
+| mini-trellis v0.3.4: claims that something is implemented are checked against code or tests; agreed but unbuilt behavior is kept apart | Already covered | A spec rule is an instruction that names real files and symbols, a contract names the test that guards it, and "Finish" rereads the rule against what was settled | |
+| mini-trellis v0.3.4: after a rename only the stale file and symbol references are fixed; a rename alone gets no journal entry | Partly adopted | `trellis-spec` "Finish": after renames or moves, search the specs for the old names, `paths:` globs included, and fix only those lines. trellis-lite has the defect too, worse: a stale glob silently stops attaching its spec. The journal half is not adopted: entries are written on request or when a task finishes | |
+| mini-trellis v0.3.6: a skill that distills selected past sessions or exported chats into project documentation, keeping sources and corrections and treating old commands as evidence | Not adopted | A new skill for a rare, user-started task that saves no tokens; pi session logs can be read directly, and anything distilled still has to pass the `trellis-spec` test. Its no-commit rule is moot: trellis-lite never commits | |
+| mini-trellis v0.3.2–v0.3.5: OpenCode V2 by default with V1 kept, CodeBuddy CLI and IDE, Cursor `sessionStart` verification; README positioning and host tables | Not adopted | Multi-host support; trellis-lite targets pi only. The README edits change no behavior | |
+| mini-trellis v0.3.5: a missing `.trellis/.gitignore` is added on migration or when a host is added, existing rules kept | Already covered | `init` creates it or appends `.developer`; `migrate` drops only Trellis runtime rules and keeps the rest | |
