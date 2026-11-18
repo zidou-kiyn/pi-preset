@@ -26,12 +26,12 @@ const TEMPLATE_LEVELS = {
 	"anthropic-proxy/claude-opus-5-5": "high",
 	"anthropic-proxy/claude-sonnet-5-5": "xhigh",
 	"anthropic-proxy/claude-haiku-5-5": "max",
-	"anthropic-proxy/claude-fable-5-1": "high",
+	"anthropic-proxy/claude-fable-5-2": "high",
 	"deepseek-proxy/deepseek-flash": "max",
-	"openai-proxy/gpt-6.1-sol": "high",
+	"openai-proxy/gpt-6.2-sol": "high",
 	"openai-proxy/gpt-6.1-terra": "high",
 	"openai-proxy/gpt-6-luna": "max",
-	"openai-proxy/gpt-6-astra": "high",
+	"openai-proxy/gpt-6.2-astra": "high",
 };
 
 function makeDir(): string {
@@ -125,18 +125,50 @@ test("the shipped template carries the subscription catalog", () => {
 		providers: Record<string, { models: { id: string; contextWindow: number; thinkingLevelMap?: Record<string, string | null> }[] }>;
 	};
 	const ids = (provider: string) => document.providers[provider]!.models.map((model) => model.id);
-	assert.deepEqual(ids("openai-proxy"), ["gpt-6-astra", "gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-luna"]);
-	assert.deepEqual(ids("anthropic-proxy"), ["claude-fable-5-1", "claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"]);
+	assert.deepEqual(ids("openai-proxy"), ["gpt-6.2-astra", "gpt-6.2-sol", "gpt-6.1-terra", "gpt-6-luna"]);
+	assert.deepEqual(ids("anthropic-proxy"), ["claude-fable-5-2", "claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"]);
 	assert.deepEqual(ids("deepseek-proxy"), ["deepseek-flash"]);
 	const model = (provider: string, id: string) => document.providers[provider]!.models.find((entry) => entry.id === id)!;
-	// Codex serves the GPT-6.1 models with a 500k default window, the others with 272k.
-	assert.equal(model("openai-proxy", "gpt-6.1-sol").contextWindow, 500000);
+	// Keep the preset's 500k subscription-relay window for every GPT model.
+	assert.equal(model("openai-proxy", "gpt-6.2-sol").contextWindow, 500000);
 	assert.equal(model("openai-proxy", "gpt-6.1-terra").contextWindow, 500000);
-	assert.equal(model("openai-proxy", "gpt-6-astra").contextWindow, 500000);
+	assert.equal(model("openai-proxy", "gpt-6.2-astra").contextWindow, 500000);
 	assert.equal(model("openai-proxy", "gpt-6-luna").contextWindow, 500000);
 	// Terra, unlike Sol, can turn reasoning off.
 	assert.equal(model("openai-proxy", "gpt-6.1-terra").thinkingLevelMap?.off, "none");
-	assert.equal(model("openai-proxy", "gpt-6.1-sol").thinkingLevelMap?.off, null);
+	assert.equal(model("openai-proxy", "gpt-6.2-sol").thinkingLevelMap?.off, null);
+});
+
+test("the upgraded models carry current prices, limits, and reasoning compatibility", () => {
+	const providers = loadModelsTemplate().document.providers as Record<string, { models: Record<string, unknown>[] }>;
+	const model = (provider: string, id: string) => providers[provider]!.models.find((entry) => entry.id === id)!;
+	const astra = model("openai-proxy", "gpt-6.2-astra");
+	const sol = model("openai-proxy", "gpt-6.2-sol");
+	const fable = model("anthropic-proxy", "claude-fable-5-2");
+	assert.equal(astra.name, "GPT-6.2 Astra");
+	assert.equal(sol.name, "GPT-6.2 Sol");
+	assert.equal(fable.name, "Claude Fable 5.2");
+	for (const entry of [astra, sol, fable]) {
+		assert.equal(entry.maxTokens, 128000);
+		assert.equal(entry.reasoning, true);
+		assert.deepEqual(entry.input, ["text", "image"]);
+	}
+	const gptThinkingLevels = { off: null, minimal: "low", low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" };
+	assert.deepEqual(astra.thinkingLevelMap, gptThinkingLevels);
+	assert.deepEqual(sol.thinkingLevelMap, gptThinkingLevels);
+	assert.deepEqual(fable.thinkingLevelMap, { ...gptThinkingLevels, minimal: null });
+	assert.equal(fable.contextWindow, 1000000);
+	assert.deepEqual(fable.compat, { supportsTemperature: false });
+	assert.deepEqual(fable.promptCache, { short: 300, long: 3600 });
+	assert.deepEqual(astra.cost, {
+		input: 8, output: 40, cacheRead: 0.4, cacheWrite: 10,
+		tiers: [{ inputTokensAbove: 272000, input: 16, output: 60, cacheRead: 0.8, cacheWrite: 20 }],
+	});
+	assert.deepEqual(sol.cost, {
+		input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5,
+		tiers: [{ inputTokensAbove: 272000, input: 4, output: 15, cacheRead: 0.2, cacheWrite: 5 }],
+	});
+	assert.deepEqual(fable.cost, { input: 8, output: 40, cacheRead: 0.2, cacheWrite: 10 });
 });
 
 test("base URLs are validated and trailing slashes dropped", () => {
@@ -157,7 +189,7 @@ test("filling every provider replaces models.json, sets defaults, and never show
 		chmodSync(join(dir, "models.json"), 0o644);
 
 		const { notifications, recorded } = await run(dir, {
-			selects: ["fill", "openai-proxy", "gpt-6.1-sol"],
+			selects: ["fill", "openai-proxy", "gpt-6.2-sol"],
 			inputs: {
 				"openai-proxy: base URL": "https://relay.example.com/v1/",
 				"anthropic-proxy: base URL": "https://relay.example.com",
@@ -184,7 +216,7 @@ test("filling every provider replaces models.json, sets defaults, and never show
 			theme: "dark",
 			packages: ["npm:x"],
 			defaultProvider: "openai-proxy",
-			defaultModel: "gpt-6.1-sol",
+			defaultModel: "gpt-6.2-sol",
 			modelThinkingLevels: TEMPLATE_LEVELS,
 		});
 
@@ -292,22 +324,22 @@ test("the masked input never renders what was typed", () => {
 test("template thinking levels fill only models without one and never replace the user's", async () => {
 	const dir = makeDir();
 	try {
-		const mine = { "anthropic-proxy/claude-fable-5-1": "xhigh", "openai-proxy/gpt-6-astra": "low" };
+		const mine = { "anthropic-proxy/claude-fable-5-2": "xhigh", "openai-proxy/gpt-6.2-astra": "low" };
 		writeFileSync(join(dir, "settings.json"), JSON.stringify({ modelThinkingLevels: mine }));
 		const first = await run(dir, { selects: ["keep", "anthropic-proxy", "claude-opus-5-5"] });
 		assert.deepEqual(readJson(join(dir, "settings.json")).modelThinkingLevels, { ...TEMPLATE_LEVELS, ...mine });
 		const firstLines = first.recorded.confirmLines.flat();
-		assert.ok(!firstLines.some((line) => line.includes("modelThinkingLevels.anthropic-proxy/claude-fable-5-1")));
-		assert.ok(!firstLines.some((line) => line.includes("modelThinkingLevels.openai-proxy/gpt-6-astra")));
+		assert.ok(!firstLines.some((line) => line.includes("modelThinkingLevels.anthropic-proxy/claude-fable-5-2")));
+		assert.ok(!firstLines.some((line) => line.includes("modelThinkingLevels.openai-proxy/gpt-6.2-astra")));
 
-		writeFileSync(join(dir, "settings.json"), JSON.stringify({ modelThinkingLevels: { "openai-proxy/gpt-6-astra": "low" } }));
+		writeFileSync(join(dir, "settings.json"), JSON.stringify({ modelThinkingLevels: { "openai-proxy/gpt-6.2-astra": "low" } }));
 		const second = await run(dir, { selects: ["keep", "anthropic-proxy", "claude-opus-5-5"] });
 		assert.deepEqual(readJson(join(dir, "settings.json")).modelThinkingLevels, {
 			...TEMPLATE_LEVELS,
-			"openai-proxy/gpt-6-astra": "low",
+			"openai-proxy/gpt-6.2-astra": "low",
 		});
 		assert.ok(
-			second.recorded.confirmLines.flat().some((line) => line.includes('modelThinkingLevels.anthropic-proxy/claude-fable-5-1: unset -> "high"')),
+			second.recorded.confirmLines.flat().some((line) => line.includes('modelThinkingLevels.anthropic-proxy/claude-fable-5-2: unset -> "high"')),
 		);
 	} finally {
 		rmSync(dir, { recursive: true, force: true });
@@ -394,7 +426,7 @@ test("a template thinking level the model cannot take is rejected", () => {
 		assert.throws(() => loadModelsTemplate(dir), /not supported/);
 		write({ "anthropic-proxy/claude-nope": "high" });
 		assert.throws(() => loadModelsTemplate(dir), /no such model/);
-		write({ "anthropic-proxy/claude-fable-5-1": "turbo" });
+		write({ "anthropic-proxy/claude-fable-5-2": "turbo" });
 		assert.throws(() => loadModelsTemplate(dir), /not a thinking level/);
 	} finally {
 		rmSync(dir, { recursive: true, force: true });

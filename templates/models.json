@@ -14,8 +14,8 @@
       },
       "models": [
         {
-          "id": "gpt-6-astra",
-          "name": "GPT-6 Astra",
+          "id": "gpt-6.2-astra",
+          "name": "GPT-6.2 Astra",
           "reasoning": true,
           "input": [
             "text",
@@ -24,17 +24,17 @@
           "contextWindow": 500000,
           "maxTokens": 128000,
           "cost": {
-            "input": 10,
-            "output": 50,
-            "cacheRead": 1,
-            "cacheWrite": 12.5,
+            "input": 8,
+            "output": 40,
+            "cacheRead": 0.4,
+            "cacheWrite": 10,
             "tiers": [
               {
                 "inputTokensAbove": 272000,
-                "input": 20,
-                "output": 75,
-                "cacheRead": 2,
-                "cacheWrite": 25
+                "input": 16,
+                "output": 60,
+                "cacheRead": 0.8,
+                "cacheWrite": 20
               }
             ]
           },
@@ -49,8 +49,8 @@
           }
         },
         {
-          "id": "gpt-6.1-sol",
-          "name": "GPT-6.1 Sol",
+          "id": "gpt-6.2-sol",
+          "name": "GPT-6.2 Sol",
           "reasoning": true,
           "input": [
             "text",
@@ -170,8 +170,11 @@
       },
       "models": [
         {
-          "id": "claude-fable-5-1",
-          "name": "Claude Fable 5.1",
+          "id": "claude-fable-5-2",
+          "name": "Claude Fable 5.2",
+          "compat": {
+            "supportsTemperature": false
+          },
           "reasoning": true,
           "input": [
             "text",
@@ -180,10 +183,10 @@
           "contextWindow": 1000000,
           "maxTokens": 128000,
           "cost": {
-            "input": 10,
-            "output": 50,
-            "cacheRead": 0.25,
-            "cacheWrite": 12.5
+            "input": 8,
+            "output": 40,
+            "cacheRead": 0.2,
+            "cacheWrite": 10
           },
           "thinkingLevelMap": {
             "off": null,
